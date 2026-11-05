@@ -1,0 +1,48 @@
+{
+  "name": "dhan-trader",
+  "version": "2.0.0",
+  "description": "Professional Dhan Trading Backend API & Price Alert Engine",
+  "main": "dist/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "start:debug": "ts-node --inspect src/main.ts",
+    "dev": "ts-node src/main.ts",
+    "test": "node -r ts-node/register/transpile-only --test tests/*.spec.ts tests/*.e2e-spec.ts",
+    "check:dhan": "ts-node scripts/verify-dhan.ts"
+  },
+  "keywords": [
+    "dhan",
+    "trading",
+    "nse",
+    "fno",
+    "alerts",
+    "backend",
+    "api",
+    "algorithmic-trading"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@nestjs/common": "^12.3.3",
+    "@nestjs/core": "^12.3.3",
+    "@nestjs/platform-express": "^12.3.3",
+    "@nestjs/swagger": "^12.1.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^12.3.3",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}
