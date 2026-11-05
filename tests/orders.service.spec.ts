@@ -6,6 +6,7 @@ import { OrdersService } from '../src/orders/orders.service';
 import { DhanService } from '../src/dhan/dhan.service';
 import { TelegramService } from '../src/telegram/telegram.service';
 import { ConfigService } from '../src/config/config.service';
+import { InstrumentsService } from '../src/instruments/instruments.service';
 
 test('OrdersService (NestJS)', async (t) => {
   let moduleRef: TestingModule;
@@ -83,6 +84,10 @@ test('OrdersService (NestJS)', async (t) => {
       ok: true,
       data: { orderId, orderStatus: 'CANCELLED' },
     }),
+    getLtp: async () => ({
+      ok: true,
+      data: { status: 'success', data: {} },
+    }),
   };
 
   const mockTelegramService = {
@@ -94,6 +99,7 @@ test('OrdersService (NestJS)', async (t) => {
     providers: [
       OrdersService,
       ConfigService,
+      InstrumentsService,
       { provide: DhanService, useValue: mockDhanService },
       { provide: TelegramService, useValue: mockTelegramService },
     ],

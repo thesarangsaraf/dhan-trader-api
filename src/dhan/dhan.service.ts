@@ -130,4 +130,56 @@ export class DhanService {
       body: instruments,
     });
   }
+
+  // Option Chain Expiry List
+  async getOptionChainExpiryList(underlyingScrip: number, underlyingSeg = 'IDX_I'): Promise<DhanApiResponse> {
+    return this.request('/optionchain/expirylist', {
+      method: 'POST',
+      body: {
+        UnderlyingScrip: underlyingScrip,
+        UnderlyingSeg: underlyingSeg,
+      },
+    });
+  }
+
+  // Option Chain Quotes & Greek Data
+  async getOptionChain(underlyingScrip: number, underlyingSeg: string, expiry: string): Promise<DhanApiResponse> {
+    return this.request('/optionchain', {
+      method: 'POST',
+      body: {
+        UnderlyingScrip: underlyingScrip,
+        UnderlyingSeg: underlyingSeg,
+        Expiry: expiry,
+      },
+    });
+  }
+
+  // Live Conditional Triggers & Price Alerts (Dhan HQ v2)
+  async getAlerts(): Promise<DhanApiResponse> {
+    return this.request('/alerts/orders');
+  }
+
+  async getAlertById(alertId: string): Promise<DhanApiResponse> {
+    return this.request(`/alerts/orders/${alertId}`);
+  }
+
+  async createDhanAlert(payload: any): Promise<DhanApiResponse> {
+    return this.request('/alerts/orders', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+
+  async modifyDhanAlert(alertId: string, payload: any): Promise<DhanApiResponse> {
+    return this.request(`/alerts/orders/${alertId}`, {
+      method: 'PUT',
+      body: payload,
+    });
+  }
+
+  async cancelDhanAlert(alertId: string): Promise<DhanApiResponse> {
+    return this.request(`/alerts/orders/${alertId}`, {
+      method: 'DELETE',
+    });
+  }
 }

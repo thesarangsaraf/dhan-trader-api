@@ -41,7 +41,7 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
 
   constructor() {
     this.env = parseEnvFile(ENV_PATH);
-    this.clientId = process.env.DHAN_CLIENT_ID || this.env.DHAN_CLIENT_ID || '1106885516';
+    this.clientId = process.env.DHAN_CLIENT_ID || this.env.DHAN_CLIENT_ID || '';
     this.accessToken = process.env.DHAN_ACCESS_TOKEN || this.env.DHAN_ACCESS_TOKEN || '';
     this.telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || this.env.TELEGRAM_BOT_TOKEN || '';
     this.telegramChatId = process.env.TELEGRAM_CHAT_ID || this.env.TELEGRAM_CHAT_ID || '';

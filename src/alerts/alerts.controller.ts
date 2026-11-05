@@ -3,6 +3,7 @@ import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/
 import { AlertsService } from './alerts.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
+import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
 
 @ApiTags('Alerts')
 @Controller('api/alerts')
@@ -10,23 +11,26 @@ export class AlertsController {
   constructor(private readonly alertsService: AlertsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all price alerts with live current LTP' })
-  @ApiResponse({ status: 200, description: 'Array of registered alerts' })
-  getAllAlerts() {
+  @ApiOperation({ summary: 'List all live price alerts and Dhan conditional triggers with live LTP' })
+  @ApiResponse({ status: 200, description: 'Array of live alerts' })
+  async getAllAlerts() {
+    await this.alertsService.syncWithDhan();
     return this.alertsService.getAllAlerts();
   }
 
   @Get('grouped')
-  @ApiOperation({ summary: 'Get alerts categorized by instrument with count badges' })
-  @ApiResponse({ status: 200, description: 'Categorized alerts group' })
-  getGrouped() {
+  @ApiOperation({ summary: 'Get live alerts categorized by instrument with count badges' })
+  @ApiResponse({ status: 200, description: 'Categorized alerts group with live LTP' })
+  async getGrouped() {
+    await this.alertsService.syncWithDhan();
     return this.alertsService.getGroupedAlerts();
   }
 
   @Get('indices')
-  @ApiOperation({ summary: 'Get popular NSE benchmark indices' })
+  @ApiOperation({ summary: 'Get popular NSE benchmark indices with live current prices' })
   @ApiResponse({ status: 200, description: 'Popular indices with live prices' })
-  getIndices() {
+  async getIndices() {
+    await this.alertsService.checkAndTick();
     return this.alertsService.getIndices();
   }
 
@@ -48,6 +52,18 @@ export class AlertsController {
     return this.alertsService.createAlert(dto);
   }
 
+  @Post('conditional-order')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Place Dhan alert with conditional order (Dhan HQ v2 /alerts/orders + Local Engine)',
+    description: 'Creates a price alert that automatically triggers and places one or more conditional orders on Dhan HQ when the target price condition is met.',
+  })
+  @ApiResponse({ status: 201, description: 'Alert with conditional order placed successfully' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  createConditionalAlert(@Body() dto: CreateConditionalAlertDto) {
+    return this.alertsService.createConditionalAlert(dto);
+  }
+
   @Post('test-chime')
   @ApiOperation({ summary: 'Simulate an immediate alert notification trigger' })
   @ApiResponse({ status: 200, description: 'Test alert fired' })
@@ -59,10 +75,10 @@ export class AlertsController {
 
   @Post(':id/cancel')
   @ApiOperation({ summary: 'Cancel an active alert' })
-  @ApiParam({ name: 'id', description: 'Alert ID (e.g. ALT-123456)' })
+  @ApiParam({ name: 'id', description: 'Alert ID (e.g. ALT-123456 or Dhan Trigger ID)' })
   @ApiResponse({ status: 200, description: 'Alert cancelled' })
   @ApiResponse({ status: 404, description: 'Alert not found' })
-  cancelAlert(@Param('id') id: string) {
+  async cancelAlert(@Param('id') id: string) {
     return this.alertsService.cancelAlert(id);
   }
 
@@ -81,7 +97,7 @@ export class AlertsController {
   @ApiParam({ name: 'id', description: 'Alert ID' })
   @ApiResponse({ status: 200, description: 'Alert deleted' })
   @ApiResponse({ status: 404, description: 'Alert not found' })
-  deleteAlert(@Param('id') id: string) {
+  async deleteAlert(@Param('id') id: string) {
     return this.alertsService.deleteAlert(id);
   }
 }

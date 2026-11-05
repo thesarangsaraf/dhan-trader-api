@@ -94,7 +94,7 @@ export class AuthService {
         tokenMasked: masked,
         issuedAtIST: 'Unknown (Opaque Token)',
         expiresAtIST: 'Unknown (Opaque Token)',
-        secondsRemaining: 86400,
+        secondsRemaining: null,
         timeRemainingFormatted: 'Validity managed by Dhan API',
         isExpired: false,
         isExpiringSoon: false,
@@ -134,7 +134,7 @@ export class AuthService {
       payload: {
         sub: payload.sub || payload.clientId || clientId,
         clientId: payload.clientId || clientId,
-        userName: payload.userName || 'TRADER',
+        userName: payload.userName || payload.name || payload.clientId || clientId || 'Account',
         iat: iatSec,
         exp: expSec,
       },

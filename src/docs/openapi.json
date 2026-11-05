@@ -1,395 +1,1187 @@
 {
-  "openapi": "3.0.3",
-  "info": {
-    "title": "Dhan Trader Backend API",
-    "description": "High-performance algorithmic trading and price alert engine powered by Dhan HQ API v2. Features zero static IP alerts, automated bracket orders (Auto-SL / Target), token lifecycle management, and Telegram notifications.",
-    "version": "2.0.0"
-  },
-  "servers": [
-    {
-      "url": "http://127.0.0.1:8000",
-      "description": "Local Development Server"
-    }
-  ],
-  "tags": [
-    { "name": "System", "description": "Health check and service status" },
-    { "name": "Auth", "description": "Dhan access token inspection, validation and renewal" },
-    { "name": "Alerts", "description": "Price alerts monitoring on NSE Indices (No static IP needed)" },
-    { "name": "Orders", "description": "Order placement, book inspection, and cancellation" },
-    { "name": "Positions & Holdings", "description": "Live portfolio, open/closed positions, and fund limits" },
-    { "name": "Strategy", "description": "Automated Auto-SL (-7 pts) and Target (+30 pts) bracket runner" },
-    { "name": "Instruments", "description": "NSE scrip master search and indices lookup" },
-    { "name": "Telegram", "description": "Telegram bot alerts and live connection configuration" }
-  ],
+  "openapi": "3.0.0",
   "paths": {
     "/": {
       "get": {
-        "tags": ["System"],
-        "summary": "Service status & endpoint discovery",
+        "operationId": "AppController_getRoot[0]",
+        "parameters": [],
         "responses": {
-          "200": { "description": "API status and directory of available endpoints" }
-        }
+          "200": {
+            "description": "Service health and endpoint index"
+          }
+        },
+        "summary": "Backend status & service discovery index",
+        "tags": [
+          "System"
+        ]
       }
     },
     "/health": {
       "get": {
-        "tags": ["System"],
-        "summary": "Health check",
-        "responses": {
-          "200": { "description": "Service is healthy and online" }
-        }
-      }
-    },
-    "/api/auth/status": {
-      "get": {
-        "tags": ["Auth"],
-        "summary": "Get token inspection & IST expiry status",
+        "operationId": "AppController_getRoot[1]",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "JWT decoded payload, IST timestamps, remaining seconds, and status"
-          }
-        }
-      }
-    },
-    "/api/auth/verify": {
-      "get": {
-        "tags": ["Auth"],
-        "summary": "Verify live validity against Dhan API profile",
-        "responses": {
-          "200": { "description": "Verification outcome and profile details" }
-        }
-      }
-    },
-    "/api/auth/renew": {
-      "post": {
-        "tags": ["Auth"],
-        "summary": "Renew Dhan Access Token",
-        "responses": {
-          "200": { "description": "Token renewed and persisted to .env" }
-        }
-      }
-    },
-    "/api/auth/update": {
-      "post": {
-        "tags": ["Auth"],
-        "summary": "Update token manually without restarting server",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["token"],
-                "properties": {
-                  "token": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
-                  "clientId": { "type": "string", "example": "1106885516" }
-                }
-              }
-            }
+            "description": "Service health and endpoint index"
           }
         },
-        "responses": {
-          "200": { "description": "Token updated and synced to .env" },
-          "400": { "description": "Validation error" }
-        }
+        "summary": "Backend status & service discovery index",
+        "tags": [
+          "System"
+        ]
       }
     },
-    "/api/alerts": {
+    "/api": {
       "get": {
-        "tags": ["Alerts"],
-        "summary": "List all price alerts",
+        "operationId": "AppController_getRoot[2]",
+        "parameters": [],
         "responses": {
-          "200": { "description": "Array of alerts with real-time LTP" }
-        }
-      },
-      "post": {
-        "tags": ["Alerts"],
-        "summary": "Create new price alert (No static IP needed)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["instrument", "targetPrice"],
-                "properties": {
-                  "instrument": { "type": "string", "example": "NIFTY 50" },
-                  "targetPrice": { "type": "number", "example": 24950.0 },
-                  "operator": { "type": "string", "enum": ["GREATER_THAN_OR_EQUAL", "LESS_THAN_OR_EQUAL", "CROSSING_UP", "CROSSING_DOWN"], "default": "GREATER_THAN_OR_EQUAL" },
-                  "remarks": { "type": "string", "example": "Breakout alert" },
-                  "securityId": { "type": "string", "example": "13" },
-                  "exchangeSegment": { "type": "string", "example": "IDX_I" }
-                }
-              }
-            }
+          "200": {
+            "description": "Service health and endpoint index"
           }
         },
-        "responses": {
-          "201": { "description": "Alert created successfully" },
-          "400": { "description": "Validation failure" }
-        }
-      }
-    },
-    "/api/alerts/grouped": {
-      "get": {
-        "tags": ["Alerts"],
-        "summary": "Get alerts grouped by instrument",
-        "responses": {
-          "200": { "description": "Categorized alert groups with counts" }
-        }
-      }
-    },
-    "/api/alerts/indices": {
-      "get": {
-        "tags": ["Alerts"],
-        "summary": "Get pre-configured popular NSE benchmark indices",
-        "responses": {
-          "200": { "description": "List of NSE indices (NIFTY 50, BANK NIFTY, FIN NIFTY, etc.)" }
-        }
-      }
-    },
-    "/api/alerts/poll": {
-      "get": {
-        "tags": ["Alerts"],
-        "summary": "Poll newly triggered alert events",
-        "parameters": [
-          { "name": "since", "in": "query", "schema": { "type": "string" }, "description": "Last received event ID" }
-        ],
-        "responses": {
-          "200": { "description": "Array of newly triggered events" }
-        }
-      }
-    },
-    "/api/alerts/{id}": {
-      "put": {
-        "tags": ["Alerts"],
-        "summary": "Update an existing alert",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "targetPrice": { "type": "number" },
-                  "operator": { "type": "string" },
-                  "remarks": { "type": "string" },
-                  "status": { "type": "string", "enum": ["ACTIVE", "CANCELLED", "TRIGGERED"] }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Alert updated" },
-          "404": { "description": "Alert not found" }
-        }
-      },
-      "delete": {
-        "tags": ["Alerts"],
-        "summary": "Delete an alert permanently",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Alert deleted" },
-          "404": { "description": "Alert not found" }
-        }
-      }
-    },
-    "/api/alerts/{id}/cancel": {
-      "post": {
-        "tags": ["Alerts"],
-        "summary": "Cancel an active alert",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Alert cancelled" },
-          "404": { "description": "Alert not found" }
-        }
-      }
-    },
-    "/api/alerts/test-chime": {
-      "post": {
-        "tags": ["Alerts"],
-        "summary": "Dispatch a simulated test alert trigger event",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "instrument": { "type": "string", "example": "NIFTY 50" }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Test alert triggered" }
-        }
-      }
-    },
-    "/api/orders": {
-      "get": {
-        "tags": ["Orders"],
-        "summary": "Get orders book",
-        "responses": {
-          "200": { "description": "List of executed, pending and cancelled orders" }
-        }
-      },
-      "post": {
-        "tags": ["Orders"],
-        "summary": "Place a new order",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["symbol", "quantity", "transactionType"],
-                "properties": {
-                  "symbol": { "type": "string", "example": "NIFTY 24500 CE" },
-                  "securityId": { "type": "string", "example": "45021" },
-                  "exchangeSegment": { "type": "string", "enum": ["NSE_EQ", "NSE_FNO", "IDX_I"], "default": "NSE_FNO" },
-                  "transactionType": { "type": "string", "enum": ["BUY", "SELL"] },
-                  "orderType": { "type": "string", "enum": ["MARKET", "LIMIT", "SL", "SL-M"], "default": "MARKET" },
-                  "productType": { "type": "string", "enum": ["INTRADAY", "CNC", "MARGIN"], "default": "INTRADAY" },
-                  "quantity": { "type": "integer", "example": 50 },
-                  "price": { "type": "number", "example": 130.0 },
-                  "triggerPrice": { "type": "number", "example": 0.0 }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": { "description": "Order placed successfully" },
-          "400": { "description": "Order placement error" }
-        }
-      }
-    },
-    "/api/orders/{id}": {
-      "delete": {
-        "tags": ["Orders"],
-        "summary": "Cancel an open order",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": { "description": "Order cancelled" },
-          "400": { "description": "Failed to cancel order" }
-        }
-      }
-    },
-    "/api/positions": {
-      "get": {
-        "tags": ["Positions & Holdings"],
-        "summary": "Get open/closed positions, funds, and P&L summary",
-        "responses": {
-          "200": { "description": "Current positions, account funds, and net P&L metrics" }
-        }
-      }
-    },
-    "/api/holdings": {
-      "get": {
-        "tags": ["Positions & Holdings"],
-        "summary": "Get Demat equity holdings",
-        "responses": {
-          "200": { "description": "Array of portfolio stock holdings" }
-        }
-      }
-    },
-    "/api/strategy/auto-sl": {
-      "post": {
-        "tags": ["Strategy"],
-        "summary": "Execute Nifty Auto-SL (-7 pts) & Target (+30 pts) Bracket Runner",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["symbol", "entryPrice", "quantity"],
-                "properties": {
-                  "symbol": { "type": "string", "example": "NIFTY 24600 CE" },
-                  "entryPrice": { "type": "number", "example": 140.0 },
-                  "quantity": { "type": "integer", "example": 50 }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Bracket orders deployed and step logs emitted" },
-          "400": { "description": "Execution failure" }
-        }
-      }
-    },
-    "/api/strategy/auto-sl/logs": {
-      "get": {
-        "tags": ["Strategy"],
-        "summary": "Get Auto-SL execution history logs",
-        "responses": {
-          "200": { "description": "Array of past strategy execution runs" }
-        }
-      }
-    },
-    "/api/instruments": {
-      "get": {
-        "tags": ["Instruments"],
-        "summary": "Search scrip master (Indices, F&O options, Equities)",
-        "parameters": [
-          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Search keyword (e.g. NIFTY, BANK, RELIANCE)" },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 }, "description": "Maximum results to return" }
-        ],
-        "responses": {
-          "200": { "description": "Matching security items" }
-        }
+        "summary": "Backend status & service discovery index",
+        "tags": [
+          "System"
+        ]
       }
     },
     "/api/telegram/status": {
       "get": {
-        "tags": ["Telegram"],
-        "summary": "Get Telegram bot connection state",
+        "operationId": "TelegramController_getStatus",
+        "parameters": [],
         "responses": {
-          "200": { "description": "Telegram configuration status" }
-        }
+          "200": {
+            "description": "Telegram connection status"
+          }
+        },
+        "summary": "Get Telegram bot connection state",
+        "tags": [
+          "Telegram"
+        ]
       }
     },
     "/api/telegram/test": {
       "post": {
-        "tags": ["Telegram"],
-        "summary": "Send test verification message to configured Telegram chat",
+        "operationId": "TelegramController_sendTest",
+        "parameters": [],
         "responses": {
-          "200": { "description": "Telegram message dispatch result" }
-        }
+          "200": {
+            "description": "Dispatch result"
+          }
+        },
+        "summary": "Send test verification message to configured Telegram chat",
+        "tags": [
+          "Telegram"
+        ]
       }
     },
     "/api/telegram/update": {
       "post": {
-        "tags": ["Telegram"],
-        "summary": "Update Telegram credentials dynamically and save to .env",
+        "operationId": "TelegramController_updateCredentials",
+        "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "botToken": { "type": "string", "example": "123456789:ABCDefgh..." },
-                  "chatId": { "type": "string", "example": "8953936469" }
-                }
+                "$ref": "#/components/schemas/UpdateTelegramDto"
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Credentials updated" }
+          "200": {
+            "description": "Credentials updated"
+          }
+        },
+        "summary": "Update Telegram credentials dynamically and save to .env",
+        "tags": [
+          "Telegram"
+        ]
+      }
+    },
+    "/api/auth/status": {
+      "get": {
+        "operationId": "AuthController_getStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "JWT decoded payload and IST countdown"
+          }
+        },
+        "summary": "Get token inspection & IST expiry status",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/verify": {
+      "get": {
+        "operationId": "AuthController_verify",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Live verification result"
+          }
+        },
+        "summary": "Verify live validity against Dhan API profile",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/renew": {
+      "post": {
+        "operationId": "AuthController_renew",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Renewal outcome"
+          }
+        },
+        "summary": "Renew Dhan Access Token via Dhan API",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/update": {
+      "post": {
+        "operationId": "AuthController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token updated and saved"
+          }
+        },
+        "summary": "Update token manually without restarting server",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "operationId": "AlertsController_getAllAlerts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Array of live alerts"
+          }
+        },
+        "summary": "List all live price alerts and Dhan conditional triggers with live LTP",
+        "tags": [
+          "Alerts"
+        ]
+      },
+      "post": {
+        "operationId": "AlertsController_createAlert",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Alert created successfully"
+          },
+          "400": {
+            "description": "Validation failed"
+          }
+        },
+        "summary": "Create new price alert (No static IP needed)",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/grouped": {
+      "get": {
+        "operationId": "AlertsController_getGrouped",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Categorized alerts group with live LTP"
+          }
+        },
+        "summary": "Get live alerts categorized by instrument with count badges",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/indices": {
+      "get": {
+        "operationId": "AlertsController_getIndices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Popular indices with live prices"
+          }
+        },
+        "summary": "Get popular NSE benchmark indices with live current prices",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/poll": {
+      "get": {
+        "operationId": "AlertsController_poll",
+        "parameters": [
+          {
+            "name": "since",
+            "required": false,
+            "in": "query",
+            "description": "Last processed event ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newly triggered events"
+          }
+        },
+        "summary": "Poll for newly triggered alert events since last event ID",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/conditional-order": {
+      "post": {
+        "description": "Creates a price alert that automatically triggers and places one or more conditional orders on Dhan HQ when the target price condition is met.",
+        "operationId": "AlertsController_createConditionalAlert",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConditionalAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Alert with conditional order placed successfully"
+          },
+          "400": {
+            "description": "Validation failed"
+          }
+        },
+        "summary": "Place Dhan alert with conditional order (Dhan HQ v2 /alerts/orders + Local Engine)",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/test-chime": {
+      "post": {
+        "operationId": "AlertsController_testChime",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Test alert fired"
+          }
+        },
+        "summary": "Simulate an immediate alert notification trigger",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/{id}/cancel": {
+      "post": {
+        "operationId": "AlertsController_cancelAlert",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Alert ID (e.g. ALT-123456 or Dhan Trigger ID)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert cancelled"
+          },
+          "404": {
+            "description": "Alert not found"
+          }
+        },
+        "summary": "Cancel an active alert",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/alerts/{id}": {
+      "put": {
+        "operationId": "AlertsController_updateAlert",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Alert ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Alert updated"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Alert not found"
+          }
+        },
+        "summary": "Update an existing alert",
+        "tags": [
+          "Alerts"
+        ]
+      },
+      "delete": {
+        "operationId": "AlertsController_deleteAlert",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Alert ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert deleted"
+          },
+          "404": {
+            "description": "Alert not found"
+          }
+        },
+        "summary": "Permanently delete an alert",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/api/instruments/option-contracts": {
+      "get": {
+        "description": "Accepts instrument name (e.g. NIFTY 50) and reference price (e.g. 25500), returning contracts for 25450, 25500, 25550 for current and next expiry dates.",
+        "operationId": "InstrumentsController_getOptionContractsGet",
+        "parameters": [
+          {
+            "name": "instrument",
+            "required": true,
+            "in": "query",
+            "description": "Underlying instrument name or symbol (e.g. NIFTY 50, NIFTY, BANKNIFTY, SENSEX)",
+            "schema": {
+              "example": "NIFTY 50",
+              "type": "string"
+            }
+          },
+          {
+            "name": "price",
+            "required": false,
+            "in": "query",
+            "description": "Reference price to calculate ATM and surrounding strikes (e.g. 25500). If omitted, live LTP is used.",
+            "schema": {
+              "example": 25500,
+              "type": "number"
+            }
+          },
+          {
+            "name": "strikeCount",
+            "required": false,
+            "in": "query",
+            "description": "Number of strikes to return centered around ATM (default is 3, e.g. ATM-1, ATM, ATM+1)",
+            "schema": {
+              "default": 3,
+              "example": 3,
+              "type": "number"
+            }
+          },
+          {
+            "name": "strikeStep",
+            "required": false,
+            "in": "query",
+            "description": "Custom strike step interval (e.g. 50 for Nifty, 100 for BankNifty). If omitted, determined automatically.",
+            "schema": {
+              "example": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "expiry",
+            "required": false,
+            "in": "query",
+            "description": "Optional specific target expiry date in YYYY-MM-DD format",
+            "schema": {
+              "example": "2026-11-05",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Option contracts for current and next expiry with live/model LTP"
+          },
+          "400": {
+            "description": "Instrument name missing or invalid"
+          }
+        },
+        "summary": "Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry",
+        "tags": [
+          "Instruments"
+        ]
+      },
+      "post": {
+        "description": "JSON body alternative for frontend convenience containing instrument name and optional reference price.",
+        "operationId": "InstrumentsController_getOptionContractsPost",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetOptionContractsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Option contracts for current and next expiry with live/model LTP"
+          },
+          "400": {
+            "description": "Instrument name missing or invalid"
+          }
+        },
+        "summary": "Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry via POST payload",
+        "tags": [
+          "Instruments"
+        ]
+      }
+    },
+    "/api/instruments/ltp": {
+      "get": {
+        "operationId": "InstrumentsController_getLtp",
+        "parameters": [
+          {
+            "name": "symbol",
+            "required": true,
+            "in": "query",
+            "description": "Instrument symbol or ticker (e.g. NIFTY 50, RELIANCE, NIFTY 24500 CE)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live LTP for the requested instrument"
+          }
+        },
+        "summary": "Fetch live last trade price (LTP) of an instrument using Yahoo Finance / Dhan",
+        "tags": [
+          "Instruments"
+        ]
+      }
+    },
+    "/api/instruments": {
+      "get": {
+        "operationId": "InstrumentsController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "Search keyword (e.g. NIFTY, BANK)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Result count limit",
+            "schema": {
+              "example": 10,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of matching instruments with live LTP"
+          }
+        },
+        "summary": "Search scrip master with live LTP (Indices, F&O options, Equities)",
+        "tags": [
+          "Instruments"
+        ]
+      }
+    },
+    "/api/orders": {
+      "get": {
+        "operationId": "OrdersController_getOrders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of executed, pending and cancelled orders"
+          },
+          "502": {
+            "description": "Dhan API failure"
+          }
+        },
+        "summary": "Get live orders book from Dhan API",
+        "tags": [
+          "Orders"
+        ]
+      },
+      "post": {
+        "operationId": "OrdersController_placeOrder",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Order placed successfully on Dhan"
+          },
+          "400": {
+            "description": "Dhan rejection or validation failure"
+          }
+        },
+        "summary": "Place a real live order on Dhan HQ API",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/orders/{id}": {
+      "delete": {
+        "operationId": "OrdersController_cancelOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Dhan Order ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order cancelled"
+          },
+          "400": {
+            "description": "Cancellation failed"
+          }
+        },
+        "summary": "Cancel an order on Dhan HQ API",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/positions": {
+      "get": {
+        "operationId": "OrdersController_getPositions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Positions array, margin funds, and P&L summary"
+          },
+          "502": {
+            "description": "Dhan API failure"
+          }
+        },
+        "summary": "Get live open/closed positions and account funds from Dhan API",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/holdings": {
+      "get": {
+        "operationId": "OrdersController_getHoldings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Demat holdings array"
+          },
+          "502": {
+            "description": "Dhan API failure"
+          }
+        },
+        "summary": "Get Demat equity holdings from Dhan API",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/strategy/auto-sl": {
+      "post": {
+        "operationId": "OrdersController_executeAutoSl",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoSlDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bracket orders deployed with execution logs"
+          },
+          "400": {
+            "description": "Strategy execution failure on Dhan"
+          }
+        },
+        "summary": "Execute real Nifty Auto-SL (-7 pts) and Target (+30 pts) Bracket Runner on Dhan",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/api/strategy/auto-sl/logs": {
+      "get": {
+        "operationId": "OrdersController_getAutoSlLogs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Array of past strategy execution runs"
+          }
+        },
+        "summary": "Get Auto-SL bracket execution logs",
+        "tags": [
+          "Orders"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Dhan Trader Backend API",
+    "description": "High-performance algorithmic trading and price alert engine powered by Dhan HQ API v2 and NestJS (TypeScript).",
+    "version": "2.0.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "System",
+      "description": "Service status & health"
+    },
+    {
+      "name": "Auth",
+      "description": "Dhan access token inspection, validation and renewal"
+    },
+    {
+      "name": "Alerts",
+      "description": "Price alerts monitoring on NSE Indices (No static IP needed)"
+    },
+    {
+      "name": "Orders",
+      "description": "Order placement, book inspection, and cancellation"
+    },
+    {
+      "name": "Instruments",
+      "description": "NSE scrip master search and indices lookup"
+    },
+    {
+      "name": "Telegram",
+      "description": "Telegram bot alerts and live connection configuration"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "schemas": {
+      "UpdateTelegramDto": {
+        "type": "object",
+        "properties": {
+          "botToken": {
+            "type": "string",
+            "description": "Telegram Bot Token",
+            "example": "123456789:ABCDefgh..."
+          },
+          "chatId": {
+            "type": "string",
+            "description": "Telegram Chat ID",
+            "example": "8953936469"
+          }
         }
+      },
+      "UpdateTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Dhan JWT Access Token",
+            "example": "eyJhbGciOiJIUzUxMiJ9..."
+          },
+          "clientId": {
+            "type": "string",
+            "description": "Dhan Client ID",
+            "example": "1106885516"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "ConditionalOrderDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading symbol to order upon alert trigger",
+            "example": "NIFTY 25500 CE"
+          },
+          "securityId": {
+            "type": "string",
+            "description": "Dhan security ID (e.g. 45021). If omitted, system attempts resolution from symbol.",
+            "example": "45021"
+          },
+          "exchangeSegment": {
+            "type": "string",
+            "description": "Exchange segment",
+            "example": "NSE_FNO",
+            "default": "NSE_FNO"
+          },
+          "transactionType": {
+            "type": "string",
+            "description": "Order transaction side",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "example": "BUY"
+          },
+          "orderType": {
+            "type": "string",
+            "description": "Order type",
+            "enum": [
+              "MARKET",
+              "LIMIT",
+              "SL",
+              "SL-M"
+            ],
+            "default": "MARKET"
+          },
+          "productType": {
+            "type": "string",
+            "description": "Product type",
+            "enum": [
+              "INTRADAY",
+              "CNC",
+              "MARGIN"
+            ],
+            "default": "INTRADAY"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Order quantity",
+            "example": 50
+          },
+          "price": {
+            "type": "number",
+            "description": "Limit price for LIMIT orders",
+            "example": 130
+          },
+          "triggerPrice": {
+            "type": "number",
+            "description": "Trigger price for SL orders",
+            "example": 0
+          },
+          "validity": {
+            "type": "string",
+            "description": "Order validity",
+            "enum": [
+              "DAY",
+              "IOC"
+            ],
+            "default": "DAY"
+          }
+        },
+        "required": [
+          "symbol",
+          "transactionType",
+          "quantity"
+        ]
+      },
+      "CreateAlertDto": {
+        "type": "object",
+        "properties": {
+          "instrument": {
+            "type": "string",
+            "description": "Instrument symbol or Index name",
+            "example": "NIFTY 50"
+          },
+          "targetPrice": {
+            "type": "number",
+            "description": "Target price level to alert on",
+            "example": 24950
+          },
+          "operator": {
+            "type": "string",
+            "description": "Trigger condition operator",
+            "enum": [
+              "GREATER_THAN_OR_EQUAL",
+              "LESS_THAN_OR_EQUAL",
+              "CROSSING_UP",
+              "CROSSING_DOWN"
+            ],
+            "default": "GREATER_THAN_OR_EQUAL"
+          },
+          "remarks": {
+            "type": "string",
+            "description": "Remarks or user note",
+            "example": "Breakout above resistance"
+          },
+          "securityId": {
+            "type": "string",
+            "description": "Dhan security ID",
+            "example": "13"
+          },
+          "exchangeSegment": {
+            "type": "string",
+            "description": "Exchange segment",
+            "example": "IDX_I"
+          },
+          "conditionalOrder": {
+            "description": "Single conditional order details to place upon trigger",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConditionalOrderDto"
+              }
+            ]
+          },
+          "conditionalOrders": {
+            "description": "Array of conditional orders to place upon trigger",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConditionalOrderDto"
+            }
+          }
+        },
+        "required": [
+          "instrument",
+          "targetPrice"
+        ]
+      },
+      "CreateConditionalAlertDto": {
+        "type": "object",
+        "properties": {
+          "instrument": {
+            "type": "string",
+            "description": "Underlying instrument symbol or index name to monitor",
+            "example": "NIFTY 50"
+          },
+          "targetPrice": {
+            "type": "number",
+            "description": "Target price level that triggers the alert and conditional order",
+            "example": 25500
+          },
+          "operator": {
+            "type": "string",
+            "description": "Trigger condition operator",
+            "enum": [
+              "GREATER_THAN_OR_EQUAL",
+              "LESS_THAN_OR_EQUAL",
+              "CROSSING_UP",
+              "CROSSING_DOWN"
+            ],
+            "default": "GREATER_THAN_OR_EQUAL"
+          },
+          "securityId": {
+            "type": "string",
+            "description": "Dhan security ID of the underlying instrument",
+            "example": "13"
+          },
+          "exchangeSegment": {
+            "type": "string",
+            "description": "Exchange segment of the underlying instrument",
+            "example": "IDX_I",
+            "default": "IDX_I"
+          },
+          "remarks": {
+            "type": "string",
+            "description": "User remarks or strategy note",
+            "example": "Buy Call option when Nifty breaks 25500 resistance"
+          },
+          "conditionalOrder": {
+            "description": "Single conditional order details to place upon trigger",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConditionalOrderDto"
+              }
+            ]
+          },
+          "conditionalOrders": {
+            "description": "Array of conditional orders to place upon trigger",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConditionalOrderDto"
+            }
+          },
+          "executeViaDhanApi": {
+            "type": "boolean",
+            "description": "Attempt registration with Dhan HQ API v2 (/alerts/orders)",
+            "default": true
+          },
+          "autoExecuteOnTrigger": {
+            "type": "boolean",
+            "description": "Auto-execute the order via in-memory marketfeed engine upon trigger (No static IP required)",
+            "default": true
+          },
+          "frequency": {
+            "type": "string",
+            "description": "Alert frequency mode",
+            "enum": [
+              "ONCE",
+              "IMMEDIATELY"
+            ],
+            "default": "ONCE"
+          },
+          "comparisonType": {
+            "type": "string",
+            "description": "Comparison type",
+            "enum": [
+              "PRICE",
+              "TECHNICAL_WITH_VALUE"
+            ],
+            "default": "PRICE"
+          }
+        },
+        "required": [
+          "instrument",
+          "targetPrice"
+        ]
+      },
+      "UpdateAlertDto": {
+        "type": "object",
+        "properties": {
+          "targetPrice": {
+            "type": "number",
+            "description": "Target price level",
+            "example": 25000
+          },
+          "operator": {
+            "type": "string",
+            "description": "Trigger condition operator",
+            "example": "GREATER_THAN_OR_EQUAL"
+          },
+          "remarks": {
+            "type": "string",
+            "description": "Remarks",
+            "example": "Updated level"
+          },
+          "status": {
+            "type": "string",
+            "description": "Alert status",
+            "enum": [
+              "ACTIVE",
+              "TRIGGERED",
+              "CANCELLED"
+            ]
+          }
+        }
+      },
+      "GetOptionContractsDto": {
+        "type": "object",
+        "properties": {
+          "instrument": {
+            "type": "string",
+            "description": "Underlying instrument name or symbol (e.g. NIFTY 50, NIFTY, BANKNIFTY, SENSEX)",
+            "example": "NIFTY 50"
+          },
+          "price": {
+            "type": "number",
+            "description": "Reference price to calculate ATM and surrounding strikes (e.g. 25500). If omitted, live LTP is used.",
+            "example": 25500
+          },
+          "strikeCount": {
+            "type": "number",
+            "description": "Number of strikes to return centered around ATM (default is 3, e.g. ATM-1, ATM, ATM+1)",
+            "example": 3,
+            "default": 3
+          },
+          "strikeStep": {
+            "type": "number",
+            "description": "Custom strike step interval (e.g. 50 for Nifty, 100 for BankNifty). If omitted, determined automatically.",
+            "example": 50
+          },
+          "expiry": {
+            "type": "string",
+            "description": "Optional specific target expiry date in YYYY-MM-DD format",
+            "example": "2026-11-05"
+          }
+        },
+        "required": [
+          "instrument"
+        ]
+      },
+      "PlaceOrderDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading symbol",
+            "example": "NIFTY 24500 CE"
+          },
+          "securityId": {
+            "type": "string",
+            "description": "Dhan security ID",
+            "example": "45021"
+          },
+          "exchangeSegment": {
+            "type": "string",
+            "description": "Exchange segment",
+            "example": "NSE_FNO",
+            "default": "NSE_FNO"
+          },
+          "transactionType": {
+            "type": "string",
+            "description": "BUY or SELL",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "example": "BUY"
+          },
+          "orderType": {
+            "type": "string",
+            "description": "Order type",
+            "enum": [
+              "MARKET",
+              "LIMIT",
+              "SL",
+              "SL-M"
+            ],
+            "default": "MARKET"
+          },
+          "productType": {
+            "type": "string",
+            "description": "Product type",
+            "enum": [
+              "INTRADAY",
+              "CNC",
+              "MARGIN"
+            ],
+            "default": "INTRADAY"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Order quantity",
+            "example": 50
+          },
+          "price": {
+            "type": "number",
+            "description": "Price for LIMIT orders",
+            "example": 130
+          },
+          "triggerPrice": {
+            "type": "number",
+            "description": "Trigger price for SL orders",
+            "example": 0
+          }
+        },
+        "required": [
+          "symbol",
+          "securityId",
+          "transactionType",
+          "quantity"
+        ]
+      },
+      "AutoSlDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Option contract symbol",
+            "example": "NIFTY 24600 CE"
+          },
+          "entryPrice": {
+            "type": "number",
+            "description": "Long entry price",
+            "example": 140
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Contract quantity",
+            "example": 50
+          },
+          "strike": {
+            "type": "number",
+            "description": "Strike price if symbol not provided",
+            "example": 24600
+          },
+          "securityId": {
+            "type": "string",
+            "description": "Dhan security ID",
+            "example": "45021"
+          }
+        },
+        "required": [
+          "symbol",
+          "entryPrice",
+          "quantity"
+        ]
       }
     }
   }

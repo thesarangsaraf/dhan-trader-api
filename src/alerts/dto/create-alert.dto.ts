@@ -1,5 +1,7 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ConditionalOrderDto } from './conditional-order.dto';
 
 export class CreateAlertDto {
   @ApiProperty({ description: 'Instrument symbol or Index name', example: 'NIFTY 50' })
@@ -37,4 +39,22 @@ export class CreateAlertDto {
   @IsOptional()
   @IsString()
   exchangeSegment?: string;
+
+  @ApiPropertyOptional({
+    description: 'Single conditional order details to place upon trigger',
+    type: () => ConditionalOrderDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ConditionalOrderDto)
+  conditionalOrder?: ConditionalOrderDto;
+
+  @ApiPropertyOptional({
+    description: 'Array of conditional orders to place upon trigger',
+    type: () => [ConditionalOrderDto],
+  })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => ConditionalOrderDto)
+  conditionalOrders?: ConditionalOrderDto[];
 }

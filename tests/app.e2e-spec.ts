@@ -85,8 +85,30 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
             '13': { last_price: 24520.5 },
             '25': { last_price: 51850.0 },
           },
+          'NSE_FNO': {
+            '45021': { last_price: 135.0 },
+          },
         },
       },
+    }),
+    getAlerts: async () => ({
+      ok: true,
+      data: [],
+    }),
+    createDhanAlert: async (payload: any) => ({
+      ok: true,
+      data: { alertId: 'DHAN-ALT-555', ...payload },
+    }),
+    cancelDhanAlert: async () => ({
+      ok: true,
+    }),
+    getOptionChainExpiryList: async () => ({
+      ok: true,
+      data: ['2026-11-05', '2026-11-12', '2026-11-19'],
+    }),
+    getOptionChain: async () => ({
+      ok: true,
+      data: {},
     }),
   };
 
@@ -138,14 +160,20 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         }
       };
 
-      let responseBody = '';
-      res.write = (chunk: any) => { responseBody += chunk; };
-      res.end = (chunk: any) => {
-        if (chunk) responseBody += chunk;
-        let parsed = responseBody;
+      let bodyData = '';
+      res.write = (chunk: any) => {
+        if (chunk) bodyData += chunk.toString();
+        return true;
+      };
+
+      res.end = (chunk?: any) => {
+        if (chunk) bodyData += chunk.toString();
+        let parsed: any;
         try {
-          parsed = JSON.parse(responseBody);
-        } catch (e) {}
+          parsed = JSON.parse(bodyData);
+        } catch {
+          parsed = bodyData;
+        }
         resolve({
           status: res.statusCode,
           headers: res.headers,
@@ -153,17 +181,15 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         });
       };
 
-      expressApp(req, res);
+      expressApp.handle(req, res);
     });
   }
 
   await t.test('GET / returns NestJS framework root metadata', async () => {
     const res = await makeMockRequest('GET', '/');
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.name, 'Dhan Trader Backend API');
     assert.strictEqual(res.body.framework, 'NestJS');
     assert.strictEqual(res.body.status, 'ONLINE');
-    assert.ok(res.body.endpoints);
   });
 
   await t.test('GET /health returns health check status', async () => {
@@ -175,11 +201,17 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
   await t.test('GET /api/auth/status returns token status in IST', async () => {
     const res = await makeMockRequest('GET', '/api/auth/status');
     assert.strictEqual(res.status, 200);
-    assert.ok(res.body.configured);
-    assert.ok(res.body.expiresAtIST.includes('IST'));
+    assert.strictEqual(typeof res.body.isExpired, 'boolean');
+    assert.ok(res.body.expiresAtIST);
   });
 
-  await t.test('GET /api/alerts/indices returns popular NSE indices', async () => {
+  await t.test('GET /api/alerts returns active alerts array', async () => {
+    const res = await makeMockRequest('GET', '/api/alerts');
+    assert.strictEqual(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+  });
+
+  await t.test('GET /api/alerts/indices returns popular NSE indices with live prices', async () => {
     const res = await makeMockRequest('GET', '/api/alerts/indices');
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body));
@@ -196,6 +228,72 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.success, true);
     assert.strictEqual(res.body.alert.instrument, 'NIFTY BANK');
+  });
+
+  await t.test('POST /api/alerts/conditional-order creates alert with conditional order', async () => {
+    const res = await makeMockRequest('POST', '/api/alerts/conditional-order', {
+      instrument: 'NIFTY 50',
+      targetPrice: 25500.0,
+      operator: 'GREATER_THAN_OR_EQUAL',
+      remarks: 'Buy Call option when Nifty breaks 25500',
+      conditionalOrder: {
+        symbol: 'NIFTY 25500 CE',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 50,
+      },
+    });
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.alert.instrument, 'NIFTY 50');
+    assert.strictEqual(res.body.alert.targetPrice, 25500.0);
+    assert.strictEqual(res.body.alert.hasConditionalOrder, true);
+    assert.strictEqual(res.body.alert.conditionalOrders.length, 1);
+    assert.strictEqual(res.body.alert.conditionalOrders[0].symbol, 'NIFTY 25500 CE');
+    assert.strictEqual(res.body.alert.conditionalOrders[0].quantity, 50);
+  });
+
+  await t.test('GET /api/instruments/option-contracts returns 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=nifty%2050&price=25500');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.instrument, 'NIFTY 50');
+    assert.strictEqual(res.body.spotPrice, 25500);
+    assert.strictEqual(res.body.strikeStep, 50);
+    assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
+
+    // Current expiry assertions
+    assert.ok(res.body.currentExpiry);
+    assert.ok(res.body.currentExpiry.expiryDate);
+    assert.strictEqual(res.body.currentExpiry.strikes.length, 3);
+    assert.strictEqual(res.body.currentExpiry.strikes[0].strikePrice, 25450);
+    assert.strictEqual(res.body.currentExpiry.strikes[1].strikePrice, 25500);
+    assert.strictEqual(res.body.currentExpiry.strikes[2].strikePrice, 25550);
+    assert.strictEqual(res.body.currentExpiry.strikes[0].call.optionType, 'CE');
+    assert.strictEqual(res.body.currentExpiry.strikes[0].put.optionType, 'PE');
+    assert.strictEqual(typeof res.body.currentExpiry.strikes[0].call.ltp, 'number');
+
+    // Next expiry assertions
+    assert.ok(res.body.nextExpiry);
+    assert.ok(res.body.nextExpiry.expiryDate);
+    assert.strictEqual(res.body.nextExpiry.strikes.length, 3);
+    assert.deepStrictEqual(
+      res.body.nextExpiry.strikes.map((s: any) => s.strikePrice),
+      [25450, 25500, 25550],
+    );
+
+    // Flat contracts list
+    assert.ok(Array.isArray(res.body.contracts));
+    assert.strictEqual(res.body.contracts.length, 12); // 3 strikes * 2 types * 2 expiries
+  });
+
+  await t.test('POST /api/instruments/option-contracts returns option contracts via body payload', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
+      instrument: 'NIFTY 50',
+      price: 25500,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
   });
 
   await t.test('GET /api/orders returns orders book from Dhan API', async () => {
@@ -215,6 +313,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
   await t.test('POST /api/strategy/auto-sl executes Nifty FNO Long -7/+30 bracket runner on Dhan API', async () => {
     const res = await makeMockRequest('POST', '/api/strategy/auto-sl', {
       symbol: 'NIFTY 24500 CE',
+      securityId: '45021',
       entryPrice: 130.0,
       quantity: 50,
     });

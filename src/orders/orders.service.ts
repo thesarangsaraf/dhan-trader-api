@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, BadGatewayException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, BadGatewayException } from '@nestjs/common';
 import { DhanService } from '../dhan/dhan.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { InstrumentsService } from '../instruments/instruments.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { AutoSlDto } from './dto/auto-sl.dto';
 
@@ -11,6 +12,7 @@ export class OrdersService {
   constructor(
     private readonly dhanService: DhanService,
     private readonly telegramService: TelegramService,
+    private readonly instrumentsService: InstrumentsService,
   ) {}
 
   async getOrders() {
@@ -168,8 +170,15 @@ export class OrdersService {
     });
 
     if (apiResult.ok && apiResult.data) {
+      const liveOrderId = String(
+        apiResult.data.orderId || apiResult.data.dhanOrderId || apiResult.data.id || '',
+      );
+      if (!liveOrderId) {
+        throw new BadGatewayException('Dhan API response did not contain an order ID');
+      }
+
       const liveOrder = {
-        orderId: String(apiResult.data.orderId || apiResult.data.dhanOrderId || `ORD-${Date.now().toString().slice(-6)}`),
+        orderId: liveOrderId,
         dhanClientId: this.dhanService['config'].clientId,
         symbol: dto.symbol.toUpperCase(),
         securityId: String(dto.securityId),
@@ -230,10 +239,29 @@ export class OrdersService {
   }
 
   async executeAutoSLTarget(dto: AutoSlDto) {
-    const qty = parseInt(String(dto.quantity), 10) || 50;
-    const entry = parseFloat(String(dto.entryPrice)) || 125.0;
-    const targetSymbol = dto.symbol || `NIFTY ${dto.strike || 24500} CE`;
-    const secId = dto.securityId || '45021';
+    if (!dto.entryPrice || isNaN(Number(dto.entryPrice)) || Number(dto.entryPrice) <= 0) {
+      throw new BadRequestException('Valid positive entryPrice is required');
+    }
+    if (!dto.quantity || isNaN(Number(dto.quantity)) || Number(dto.quantity) <= 0) {
+      throw new BadRequestException('Quantity must be a positive integer');
+    }
+    const targetSymbol = dto.symbol ? dto.symbol.trim().toUpperCase() : '';
+    if (!targetSymbol) {
+      throw new BadRequestException('Symbol is required');
+    }
+
+    const qty = parseInt(String(dto.quantity), 10);
+    const entry = parseFloat(String(dto.entryPrice));
+
+    let secId = dto.securityId ? String(dto.securityId).trim() : '';
+    if (!secId) {
+      const matched = this.instrumentsService.findBySymbol(targetSymbol);
+      if (matched) {
+        secId = matched.securityId;
+      } else {
+        throw new BadRequestException(`securityId is required for symbol ${targetSymbol}`);
+      }
+    }
 
     const slPts = 7.0;
     const targetPts = 30.0;
