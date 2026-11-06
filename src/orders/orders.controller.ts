@@ -1,12 +1,16 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
+import { DhanOrderWebSocketService } from './dhan-order-websocket.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 
 @ApiTags('Orders')
 @Controller('api')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly orderWsService: DhanOrderWebSocketService,
+  ) {}
 
   @Get('orders')
   @ApiOperation({ summary: 'Get live orders book from Dhan API' })
@@ -40,5 +44,19 @@ export class OrdersController {
   @ApiResponse({ status: 502, description: 'Dhan API failure' })
   async getPositions() {
     return this.ordersService.getPositions();
+  }
+
+  @Get('orders/websocket/status')
+  @ApiOperation({ summary: 'Get Dhan Order WebSocket live stream status' })
+  @ApiResponse({ status: 200, description: 'Live connection state, client ID and last event timestamp' })
+  getWebSocketStatus() {
+    return this.orderWsService.getStatus();
+  }
+
+  @Post('orders/websocket/simulate')
+  @ApiOperation({ summary: 'Simulate an incoming order push from Dhan WebSocket and notify Telegram' })
+  @ApiResponse({ status: 200, description: 'Simulated order dispatched' })
+  async simulateOrderWebSocket(@Body() sampleOrder?: any) {
+    return this.orderWsService.simulateOrderEvent(sampleOrder);
   }
 }

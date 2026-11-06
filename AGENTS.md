@@ -87,8 +87,9 @@ dhan-trader/
 │   │       └── update-alert.dto.ts    # DTO for partial alert updates
 │   ├── orders/
 │   │   ├── orders.module.ts           # Orders feature module
-│   │   ├── orders.controller.ts       # /api/orders, /api/positions
+│   │   ├── orders.controller.ts       # /api/orders, /api/positions, /api/orders/websocket/status
 │   │   ├── orders.service.ts          # Live order dispatcher and positions service
+│   │   ├── dhan-order-websocket.service.ts # Dhan Order WebSocket client (wss://api-order-update.dhan.co -> Telegram)
 │   │   └── dto/
 │   │       └── place-order.dto.ts     # DTO for manual orders
 │   ├── instruments/
