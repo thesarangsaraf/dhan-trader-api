@@ -183,7 +183,7 @@ Deletes an alert permanently.
 
 ---
 
-### 4. Orders & Positions (`/api/orders`, `/api/positions`, `/api/holdings`)
+### 4. Orders & Positions (`/api/orders`, `/api/positions`)
 
 #### `GET /api/orders`
 Fetches all live orders directly from the Dhan API.
@@ -210,9 +210,6 @@ Cancels an order on Dhan by ID.
 
 #### `GET /api/positions`
 Returns current positions, funds/margins, and net P&L summary from Dhan API.
-
-#### `GET /api/holdings`
-Returns Dhan Demat equity portfolio holdings.
 
 ---
 

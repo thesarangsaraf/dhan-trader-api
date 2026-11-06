@@ -85,7 +85,7 @@ dhan-trader/
 │   │       └── update-alert.dto.ts    # DTO for partial alert updates
 │   ├── orders/
 │   │   ├── orders.module.ts           # Orders feature module
-│   │   ├── orders.controller.ts       # /api/orders, /api/positions, /api/holdings
+│   │   ├── orders.controller.ts       # /api/orders, /api/positions
 │   │   ├── orders.service.ts          # Live order dispatcher and positions service
 │   │   └── dto/
 │   │       └── place-order.dto.ts     # DTO for manual orders
@@ -141,15 +141,11 @@ When interacting with or extending `src/dhan/dhan.service.ts`, keep these behavi
    - `access-token`: Passed as a raw JWT string header.
    - `client-id`: Passed as a string header matching the user's Dhan Client ID (e.g., `1106885516`).
 
-2. **Demat Holdings HTTP 500 (`DH-1111`)**:
-   - When a trading account has zero Demat stock holdings, Dhan's `/holdings` API responds with HTTP 500 and body `{"status":"failure","remarks":{"errorType":"BusinessException","errorCode":"DH-1111","errorMessage":"No holdings available"}}`.
-   - **Handling**: `OrdersService.getHoldings()` inspects the error; if code is `DH-1111`, it gracefully returns an empty array `[]` rather than throwing an unhandled exception.
-
-3. **Data APIs / Marketfeed**:
+2. **Data APIs / Marketfeed**:
    - Free or standard Dhan accounts may have the Data API inactive (`401 Data APIs not Subscribed`).
    - Alerts and order dispatchers must not crash if live websocket or marketfeed data is unavailable; fallback pricing or index cache must be supported.
 
-4. **Token Hot-Reloading**:
+3. **Token Hot-Reloading**:
    - The Dhan JWT access token expires after 24 hours.
    - `ConfigService` monitors `.env` with `fs.watchFile`. When an agent or user calls `POST /api/auth/update` or `POST /api/auth/renew`, the service writes new credentials to `.env`, which immediately reloads in memory without restarting the process.
 

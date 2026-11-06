@@ -58,12 +58,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       ok: true,
       data: { availMargin: 150000.0, utilizedMargin: 25000.0, collateralAmount: 0 },
     }),
-    getHoldings: async () => ({
-      ok: true,
-      data: [
-        { tradingSymbol: 'TCS', securityId: '11536', exchange: 'NSE_EQ', totalQty: 20, avgCostPrice: 3800.0, ltp: 4120.0 },
-      ],
-    }),
     placeOrder: async (orderPayload: any) => ({
       ok: true,
       data: {
@@ -347,12 +341,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body.positions));
     assert.strictEqual(typeof res.body.summary.netPnL, 'number');
-  });
-
-  await t.test('GET /api/holdings returns demat holdings from Dhan API', async () => {
-    const res = await makeMockRequest('GET', '/api/holdings');
-    assert.strictEqual(res.status, 200);
-    assert.ok(Array.isArray(res.body));
   });
 
   await t.test('GET /api/instruments returns security lookup results', async () => {

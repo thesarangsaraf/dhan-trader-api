@@ -58,19 +58,6 @@ test('OrdersService (NestJS)', async (t) => {
         collateralAmount: 0,
       },
     }),
-    getHoldings: async () => ({
-      ok: true,
-      data: [
-        {
-          tradingSymbol: 'TCS',
-          securityId: '11536',
-          exchange: 'NSE_EQ',
-          totalQty: 20,
-          avgCostPrice: 3800.0,
-          ltp: 4120.0,
-        },
-      ],
-    }),
     placeOrder: async (orderPayload: any) => ({
       ok: true,
       data: {

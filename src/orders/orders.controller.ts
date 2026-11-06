@@ -41,12 +41,4 @@ export class OrdersController {
   async getPositions() {
     return this.ordersService.getPositions();
   }
-
-  @Get('holdings')
-  @ApiOperation({ summary: 'Get Demat equity holdings from Dhan API' })
-  @ApiResponse({ status: 200, description: 'Demat holdings array' })
-  @ApiResponse({ status: 502, description: 'Dhan API failure' })
-  async getHoldings() {
-    return this.ordersService.getHoldings();
-  }
 }

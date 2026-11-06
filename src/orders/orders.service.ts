@@ -111,37 +111,6 @@ export class OrdersService {
     };
   }
 
-  async getHoldings() {
-    const apiResult = await this.dhanService.getHoldings();
-
-    // Dhan returns HTTP 500 DH-1111 when user has 0 Demat holdings
-    if (apiResult.status === 500 && (apiResult.data?.errorMessage === 'No holdings available' || apiResult.data?.errorCode === 'DH-1111')) {
-      return [];
-    }
-
-    if (!apiResult.ok) {
-      const errorMsg = apiResult.data?.errorMessage
-        || apiResult.data?.message
-        || apiResult.data?.data?.['808']
-        || apiResult.error
-        || `Failed to fetch holdings from Dhan API (HTTP ${apiResult.status})`;
-      throw new BadGatewayException(errorMsg);
-    }
-
-    const rawHoldings = Array.isArray(apiResult.data) ? apiResult.data : [];
-    return rawHoldings.map((h: any) => ({
-      symbol: h.tradingSymbol || h.symbol || String(h.securityId),
-      securityId: String(h.securityId),
-      exchange: h.exchange || 'NSE',
-      totalQty: h.totalQty || h.quantity || 0,
-      dpQty: h.dpQty || 0,
-      avgCostPrice: h.avgCostPrice || h.averagePrice || 0,
-      ltp: h.ltp || h.lastPrice || 0,
-      currentValue: Math.round(((h.totalQty || 0) * (h.ltp || 0)) * 100) / 100,
-      pnl: Math.round((((h.ltp || 0) - (h.avgCostPrice || 0)) * (h.totalQty || 0)) * 100) / 100,
-    }));
-  }
-
   async placeOrder(dto: PlaceOrderDto) {
     const qty = parseInt(String(dto.quantity), 10);
     if (isNaN(qty) || qty <= 0) {

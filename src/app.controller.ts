@@ -43,7 +43,6 @@ export class AppController {
         orders: 'GET, POST /api/orders',
         orderCancel: 'DELETE /api/orders/:id',
         positions: 'GET /api/positions',
-        holdings: 'GET /api/holdings',
         instruments: 'GET /api/instruments?q=<query>&limit=<n>',
         telegramStatus: 'GET /api/telegram/status',
         telegramTest: 'POST /api/telegram/test',

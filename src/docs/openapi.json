@@ -632,24 +632,6 @@
           "Orders"
         ]
       }
-    },
-    "/api/holdings": {
-      "get": {
-        "operationId": "OrdersController_getHoldings",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Demat holdings array"
-          },
-          "502": {
-            "description": "Dhan API failure"
-          }
-        },
-        "summary": "Get Demat equity holdings from Dhan API",
-        "tags": [
-          "Orders"
-        ]
-      }
     }
   },
   "info": {
