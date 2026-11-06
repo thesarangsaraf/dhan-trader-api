@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ConditionalOrderDto } from './conditional-order.dto';
+import { StopLossConfigDto } from './stop-loss.dto';
 
 export class CreateConditionalAlertDto {
   @ApiProperty({
@@ -124,4 +125,13 @@ export class CreateConditionalAlertDto {
   @ApiPropertyOptional({ description: 'Legacy attached order object' })
   @IsOptional()
   attachedOrder?: any;
+
+  @ApiPropertyOptional({
+    description: 'Automated Stop Loss configuration to place SL alert when entry order is filled',
+    type: () => StopLossConfigDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StopLossConfigDto)
+  stopLoss?: StopLossConfigDto;
 }

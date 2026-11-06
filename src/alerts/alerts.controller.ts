@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
@@ -32,15 +32,6 @@ export class AlertsController {
   async getIndices() {
     await this.alertsService.checkAndTick();
     return this.alertsService.getIndices();
-  }
-
-  @Get('poll')
-  @ApiOperation({ summary: 'Poll for newly triggered alert events since last event ID' })
-  @ApiQuery({ name: 'since', required: false, description: 'Last processed event ID' })
-  @ApiResponse({ status: 200, description: 'Newly triggered events' })
-  poll(@Query('since') since?: string) {
-    const events = this.alertsService.getTriggeredEventsSince(since);
-    return { events };
   }
 
   @Post()

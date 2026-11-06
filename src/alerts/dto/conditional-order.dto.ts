@@ -66,6 +66,15 @@ export class ConditionalOrderDto {
   quantity: number;
 
   @ApiPropertyOptional({
+    description: 'Number of lots (optional; if provided, quantity is automatically computed)',
+    example: 5,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  lots?: number;
+
+  @ApiPropertyOptional({
     description: 'Limit price for LIMIT orders',
     example: 130.0,
   })

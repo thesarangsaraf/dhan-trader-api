@@ -68,11 +68,11 @@ export interface CachedIndexOption {
 
 const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
   // Indices
-  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 50 },
+  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
   { symbol: 'NIFTY BANK', name: 'Nifty Bank Index', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
   { symbol: 'SENSEX', name: 'BSE Sensex Index', securityId: '51', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 20 },
-  { symbol: 'NIFTY FIN SERVICE', name: 'Nifty Financial Services', securityId: '27', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 40 },
-  { symbol: 'MIDCP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 75 },
+  { symbol: 'NIFTY FIN SERVICE', name: 'Nifty Financial Services', securityId: '27', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 60 },
+  { symbol: 'MIDCP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
   { symbol: 'NIFTY NEXT 50', name: 'Nifty Next 50', securityId: '18', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 25 },
   { symbol: 'INDIA VIX', name: 'India Volatility Index', securityId: '21', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
   { symbol: 'NIFTY IT', name: 'Nifty IT Index', securityId: '29', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
@@ -115,10 +115,18 @@ export class InstrumentsService {
 
   private loadIndexOptions() {
     try {
-      const filePath = path.resolve(__dirname, '..', '..', 'data', 'index-options.json');
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf8');
-        this.indexOptions = JSON.parse(raw);
+      const candidatePaths = [
+        path.resolve(__dirname, '..', '..', 'data', 'index-options.json'),
+        path.resolve(__dirname, '..', 'data', 'index-options.json'),
+        path.resolve(process.cwd(), 'data', 'index-options.json'),
+        path.resolve(process.cwd(), '..', 'dhan-trader-api', 'data', 'index-options.json'),
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          this.indexOptions = JSON.parse(raw);
+          break;
+        }
       }
     } catch {
       this.indexOptions = [];
@@ -167,6 +175,54 @@ export class InstrumentsService {
   findBySymbol(symbol: string): Omit<InstrumentItem, 'ltp'> | undefined {
     const clean = symbol.trim().toUpperCase();
     return POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
+  }
+
+  findBySecurityId(securityId: string): {
+    symbol: string;
+    tradingSymbol?: string;
+    customSymbol?: string;
+    name?: string;
+    exchangeSegment?: string;
+    expiryDate?: string;
+    strikePrice?: number;
+    optionType?: string;
+    lotSize?: number;
+  } | undefined {
+    if (!securityId) return undefined;
+    const cleanId = String(securityId).trim();
+
+    if (this.indexOptions.length === 0) {
+      this.loadIndexOptions();
+    }
+
+    // 1. Search indexOptions first (12,900+ contracts with full strike, expiry, symbol details)
+    const matchedOpt = this.indexOptions.find((opt) => String(opt.securityId).trim() === cleanId);
+    if (matchedOpt) {
+      return {
+        symbol: matchedOpt.customSymbol || matchedOpt.tradingSymbol,
+        tradingSymbol: matchedOpt.tradingSymbol,
+        customSymbol: matchedOpt.customSymbol,
+        name: matchedOpt.customSymbol || matchedOpt.symbolName,
+        exchangeSegment: matchedOpt.exchange,
+        expiryDate: matchedOpt.expiryDate,
+        strikePrice: matchedOpt.strikePrice,
+        optionType: matchedOpt.optionType,
+        lotSize: matchedOpt.lotSize,
+      };
+    }
+
+    // 2. Search POPULAR_INSTRUMENTS (indices, equities, etc.)
+    const matchedPop = POPULAR_INSTRUMENTS.find((item) => String(item.securityId).trim() === cleanId);
+    if (matchedPop) {
+      return {
+        symbol: matchedPop.symbol,
+        name: matchedPop.name,
+        exchangeSegment: matchedPop.exchangeSegment,
+        lotSize: matchedPop.lotSize,
+      };
+    }
+
+    return undefined;
   }
 
   async getLtp(symbol: string): Promise<{ symbol: string; ltp: number | null }> {
@@ -302,7 +358,7 @@ export class InstrumentsService {
     let baseSymbol = 'NIFTY';
     let securityId = '13';
     let exchangeSegment = 'NSE_FNO';
-    let lotSize = 50;
+    let lotSize = 65;
     let defaultStep = 50;
     let targetWeekday = 4; // Thursday
 
@@ -317,14 +373,14 @@ export class InstrumentsService {
       normalizedName = 'NIFTY FIN SERVICE';
       baseSymbol = 'FINNIFTY';
       securityId = '27';
-      lotSize = 40;
+      lotSize = 60;
       defaultStep = 50;
       targetWeekday = 2;
     } else if (raw.includes('MIDCP')) {
       normalizedName = 'MIDCP NIFTY';
       baseSymbol = 'MIDCPNIFTY';
       securityId = '442';
-      lotSize = 75;
+      lotSize = 120;
       defaultStep = 25;
       targetWeekday = 1;
     } else if (raw.includes('SENSEX')) {
@@ -339,7 +395,7 @@ export class InstrumentsService {
       normalizedName = 'NIFTY 50';
       baseSymbol = 'NIFTY';
       securityId = '13';
-      lotSize = 50;
+      lotSize = 65;
       defaultStep = 50;
       targetWeekday = 4;
     } else {

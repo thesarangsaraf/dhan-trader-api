@@ -78,10 +78,12 @@ dhan-trader/
 │   │   └── dto/update-token.dto.ts    # DTO for token updates
 │   ├── alerts/
 │   │   ├── alerts.module.ts           # Price alerts feature module
-│   │   ├── alerts.controller.ts       # /api/alerts endpoints (CRUD, indices, polling)
+│   │   ├── alerts.controller.ts       # /api/alerts endpoints (CRUD, indices, conditional orders)
 │   │   ├── alerts.service.ts          # Tick evaluator & alerts engine
 │   │   └── dto/
 │   │       ├── create-alert.dto.ts    # DTO for alert creation
+│   │       ├── create-conditional-alert.dto.ts # DTO for conditional order alerts
+│   │       ├── stop-loss.dto.ts       # DTO for automated stop loss protection
 │   │       └── update-alert.dto.ts    # DTO for partial alert updates
 │   ├── orders/
 │   │   ├── orders.module.ts           # Orders feature module

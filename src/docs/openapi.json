@@ -242,31 +242,6 @@
         ]
       }
     },
-    "/api/alerts/poll": {
-      "get": {
-        "operationId": "AlertsController_poll",
-        "parameters": [
-          {
-            "name": "since",
-            "required": false,
-            "in": "query",
-            "description": "Last processed event ID",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Newly triggered events"
-          }
-        },
-        "summary": "Poll for newly triggered alert events since last event ID",
-        "tags": [
-          "Alerts"
-        ]
-      }
-    },
     "/api/alerts/conditional-order": {
       "post": {
         "description": "Creates a price alert that automatically triggers and places one or more conditional orders on Dhan HQ when the target price condition is met.",

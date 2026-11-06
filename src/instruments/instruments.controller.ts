@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InstrumentsService } from './instruments.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 
@@ -45,6 +45,19 @@ export class InstrumentsController {
   @ApiResponse({ status: 200, description: 'Live LTP for the requested instrument' })
   async getLtp(@Query('symbol') symbol: string) {
     return this.instrumentsService.getLtp(symbol);
+  }
+
+  @Get('by-security-id/:securityId')
+  @ApiOperation({ summary: 'Find scrip or option contract by Dhan security ID' })
+  @ApiParam({ name: 'securityId', description: 'Dhan security ID (e.g. 40040, 13)' })
+  @ApiResponse({ status: 200, description: 'Instrument scrip details' })
+  @ApiResponse({ status: 404, description: 'Security ID not found' })
+  async getBySecurityId(@Param('securityId') securityId: string) {
+    const item = this.instrumentsService.findBySecurityId(securityId);
+    if (!item) {
+      throw new NotFoundException(`Instrument with security ID ${securityId} not found`);
+    }
+    return item;
   }
 
   @Get()

@@ -36,7 +36,6 @@ export class AppController {
         alerts: 'GET, POST /api/alerts',
         alertsGrouped: 'GET /api/alerts/grouped',
         alertsIndices: 'GET /api/alerts/indices',
-        alertsPoll: 'GET /api/alerts/poll?since=<id>',
         alertCancel: 'POST /api/alerts/:id/cancel',
         alertUpdate: 'PUT /api/alerts/:id',
         alertDelete: 'DELETE /api/alerts/:id',
