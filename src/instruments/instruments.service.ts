@@ -1,4 +1,6 @@
 import { Injectable, BadRequestException, Optional } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DhanService } from '../dhan/dhan.service';
 import { YahooFinanceService } from '../yahoo/yahoo.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
@@ -25,10 +27,12 @@ export interface OptionContractDetails {
   exchangeSegment: string;
   lotSize: number;
   ltp: number;
+  moneyness?: 'ITM' | 'ATM' | 'OTM';
 }
 
 export interface StrikeOptionPair {
   strikePrice: number;
+  relativeStrike?: 'ATM-1' | 'ATM' | 'ATM+1';
   call: OptionContractDetails;
   put: OptionContractDetails;
 }
@@ -48,6 +52,18 @@ export interface OptionContractsResult {
   currentExpiry: ExpiryOptionChain;
   nextExpiry: ExpiryOptionChain;
   contracts: OptionContractDetails[];
+}
+
+export interface CachedIndexOption {
+  symbolName: string;
+  exchange: string;
+  securityId: string;
+  tradingSymbol: string;
+  customSymbol: string;
+  expiryDate: string;
+  strikePrice: number;
+  optionType: string;
+  lotSize: number;
 }
 
 const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
@@ -88,10 +104,43 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
 
 @Injectable()
 export class InstrumentsService {
+  private indexOptions: CachedIndexOption[] = [];
+
   constructor(
     private readonly dhanService: DhanService,
     @Optional() private readonly yahooService?: YahooFinanceService,
-  ) {}
+  ) {
+    this.loadIndexOptions();
+  }
+
+  private loadIndexOptions() {
+    try {
+      const filePath = path.resolve(__dirname, '..', '..', 'data', 'index-options.json');
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        this.indexOptions = JSON.parse(raw);
+      }
+    } catch {
+      this.indexOptions = [];
+    }
+  }
+
+  public findRealOption(symbolName: string, expiryDate: string, strikePrice: number, optionType: string): CachedIndexOption | undefined {
+    let symKey = symbolName.toUpperCase();
+    if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
+    else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+    else if (symKey.includes('MIDCP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
+    else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
+
+    return this.indexOptions.find(
+      (o) =>
+        o.symbolName === symKey &&
+        o.expiryDate === expiryDate &&
+        Math.abs(o.strikePrice - strikePrice) < 0.1 &&
+        o.optionType === optionType,
+    );
+  }
 
   async search(query?: string, limit = 10): Promise<InstrumentItem[]> {
     let matched: Omit<InstrumentItem, 'ltp'>[];
@@ -139,18 +188,120 @@ export class InstrumentsService {
   }
 
   /**
-   * Fetch 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry.
+   * Get list of option expiries for an instrument
    */
+  async getExpiries(instrument = 'NIFTY 50'): Promise<{ expiryDate: string; displayExpiry: string; shortExpiry: string }[]> {
+    const raw = (instrument || 'NIFTY 50').trim().toUpperCase();
+    let symKey = raw;
+    if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
+    else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+    else if (symKey.includes('MIDCP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
+    else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
+
+    const todayStr = this.formatExpiryDate(this.getIstDate()).expiryDate;
+    const realExpiries = Array.from(
+      new Set(
+        this.indexOptions
+          .filter((o) => o.symbolName === symKey && o.expiryDate >= todayStr)
+          .map((o) => o.expiryDate),
+      ),
+    ).sort();
+
+    if (realExpiries.length > 0) {
+      return realExpiries.slice(0, 8).map((dStr: string) => {
+        const d = this.parseDateString(dStr);
+        const fmt = this.formatExpiryDate(d);
+        return {
+          expiryDate: fmt.expiryDate,
+          displayExpiry: fmt.displayExpiry,
+          shortExpiry: fmt.shortExpiry,
+        };
+      });
+    }
+
+    let securityId = '13';
+    let exchangeSegment = 'IDX_I';
+    let targetWeekday = 4; // Thursday
+
+    if (raw.includes('BANK')) {
+      securityId = '25';
+      targetWeekday = 3;
+    } else if (raw.includes('FIN')) {
+      securityId = '27';
+      targetWeekday = 2;
+    } else if (raw.includes('MIDCP')) {
+      securityId = '442';
+      targetWeekday = 1;
+    } else if (raw.includes('SENSEX')) {
+      securityId = '51';
+      exchangeSegment = 'BSE_FNO';
+      targetWeekday = 5;
+    } else if (raw.includes('NIFTY')) {
+      securityId = '13';
+      targetWeekday = 4;
+    }
+
+    try {
+      const secNum = parseInt(securityId, 10);
+      if (!isNaN(secNum)) {
+        const dhanExpRes = await this.dhanService.getOptionChainExpiryList(
+          secNum,
+          exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'IDX_I',
+        );
+        if (dhanExpRes.ok && Array.isArray(dhanExpRes.data) && dhanExpRes.data.length > 0) {
+          const liveExpiries = dhanExpRes.data.filter((d: string) => typeof d === 'string' && d >= todayStr);
+          if (liveExpiries.length > 0) {
+            return liveExpiries.map((dStr: string) => {
+              const d = this.parseDateString(dStr);
+              const fmt = this.formatExpiryDate(d);
+              return {
+                expiryDate: fmt.expiryDate,
+                displayExpiry: fmt.displayExpiry,
+                shortExpiry: fmt.shortExpiry,
+              };
+            });
+          }
+        }
+      }
+    } catch {
+      // offline fallback
+    }
+
+    const results: { expiryDate: string; displayExpiry: string; shortExpiry: string }[] = [];
+    const ist = this.getIstDate();
+    const currentDay = ist.getDay();
+    let daysUntil = (targetWeekday - currentDay + 7) % 7;
+    if (daysUntil === 0 && (ist.getHours() > 15 || (ist.getHours() === 15 && ist.getMinutes() >= 30))) {
+      daysUntil = 7;
+    }
+    const firstDate = new Date(ist);
+    firstDate.setDate(ist.getDate() + daysUntil);
+
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(firstDate);
+      d.setDate(firstDate.getDate() + i * 7);
+      const fmt = this.formatExpiryDate(d);
+      results.push({
+        expiryDate: fmt.expiryDate,
+        displayExpiry: fmt.displayExpiry,
+        shortExpiry: fmt.shortExpiry,
+      });
+    }
+
+    return results;
+  }
+
   async getOptionContracts(dto: GetOptionContractsDto): Promise<OptionContractsResult> {
-    if (!dto.instrument || typeof dto.instrument !== 'string') {
-      throw new BadRequestException('Instrument name is required');
+    if (!dto || !dto.instrument) {
+      throw new BadRequestException('Instrument name or symbol is required');
     }
 
     const raw = dto.instrument.trim().toUpperCase();
-    let normalizedName = raw;
-    let baseSymbol = raw;
+    let normalizedName = 'NIFTY 50';
+    let baseSymbol = 'NIFTY';
     let securityId = '13';
-    let exchangeSegment = 'IDX_I';
+    let exchangeSegment = 'NSE_FNO';
     let lotSize = 50;
     let defaultStep = 50;
     let targetWeekday = 4; // Thursday
@@ -161,21 +312,21 @@ export class InstrumentsService {
       securityId = '25';
       lotSize = 30;
       defaultStep = 100;
-      targetWeekday = 3; // Wednesday
+      targetWeekday = 3;
     } else if (raw.includes('FIN')) {
       normalizedName = 'NIFTY FIN SERVICE';
       baseSymbol = 'FINNIFTY';
       securityId = '27';
       lotSize = 40;
       defaultStep = 50;
-      targetWeekday = 2; // Tuesday
+      targetWeekday = 2;
     } else if (raw.includes('MIDCP')) {
       normalizedName = 'MIDCP NIFTY';
       baseSymbol = 'MIDCPNIFTY';
       securityId = '442';
       lotSize = 75;
       defaultStep = 25;
-      targetWeekday = 1; // Monday
+      targetWeekday = 1;
     } else if (raw.includes('SENSEX')) {
       normalizedName = 'SENSEX';
       baseSymbol = 'SENSEX';
@@ -183,14 +334,14 @@ export class InstrumentsService {
       exchangeSegment = 'BSE_FNO';
       lotSize = 20;
       defaultStep = 100;
-      targetWeekday = 5; // Friday
+      targetWeekday = 5;
     } else if (raw.includes('NIFTY')) {
       normalizedName = 'NIFTY 50';
       baseSymbol = 'NIFTY';
       securityId = '13';
       lotSize = 50;
       defaultStep = 50;
-      targetWeekday = 4; // Thursday
+      targetWeekday = 4;
     } else {
       const match = POPULAR_INSTRUMENTS.find(
         (it) => it.symbol.toUpperCase() === raw || it.name.toUpperCase() === raw,
@@ -204,7 +355,7 @@ export class InstrumentsService {
       }
     }
 
-    // Determine reference spot price (strictly numeric)
+    // Reference spot price
     let spotPrice = typeof dto.price === 'string' ? parseFloat(dto.price) : dto.price;
     if (!spotPrice || isNaN(spotPrice) || spotPrice <= 0) {
       const ltpObj = await this.getLtp(normalizedName);
@@ -213,12 +364,9 @@ export class InstrumentsService {
       spotPrice = parseFloat(String(spotPrice));
     }
 
-    // Determine strike step (strictly numeric)
-    let step = typeof dto.strikeStep === 'string' ? parseFloat(dto.strikeStep) : dto.strikeStep;
+    let step = defaultStep;
     if (!step || isNaN(step) || step <= 0) {
-      if (defaultStep) {
-        step = defaultStep;
-      } else if (spotPrice >= 5000) {
+      if (spotPrice >= 5000) {
         step = 100;
       } else if (spotPrice >= 2000) {
         step = 50;
@@ -229,68 +377,44 @@ export class InstrumentsService {
       } else {
         step = 5;
       }
-    } else {
-      step = parseFloat(String(step));
     }
 
-    // Calculate strikes (strictly numeric, default count: 3 -> ATM-1, ATM, ATM+1)
-    const rawCount = typeof dto.strikeCount === 'string' ? parseInt(dto.strikeCount, 10) : dto.strikeCount;
-    const strikeCount = rawCount && rawCount > 0 ? rawCount : 3;
     const atmStrike = Math.round(spotPrice / step) * step;
-    const strikes: number[] = [];
-    const half = Math.floor(strikeCount / 2);
-    for (let i = -half; i <= half; i++) {
-      strikes.push(atmStrike + i * step);
-    }
+    const strikes = [atmStrike - step, atmStrike, atmStrike + step];
 
     // Determine current and next expiry
     let currentExpiryDate: Date;
     let nextExpiryDate: Date;
 
+    const availableExpiries = await this.getExpiries(normalizedName);
     if (dto.expiry) {
       currentExpiryDate = this.parseDateString(dto.expiry);
+      const curFmtStr = this.formatExpiryDate(currentExpiryDate).expiryDate;
+      const matchIdx = availableExpiries.findIndex((e) => e.expiryDate === curFmtStr);
+      if (matchIdx >= 0 && matchIdx + 1 < availableExpiries.length) {
+        nextExpiryDate = this.parseDateString(availableExpiries[matchIdx + 1].expiryDate);
+      } else {
+        nextExpiryDate = new Date(currentExpiryDate);
+        nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
+      }
+    } else if (availableExpiries.length >= 2) {
+      currentExpiryDate = this.parseDateString(availableExpiries[0].expiryDate);
+      nextExpiryDate = this.parseDateString(availableExpiries[1].expiryDate);
+    } else if (availableExpiries.length === 1) {
+      currentExpiryDate = this.parseDateString(availableExpiries[0].expiryDate);
       nextExpiryDate = new Date(currentExpiryDate);
       nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
     } else {
-      // Try Dhan API live expiry list
-      let liveExpiries: string[] = [];
-      try {
-        const secNum = parseInt(securityId, 10);
-        if (!isNaN(secNum)) {
-          const dhanExpRes = await this.dhanService.getOptionChainExpiryList(
-            secNum,
-            exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'IDX_I',
-          );
-          if (dhanExpRes.ok && Array.isArray(dhanExpRes.data)) {
-            const todayStr = this.formatExpiryDate(this.getIstDate()).expiryDate;
-            liveExpiries = dhanExpRes.data.filter((d: string) => typeof d === 'string' && d >= todayStr);
-          }
-        }
-      } catch {
-        // Dhan API offline or Data API not subscribed
+      const ist = this.getIstDate();
+      const currentDay = ist.getDay();
+      let daysUntil = (targetWeekday - currentDay + 7) % 7;
+      if (daysUntil === 0 && (ist.getHours() > 15 || (ist.getHours() === 15 && ist.getMinutes() >= 30))) {
+        daysUntil = 7;
       }
-
-      if (liveExpiries.length >= 2) {
-        currentExpiryDate = this.parseDateString(liveExpiries[0]);
-        nextExpiryDate = this.parseDateString(liveExpiries[1]);
-      } else if (liveExpiries.length === 1) {
-        currentExpiryDate = this.parseDateString(liveExpiries[0]);
-        nextExpiryDate = new Date(currentExpiryDate);
-        nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
-      } else {
-        // Fallback calendar logic
-        const ist = this.getIstDate();
-        const currentDay = ist.getDay();
-        let daysUntil = (targetWeekday - currentDay + 7) % 7;
-        // If today is target weekday, but market has closed (after 15:30 IST), roll to next week
-        if (daysUntil === 0 && (ist.getHours() > 15 || (ist.getHours() === 15 && ist.getMinutes() >= 30))) {
-          daysUntil = 7;
-        }
-        currentExpiryDate = new Date(ist);
-        currentExpiryDate.setDate(ist.getDate() + daysUntil);
-        nextExpiryDate = new Date(currentExpiryDate);
-        nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
-      }
+      currentExpiryDate = new Date(ist);
+      currentExpiryDate.setDate(ist.getDate() + daysUntil);
+      nextExpiryDate = new Date(currentExpiryDate);
+      nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
     }
 
     const curFmt = this.formatExpiryDate(currentExpiryDate);
@@ -313,13 +437,27 @@ export class InstrumentsService {
           ? this.yahooService.calculateOptionLtp(strike, 'PE', spotPrice)
           : Math.max(5, Math.round((Math.max(0, strike - spotPrice) + 50) * 10) / 10);
 
-        // Deterministic security IDs for options
-        const callSecId = `${securityId}${strike}CE`;
-        const putSecId = `${securityId}${strike}PE`;
+        // Real Dhan security IDs from scrip master cache
+        const realCall = this.findRealOption(baseSymbol, fmt.expiryDate, strike, 'CE');
+        const realPut = this.findRealOption(baseSymbol, fmt.expiryDate, strike, 'PE');
+
+        const callSecId = realCall ? realCall.securityId : `${securityId}${strike}CE`;
+        const putSecId = realPut ? realPut.securityId : `${securityId}${strike}PE`;
+        const callSym = realCall?.customSymbol || `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} CE`;
+        const putSym = realPut?.customSymbol || `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} PE`;
+        const callTradingSym = realCall?.tradingSymbol || `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-CE`;
+        const putTradingSym = realPut?.tradingSymbol || `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-PE`;
+        const callLot = realCall ? realCall.lotSize : lotSize;
+        const putLot = realPut ? realPut.lotSize : lotSize;
+
+        const callMoneyness: 'ITM' | 'ATM' | 'OTM' =
+          strike < atmStrike ? 'ITM' : strike === atmStrike ? 'ATM' : 'OTM';
+        const putMoneyness: 'ITM' | 'ATM' | 'OTM' =
+          strike < atmStrike ? 'OTM' : strike === atmStrike ? 'ATM' : 'ITM';
 
         const callContract: OptionContractDetails = {
-          symbol: `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} CE`,
-          tradingSymbol: `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-CE`,
+          symbol: callSym,
+          tradingSymbol: callTradingSym,
           instrumentName: normalizedName,
           strikePrice: strike,
           optionType: 'CE',
@@ -327,13 +465,14 @@ export class InstrumentsService {
           expiryType,
           securityId: callSecId,
           exchangeSegment: exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'NSE_FNO',
-          lotSize,
+          lotSize: callLot,
           ltp: callLtp,
+          moneyness: callMoneyness,
         };
 
         const putContract: OptionContractDetails = {
-          symbol: `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} PE`,
-          tradingSymbol: `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-PE`,
+          symbol: putSym,
+          tradingSymbol: putTradingSym,
           instrumentName: normalizedName,
           strikePrice: strike,
           optionType: 'PE',
@@ -341,15 +480,42 @@ export class InstrumentsService {
           expiryType,
           securityId: putSecId,
           exchangeSegment: exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'NSE_FNO',
-          lotSize,
+          lotSize: putLot,
           ltp: putLtp,
+          moneyness: putMoneyness,
         };
+
+        // Cache in POPULAR_INSTRUMENTS so findBySymbol can resolve
+        if (!POPULAR_INSTRUMENTS.some((p) => p.symbol === callSym)) {
+          POPULAR_INSTRUMENTS.push({
+            symbol: callSym,
+            name: callSym,
+            securityId: callSecId,
+            exchangeSegment: callContract.exchangeSegment,
+            instrumentType: 'OPTIDX',
+            lotSize: callLot,
+          });
+        }
+        if (!POPULAR_INSTRUMENTS.some((p) => p.symbol === putSym)) {
+          POPULAR_INSTRUMENTS.push({
+            symbol: putSym,
+            name: putSym,
+            securityId: putSecId,
+            exchangeSegment: putContract.exchangeSegment,
+            instrumentType: 'OPTIDX',
+            lotSize: putLot,
+          });
+        }
 
         contracts.push(callContract);
         contracts.push(putContract);
 
+        const relativeStrike: 'ATM-1' | 'ATM' | 'ATM+1' =
+          strike < atmStrike ? 'ATM-1' : strike === atmStrike ? 'ATM' : 'ATM+1';
+
         strikePairs.push({
           strikePrice: strike,
+          relativeStrike,
           call: callContract,
           put: putContract,
         });
@@ -424,13 +590,14 @@ export class InstrumentsService {
     }
 
     const priceMap = new Map<string, number>();
+
     try {
       const ltpRes = await this.dhanService.getLtp(segmentsMap);
       if (ltpRes.ok && ltpRes.data && ltpRes.data.data) {
         for (const [seg, secObj] of Object.entries(ltpRes.data.data)) {
           if (typeof secObj === 'object' && secObj !== null) {
-            for (const [secId, quote] of Object.entries(secObj as any)) {
-              const livePrice = (quote as any)?.last_price || (quote as any)?.ltp;
+            for (const [secId, quote] of Object.entries(secObj as Record<string, any>)) {
+              const livePrice = quote?.last_price || quote?.ltp;
               if (typeof livePrice === 'number') {
                 priceMap.set(`${seg}:${secId}`, livePrice);
               }
@@ -439,19 +606,16 @@ export class InstrumentsService {
         }
       }
     } catch {
-      // If live feed unavailable from Dhan, fallback to Yahoo Finance
+      // Data API offline or unsubscribed
     }
 
-    // Identify instruments that still need real LTP
     const missingItems = items.filter(
       (it) => !priceMap.has(`${it.exchangeSegment}:${it.securityId}`),
     );
 
     if (missingItems.length > 0 && this.yahooService) {
       try {
-        const yahooQuotes = await this.yahooService.getBatchLtp(
-          missingItems.map((it) => it.symbol),
-        );
+        const yahooQuotes = await this.yahooService.getBatchLtp(missingItems.map((it) => it.symbol));
         for (const it of missingItems) {
           const key = `${it.exchangeSegment}:${it.securityId}`;
           const yPrice = yahooQuotes[it.symbol] ?? yahooQuotes[it.symbol.toUpperCase()];
@@ -460,7 +624,7 @@ export class InstrumentsService {
           }
         }
       } catch {
-        // Yahoo fetch error ignored
+        // Yahoo service error
       }
     }
 

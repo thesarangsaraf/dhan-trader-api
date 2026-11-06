@@ -44,8 +44,6 @@ export class AppController {
         orderCancel: 'DELETE /api/orders/:id',
         positions: 'GET /api/positions',
         holdings: 'GET /api/holdings',
-        strategyAutoSl: 'POST /api/strategy/auto-sl',
-        strategyLogs: 'GET /api/strategy/auto-sl/logs',
         instruments: 'GET /api/instruments?q=<query>&limit=<n>',
         telegramStatus: 'GET /api/telegram/status',
         telegramTest: 'POST /api/telegram/test',

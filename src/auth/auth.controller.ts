@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { UpdateTokenDto } from './dto/update-token.dto';
@@ -23,10 +23,15 @@ export class AuthController {
   }
 
   @Post('renew')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Renew Dhan Access Token via Dhan API' })
   @ApiResponse({ status: 200, description: 'Renewal outcome' })
   async renew() {
-    return this.authService.renewToken();
+    const res = await this.authService.renewToken();
+    if (!res.success) {
+      throw new BadRequestException(res.error || 'Dhan token renewal rejected by Dhan API');
+    }
+    return res;
   }
 
   @Post('update')

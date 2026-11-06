@@ -81,4 +81,26 @@ test('AuthService (NestJS)', async (t) => {
     assert.strictEqual(res.source, 'dhan_api');
     assert.strictEqual(typeof res.inspection.expiresAtIST, 'string');
   });
+
+  await t.test('checkAndAutoRenew skips when token has > 4 hours remaining', async () => {
+    // Current token has ~24h remaining
+    const outcome = await service.checkAndAutoRenew();
+    assert.strictEqual(outcome.skipped, true);
+    assert.strictEqual(outcome.reason, 'NOT_DUE');
+  });
+
+  await t.test('checkAndAutoRenew triggers renewal when token has <= 4 hours remaining', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // Token expiring in 2 hours (less than 4 hours threshold)
+    const exp = now + 7200;
+    const payload = { sub: '1106885516', clientId: '1106885516', iat: now - 79200, exp };
+    const hB64 = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const pB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const expiringSoonJwt = `${hB64}.${pB64}.test_sig`;
+
+    service.updateToken(expiringSoonJwt, '1106885516');
+    const outcome = await service.checkAndAutoRenew();
+    assert.strictEqual(outcome.renewed, true);
+    assert.ok(outcome.res?.success);
+  });
 });

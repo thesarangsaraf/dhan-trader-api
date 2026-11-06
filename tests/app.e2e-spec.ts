@@ -110,12 +110,17 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       ok: true,
       data: {},
     }),
+    renewToken: async () => ({
+      ok: true,
+      data: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTA2ODg1NTE2IiwiY2xpZW50SWQiOiIxMTA2ODg1NTE2IiwiaWF0IjoxNzMwODAwMDAwLCJleHAiOjE4MDAwMDAwMDB9.mock_renewed',
+      },
+    }),
   };
 
   const mockTelegramService = {
     sendAlertNotification: async () => ({ success: true }),
     sendOrderNotification: async () => ({ success: true }),
-    sendStrategyNotification: async () => ({ success: true }),
     getStatus: () => ({ configured: true, chatId: '895***469', botConfigured: true }),
     sendTestNotification: async () => ({ success: true, test: true }),
   };
@@ -205,6 +210,13 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.expiresAtIST);
   });
 
+  await t.test('POST /api/auth/renew renews Dhan token via POST', async () => {
+    const res = await makeMockRequest('POST', '/api/auth/renew');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.ok(res.body.inspection?.expiresAtIST);
+  });
+
   await t.test('GET /api/alerts returns active alerts array', async () => {
     const res = await makeMockRequest('GET', '/api/alerts');
     assert.strictEqual(res.status, 200);
@@ -271,6 +283,12 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.currentExpiry.strikes[2].strikePrice, 25550);
     assert.strictEqual(res.body.currentExpiry.strikes[0].call.optionType, 'CE');
     assert.strictEqual(res.body.currentExpiry.strikes[0].put.optionType, 'PE');
+    assert.strictEqual(res.body.currentExpiry.strikes[0].call.moneyness, 'ITM');
+    assert.strictEqual(res.body.currentExpiry.strikes[0].put.moneyness, 'OTM');
+    assert.strictEqual(res.body.currentExpiry.strikes[1].call.moneyness, 'ATM');
+    assert.strictEqual(res.body.currentExpiry.strikes[1].put.moneyness, 'ATM');
+    assert.strictEqual(res.body.currentExpiry.strikes[2].call.moneyness, 'OTM');
+    assert.strictEqual(res.body.currentExpiry.strikes[2].put.moneyness, 'ITM');
     assert.strictEqual(typeof res.body.currentExpiry.strikes[0].call.ltp, 'number');
 
     // Next expiry assertions
@@ -287,6 +305,14 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.contracts.length, 12); // 3 strikes * 2 types * 2 expiries
   });
 
+  await t.test('GET /api/instruments/option-contracts accepts target expiry string and returns 3 contracts', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=nifty%2050&price=25500&expiry=2026-11-12');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-12');
+    assert.strictEqual(res.body.strikes.length, 3);
+    assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
+  });
+
   await t.test('POST /api/instruments/option-contracts returns option contracts via body payload', async () => {
     const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
       instrument: 'NIFTY 50',
@@ -294,6 +320,19 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     });
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
+  });
+
+  await t.test('POST /api/instruments/option-contracts accepts instrument, price, expiry and returns 3 contracts', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
+      instrument: 'BANKNIFTY',
+      price: 52000,
+      expiry: '2026-11-12',
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.instrument, 'NIFTY BANK');
+    assert.strictEqual(res.body.strikeStep, 100);
+    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-12');
+    assert.deepStrictEqual(res.body.strikes, [51900, 52000, 52100]);
   });
 
   await t.test('GET /api/orders returns orders book from Dhan API', async () => {
@@ -308,19 +347,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body.positions));
     assert.strictEqual(typeof res.body.summary.netPnL, 'number');
-  });
-
-  await t.test('POST /api/strategy/auto-sl executes Nifty FNO Long -7/+30 bracket runner on Dhan API', async () => {
-    const res = await makeMockRequest('POST', '/api/strategy/auto-sl', {
-      symbol: 'NIFTY 24500 CE',
-      securityId: '45021',
-      entryPrice: 130.0,
-      quantity: 50,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.strategy, 'NIFTY_LONG_AUTO_SL_TARGET');
-    assert.strictEqual(res.body.slPrice, 123.0);
-    assert.strictEqual(res.body.targetPrice, 160.0);
   });
 
   await t.test('GET /api/holdings returns demat holdings from Dhan API', async () => {

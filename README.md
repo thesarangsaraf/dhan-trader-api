@@ -1,6 +1,6 @@
 # ⚡ Dhan Trader — NestJS (TypeScript) Pure Backend Trading Engine & Alert Service
 
-A high-performance, enterprise-grade backend algorithmic trading engine and price alert microservice built on **NestJS** and **TypeScript** with the **Dhan HQ API v2**. Features full architectural TypeScript decorators (`@Controller`, `@Injectable`, `@Module`, `@Body`, `@Query`, `@Param`), interactive **Swagger UI documentation (`/docs`)**, native support for NSE Indices alerts without requiring a static IP, automated bracket order execution (Auto-SL / Target), and live Telegram alert dispatch.
+A high-performance, enterprise-grade backend algorithmic trading engine and price alert microservice built on **NestJS** and **TypeScript** with the **Dhan HQ API v2**. Features full architectural TypeScript decorators (`@Controller`, `@Injectable`, `@Module`, `@Body`, `@Query`, `@Param`), interactive **Swagger UI documentation (`/docs`)**, native support for NSE Indices alerts without requiring a static IP, live order and position management, and live Telegram alert dispatch.
 
 ---
 
@@ -11,7 +11,7 @@ A high-performance, enterprise-grade backend algorithmic trading engine and pric
   - Standard NestJS decorators for dependency injection, controllers, request parsing, and validation pipes.
   - Zero plain JavaScript (`.js`) files in application code, scripts, or test suites.
 - **DTO Validation & Schema Transformation**:
-  - Request payloads validated via `class-validator` and `class-transformer` (`PlaceOrderDto`, `AutoSlDto`, `CreateAlertDto`, `UpdateAlertDto`, `UpdateTokenDto`, `UpdateTelegramDto`).
+  - Request payloads validated via `class-validator` and `class-transformer` (`PlaceOrderDto`, `CreateAlertDto`, `UpdateAlertDto`, `UpdateTokenDto`, `UpdateTelegramDto`).
   - Global `ValidationPipe` active across all routes.
 - **Interactive Swagger Documentation**:
   - Built-in interactive Swagger UI at `http://127.0.0.1:8000/docs` (and `/swagger`).
@@ -21,12 +21,8 @@ A high-performance, enterprise-grade backend algorithmic trading engine and pric
   - Easily consumes or integrates with custom React, Vue, Next.js dashboards, mobile apps, or headless trading bots.
 - **Zero Static IP Barrier**:
   - Monitors and triggers price alerts on benchmark NSE indices and F&O instruments using tick monitoring without requiring static IP allocation.
-- **Auto-SL (-7 pts) & Target (+30 pts) Strategy Runner**:
-  - Automated bracket execution for Nifty FNO Long positions.
-  - Automatically calculates Stop-Loss at `Entry - 7 pts` and Target at `Entry + 30 pts` (Risk:Reward ratio 1:4.29).
-  - Emits real-time execution step logs and dispatches immediate Telegram messages.
 - **Telegram Bot Notifications**:
-  - Automated dispatches for triggered alerts, orders (placed, executed, cancelled), and bracket strategy executions.
+  - Automated dispatches for triggered alerts and orders (placed, executed, cancelled).
 - **Dhan Token Expiry & Refresh Service**:
   - Inspects JWT `exp` and `iat` claims, outputting human-readable Indian Standard Time (IST) expiration stamps and countdowns.
   - Live API validation pinging `https://api.dhan.co/v2/profile`.
@@ -187,7 +183,7 @@ Deletes an alert permanently.
 
 ---
 
-### 4. Orders, Positions & Strategy (`/api/orders`, `/api/positions`, `/api/strategy`)
+### 4. Orders & Positions (`/api/orders`, `/api/positions`, `/api/holdings`)
 
 #### `GET /api/orders`
 Fetches all live orders directly from the Dhan API.
@@ -217,18 +213,6 @@ Returns current positions, funds/margins, and net P&L summary from Dhan API.
 
 #### `GET /api/holdings`
 Returns Dhan Demat equity portfolio holdings.
-
-#### `POST /api/strategy/auto-sl`
-Executes an automated bracket strategy: Long entry + Stop-Loss (-7 pts) + Target (+30 pts).
-```bash
-curl -X POST http://127.0.0.1:8000/api/strategy/auto-sl \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "NIFTY 24600 CE",
-    "entryPrice": 140.0,
-    "quantity": 50
-  }'
-```
 
 ---
 
@@ -289,14 +273,13 @@ dhan-trader/
 │   │   ├── instruments.module.ts      # Instruments feature module
 │   │   └── instruments.service.ts     # Scrip master & search service
 │   ├── orders/
-│   │   ├── orders.controller.ts       # Orders, positions & strategy REST controller
+│   │   ├── orders.controller.ts       # Orders and positions REST controller
 │   │   ├── orders.module.ts           # Orders feature module
-│   │   ├── orders.service.ts          # Order execution & Auto-SL bracket runner
+│   │   ├── orders.service.ts          # Order execution service
 │   │   └── dto/
-│   │       ├── auto-sl.dto.ts         # Auto-SL bracket runner DTO
 │   │       └── place-order.dto.ts     # Manual order placement DTO
 │   └── telegram/
-│       ├── telegram.controller.ts    # Telegram status & test REST controller
+│       ├── telegram.controller.ts     # Telegram status & test REST controller
 │       ├── telegram.module.ts         # Telegram feature module
 │       ├── telegram.service.ts        # Telegram bot HTML message dispatcher
 │       └── dto/
@@ -305,7 +288,7 @@ dhan-trader/
 │   ├── alerts.service.spec.ts         # TypeScript unit tests for AlertsService
 │   ├── app.e2e-spec.ts                # TypeScript E2E integration tests for all REST routes
 │   ├── auth.service.spec.ts           # TypeScript unit tests for AuthService & JWT decoding
-│   └── orders.service.spec.ts         # TypeScript unit tests for OrdersService & Auto-SL
+│   └── orders.service.spec.ts         # TypeScript unit tests for OrdersService
 ├── .env                               # Environment credentials
 ├── package.json                       # Scripts, NestJS & TypeScript dependencies
 ├── tsconfig.json                      # TypeScript compiler configuration

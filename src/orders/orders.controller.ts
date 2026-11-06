@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/co
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
-import { AutoSlDto } from './dto/auto-sl.dto';
 
 @ApiTags('Orders')
 @Controller('api')
@@ -49,21 +48,5 @@ export class OrdersController {
   @ApiResponse({ status: 502, description: 'Dhan API failure' })
   async getHoldings() {
     return this.ordersService.getHoldings();
-  }
-
-  @Post('strategy/auto-sl')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Execute real Nifty Auto-SL (-7 pts) and Target (+30 pts) Bracket Runner on Dhan' })
-  @ApiResponse({ status: 200, description: 'Bracket orders deployed with execution logs' })
-  @ApiResponse({ status: 400, description: 'Strategy execution failure on Dhan' })
-  async executeAutoSl(@Body() dto: AutoSlDto) {
-    return this.ordersService.executeAutoSLTarget(dto);
-  }
-
-  @Get('strategy/auto-sl/logs')
-  @ApiOperation({ summary: 'Get Auto-SL bracket execution logs' })
-  @ApiResponse({ status: 200, description: 'Array of past strategy execution runs' })
-  getAutoSlLogs() {
-    return this.ordersService.getAutoSlLogs();
   }
 }

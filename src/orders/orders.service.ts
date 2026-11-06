@@ -1,18 +1,13 @@
 import { Injectable, BadRequestException, BadGatewayException } from '@nestjs/common';
 import { DhanService } from '../dhan/dhan.service';
 import { TelegramService } from '../telegram/telegram.service';
-import { InstrumentsService } from '../instruments/instruments.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
-import { AutoSlDto } from './dto/auto-sl.dto';
 
 @Injectable()
 export class OrdersService {
-  public autoSlLogs: any[] = [];
-
   constructor(
     private readonly dhanService: DhanService,
     private readonly telegramService: TelegramService,
-    private readonly instrumentsService: InstrumentsService,
   ) {}
 
   async getOrders() {
@@ -236,108 +231,5 @@ export class OrdersService {
       || `Failed to cancel order ${orderId} on Dhan API`;
 
     throw new BadRequestException(errorMsg);
-  }
-
-  async executeAutoSLTarget(dto: AutoSlDto) {
-    if (!dto.entryPrice || isNaN(Number(dto.entryPrice)) || Number(dto.entryPrice) <= 0) {
-      throw new BadRequestException('Valid positive entryPrice is required');
-    }
-    if (!dto.quantity || isNaN(Number(dto.quantity)) || Number(dto.quantity) <= 0) {
-      throw new BadRequestException('Quantity must be a positive integer');
-    }
-    const targetSymbol = dto.symbol ? dto.symbol.trim().toUpperCase() : '';
-    if (!targetSymbol) {
-      throw new BadRequestException('Symbol is required');
-    }
-
-    const qty = parseInt(String(dto.quantity), 10);
-    const entry = parseFloat(String(dto.entryPrice));
-
-    let secId = dto.securityId ? String(dto.securityId).trim() : '';
-    if (!secId) {
-      const matched = this.instrumentsService.findBySymbol(targetSymbol);
-      if (matched) {
-        secId = matched.securityId;
-      } else {
-        throw new BadRequestException(`securityId is required for symbol ${targetSymbol}`);
-      }
-    }
-
-    const slPts = 7.0;
-    const targetPts = 30.0;
-    const slPrice = Math.round((entry - slPts) * 100) / 100;
-    const targetPrice = Math.round((entry + targetPts) * 100) / 100;
-
-    const logs: string[] = [];
-    const timestamp = () => new Date().toLocaleTimeString('en-IN', { hour12: false });
-
-    logs.push(`[${timestamp()}] 🎯 Initiating Real Nifty Auto-SL Runner for ${targetSymbol}`);
-    logs.push(`[${timestamp()}] 📊 Parameters: Entry = ₹${entry}, Stop Loss = ₹${slPrice} (-${slPts} pts), Target = ₹${targetPrice} (+${targetPts} pts), Qty = ${qty}`);
-
-    const buyResult = await this.placeOrder({
-      symbol: targetSymbol,
-      securityId: secId,
-      exchangeSegment: 'NSE_FNO',
-      transactionType: 'BUY',
-      orderType: 'MARKET',
-      productType: 'INTRADAY',
-      quantity: qty,
-      price: entry,
-    });
-    logs.push(`[${timestamp()}] ✅ Long Entry Placed on Dhan: ${qty} Qty @ ₹${entry} (Order ID: ${buyResult.order.orderId})`);
-
-    const slResult = await this.placeOrder({
-      symbol: targetSymbol,
-      securityId: secId,
-      exchangeSegment: 'NSE_FNO',
-      transactionType: 'SELL',
-      orderType: 'SL-M',
-      productType: 'INTRADAY',
-      quantity: qty,
-      triggerPrice: slPrice,
-      price: 0,
-    });
-    logs.push(`[${timestamp()}] 🛡️ Stop Loss Trigger Placed on Dhan: Trigger @ ₹${slPrice} (Order ID: ${slResult.order.orderId})`);
-
-    const targetResult = await this.placeOrder({
-      symbol: targetSymbol,
-      securityId: secId,
-      exchangeSegment: 'NSE_FNO',
-      transactionType: 'SELL',
-      orderType: 'LIMIT',
-      productType: 'INTRADAY',
-      quantity: qty,
-      price: targetPrice,
-    });
-    logs.push(`[${timestamp()}] 🚀 Profit Target Order Placed on Dhan: Limit @ ₹${targetPrice} (Order ID: ${targetResult.order.orderId})`);
-    logs.push(`[${timestamp()}] ⚡ Real Bracket Deployed! Risk:Reward ratio 1:${(targetPts / slPts).toFixed(2)} active.`);
-
-    const executionSummary = {
-      strategy: 'NIFTY_LONG_AUTO_SL_TARGET',
-      symbol: targetSymbol,
-      quantity: qty,
-      entryPrice: entry,
-      slPrice,
-      targetPrice,
-      slPoints: slPts,
-      targetPoints: targetPts,
-      riskRewardRatio: `1:${(targetPts / slPts).toFixed(2)}`,
-      orders: {
-        entryOrder: buyResult.order,
-        stopLossOrder: slResult.order,
-        targetOrder: targetResult.order,
-      },
-      logs,
-      executedAt: new Date().toISOString(),
-    };
-
-    this.autoSlLogs.unshift(executionSummary);
-    this.telegramService.sendStrategyNotification(executionSummary);
-
-    return executionSummary;
-  }
-
-  getAutoSlLogs() {
-    return this.autoSlLogs;
   }
 }

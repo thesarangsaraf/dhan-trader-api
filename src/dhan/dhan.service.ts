@@ -87,11 +87,14 @@ export class DhanService {
     return this.request('/holdings');
   }
 
-  // Token renewal via Dhan API
+  // Token renewal via Dhan API (Requires GET and dhanClientId header)
   async renewToken(): Promise<DhanApiResponse> {
     return this.request('/RenewToken', {
-      method: 'POST',
-      body: {},
+      method: 'GET',
+      headers: {
+        'dhanClientId': this.config.clientId,
+        'client-id': this.config.clientId,
+      },
     });
   }
 

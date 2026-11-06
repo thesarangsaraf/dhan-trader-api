@@ -7,7 +7,7 @@ This document provides definitive instructions, architecture patterns, constrain
 ## 🎯 Repository Overview & Purpose
 
 **Dhan Trader** is a pure, headless backend microservice and algorithmic trading engine built with **NestJS** and **TypeScript**, integrated with the **Dhan HQ API v2**.
-- **Role**: Execute automated bracket trading strategies (e.g., Auto-SL / Target), manage orders and positions, provide real-time price alert monitoring on NSE indices without static IP restrictions, decode/renew JWT authentication tokens, and dispatch live notifications to Telegram.
+- **Role**: Manage orders and positions, provide real-time price alert monitoring on NSE indices without static IP restrictions, decode/renew JWT authentication tokens, and dispatch live notifications to Telegram.
 - **Form Factor**: 100% headless REST API backend. It contains zero UI, HTML, or static frontend bundles. Clients consume this service via REST or generated OpenAPI SDKs.
 
 ---
@@ -41,6 +41,11 @@ This document provides definitive instructions, architecture patterns, constrain
    - Do not add static frontends, HTML views, or frontend build pipelines (Webpack/Vite for React/Vue) to this repository.
    - Any UI needs are served by external frontend applications consuming `/api/docs/openapi.json`.
 
+6. **Cross-Repository UI Coordination (`dhan-trader-ui`)**:
+   - If there is a change in any backend API or any functionality that can affect the UI, the frontend UI project is available in the folder `dhan-trader-ui` under the same directory (`../dhan-trader-ui`).
+   - Go there, check the frontend codebase, and make changes if needed (e.g. updating API models, service methods, endpoints, or UI components).
+   - Always ensure both projects remain in sync, pass their test suites (`npm test`), and compile production builds (`npm run build`) without errors.
+
 ---
 
 ## 📂 Architecture & Directory Structure
@@ -53,8 +58,6 @@ dhan-trader/
 ├── tsconfig.json                      # TypeScript configuration (ES2022, CommonJS, Decorators)
 ├── README.md                          # Human-facing documentation
 ├── AGENTS.md                          # Agent-facing operational guidelines (this file)
-├── data/
-│   └── alerts.json                    # File-based persistence for price alerts
 ├── dist/                              # Output directory for tsc compiler
 ├── scripts/
 │   └── verify-dhan.ts                 # Real live Dhan HQ API connectivity script
@@ -81,12 +84,11 @@ dhan-trader/
 │   │       ├── create-alert.dto.ts    # DTO for alert creation
 │   │       └── update-alert.dto.ts    # DTO for partial alert updates
 │   ├── orders/
-│   │   ├── orders.module.ts           # Orders & strategy feature module
-│   │   ├── orders.controller.ts       # /api/orders, /api/positions, /api/strategy
-│   │   ├── orders.service.ts          # Live order dispatcher, Auto-SL bracket runner
+│   │   ├── orders.module.ts           # Orders feature module
+│   │   ├── orders.controller.ts       # /api/orders, /api/positions, /api/holdings
+│   │   ├── orders.service.ts          # Live order dispatcher and positions service
 │   │   └── dto/
-│   │       ├── place-order.dto.ts     # DTO for manual orders
-│   │       └── auto-sl.dto.ts         # DTO for Auto-SL bracket runner
+│   │       └── place-order.dto.ts     # DTO for manual orders
 │   ├── instruments/
 │   │   ├── instruments.module.ts      # Scrip search module
 │   │   ├── instruments.controller.ts  # /api/instruments search endpoint
@@ -98,7 +100,7 @@ dhan-trader/
 │       └── dto/update-telegram.dto.ts # DTO for Telegram bot settings update
 └── tests/
     ├── alerts.service.spec.ts         # Unit tests for AlertsService
-    ├── orders.service.spec.ts         # Unit tests for OrdersService & Auto-SL
+    ├── orders.service.spec.ts         # Unit tests for OrdersService
     ├── auth.service.spec.ts           # Unit tests for AuthService & JWT calculations
     └── app.e2e-spec.ts                # E2E integration tests for all REST endpoints
 ```
@@ -145,7 +147,7 @@ When interacting with or extending `src/dhan/dhan.service.ts`, keep these behavi
 
 3. **Data APIs / Marketfeed**:
    - Free or standard Dhan accounts may have the Data API inactive (`401 Data APIs not Subscribed`).
-   - Alerts and strategy runners must not crash if live websocket or marketfeed data is unavailable; fallback pricing or index cache must be supported.
+   - Alerts and order dispatchers must not crash if live websocket or marketfeed data is unavailable; fallback pricing or index cache must be supported.
 
 4. **Token Hot-Reloading**:
    - The Dhan JWT access token expires after 24 hours.
@@ -177,4 +179,5 @@ Before marking any task as complete:
 - [ ] All tests pass cleanly (`npm test`).
 - [ ] Every new endpoint is registered with appropriate `@ApiTags`, `@ApiOperation`, and `@ApiResponse` decorators.
 - [ ] Input payloads have corresponding DTO classes with `class-validator` rules.
+- [ ] If any backend API or UI-affecting functionality was modified, checked `../dhan-trader-ui` and made necessary changes there.
 - [ ] Code comments and existing docstrings remain intact.

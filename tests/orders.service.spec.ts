@@ -6,7 +6,6 @@ import { OrdersService } from '../src/orders/orders.service';
 import { DhanService } from '../src/dhan/dhan.service';
 import { TelegramService } from '../src/telegram/telegram.service';
 import { ConfigService } from '../src/config/config.service';
-import { InstrumentsService } from '../src/instruments/instruments.service';
 
 test('OrdersService (NestJS)', async (t) => {
   let moduleRef: TestingModule;
@@ -92,14 +91,12 @@ test('OrdersService (NestJS)', async (t) => {
 
   const mockTelegramService = {
     sendOrderNotification: async () => ({ success: true }),
-    sendStrategyNotification: async () => ({ success: true }),
   };
 
   moduleRef = await Test.createTestingModule({
     providers: [
       OrdersService,
       ConfigService,
-      InstrumentsService,
       { provide: DhanService, useValue: mockDhanService },
       { provide: TelegramService, useValue: mockTelegramService },
     ],
@@ -135,26 +132,5 @@ test('OrdersService (NestJS)', async (t) => {
     assert.strictEqual(res.source, 'dhan_api');
     assert.strictEqual(res.order.status, 'EXECUTED');
     assert.strictEqual(res.order.quantity, 50);
-  });
-
-  await t.test('executes Auto-SL (-7 pts) and Target (+30 pts) Strategy Runner', async () => {
-    const runner = await service.executeAutoSLTarget({
-      symbol: 'NIFTY 24600 CE',
-      entryPrice: 140.0,
-      quantity: 50,
-    });
-
-    assert.strictEqual(runner.strategy, 'NIFTY_LONG_AUTO_SL_TARGET');
-    assert.strictEqual(runner.entryPrice, 140.0);
-    assert.strictEqual(runner.slPrice, 133.0); // 140 - 7
-    assert.strictEqual(runner.targetPrice, 170.0); // 140 + 30
-    assert.strictEqual(runner.slPoints, 7.0);
-    assert.strictEqual(runner.targetPoints, 30.0);
-    assert.strictEqual(runner.riskRewardRatio, '1:4.29');
-
-    assert.ok(runner.orders.entryOrder);
-    assert.ok(runner.orders.stopLossOrder);
-    assert.ok(runner.orders.targetOrder);
-    assert.ok(runner.logs.length >= 4);
   });
 });

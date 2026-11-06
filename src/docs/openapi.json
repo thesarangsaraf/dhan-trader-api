@@ -408,7 +408,7 @@
     },
     "/api/instruments/option-contracts": {
       "get": {
-        "description": "Accepts instrument name (e.g. NIFTY 50) and reference price (e.g. 25500), returning contracts for 25450, 25500, 25550 for current and next expiry dates.",
+        "description": "Accepts instrument name (e.g. NIFTY 50), optional reference price (e.g. 25500), and optional expiry date. Returns 3 strikes (At The Money, In The Money, Out of The Money) with live/model LTP for current and next expiry.",
         "operationId": "InstrumentsController_getOptionContractsGet",
         "parameters": [
           {
@@ -425,30 +425,9 @@
             "name": "price",
             "required": false,
             "in": "query",
-            "description": "Reference price to calculate ATM and surrounding strikes (e.g. 25500). If omitted, live LTP is used.",
+            "description": "Reference price to calculate ATM, ITM, and OTM strikes (e.g. 25500). If omitted, live LTP is used.",
             "schema": {
               "example": 25500,
-              "type": "number"
-            }
-          },
-          {
-            "name": "strikeCount",
-            "required": false,
-            "in": "query",
-            "description": "Number of strikes to return centered around ATM (default is 3, e.g. ATM-1, ATM, ATM+1)",
-            "schema": {
-              "default": 3,
-              "example": 3,
-              "type": "number"
-            }
-          },
-          {
-            "name": "strikeStep",
-            "required": false,
-            "in": "query",
-            "description": "Custom strike step interval (e.g. 50 for Nifty, 100 for BankNifty). If omitted, determined automatically.",
-            "schema": {
-              "example": 50,
               "type": "number"
             }
           },
@@ -471,13 +450,13 @@
             "description": "Instrument name missing or invalid"
           }
         },
-        "summary": "Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry",
+        "summary": "Get 3 option contracts (ATM, ITM, OTM) for current and next expiry",
         "tags": [
           "Instruments"
         ]
       },
       "post": {
-        "description": "JSON body alternative for frontend convenience containing instrument name and optional reference price.",
+        "description": "JSON body alternative accepting instrument, optional price, and optional expiry date, returning ATM, ITM, and OTM contracts.",
         "operationId": "InstrumentsController_getOptionContractsPost",
         "parameters": [],
         "requestBody": {
@@ -498,7 +477,7 @@
             "description": "Instrument name missing or invalid"
           }
         },
-        "summary": "Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry via POST payload",
+        "summary": "Get 3 option contracts (ATM, ITM, OTM) for current and next expiry via POST payload",
         "tags": [
           "Instruments"
         ]
@@ -667,49 +646,6 @@
           }
         },
         "summary": "Get Demat equity holdings from Dhan API",
-        "tags": [
-          "Orders"
-        ]
-      }
-    },
-    "/api/strategy/auto-sl": {
-      "post": {
-        "operationId": "OrdersController_executeAutoSl",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AutoSlDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Bracket orders deployed with execution logs"
-          },
-          "400": {
-            "description": "Strategy execution failure on Dhan"
-          }
-        },
-        "summary": "Execute real Nifty Auto-SL (-7 pts) and Target (+30 pts) Bracket Runner on Dhan",
-        "tags": [
-          "Orders"
-        ]
-      }
-    },
-    "/api/strategy/auto-sl/logs": {
-      "get": {
-        "operationId": "OrdersController_getAutoSlLogs",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Array of past strategy execution runs"
-          }
-        },
-        "summary": "Get Auto-SL bracket execution logs",
         "tags": [
           "Orders"
         ]
@@ -1052,23 +988,12 @@
           },
           "price": {
             "type": "number",
-            "description": "Reference price to calculate ATM and surrounding strikes (e.g. 25500). If omitted, live LTP is used.",
+            "description": "Reference price to calculate ATM, ITM, and OTM strikes (e.g. 25500). If omitted, live LTP is used.",
             "example": 25500
-          },
-          "strikeCount": {
-            "type": "number",
-            "description": "Number of strikes to return centered around ATM (default is 3, e.g. ATM-1, ATM, ATM+1)",
-            "example": 3,
-            "default": 3
-          },
-          "strikeStep": {
-            "type": "number",
-            "description": "Custom strike step interval (e.g. 50 for Nifty, 100 for BankNifty). If omitted, determined automatically.",
-            "example": 50
           },
           "expiry": {
             "type": "string",
-            "description": "Optional specific target expiry date in YYYY-MM-DD format",
+            "description": "Target expiry date in YYYY-MM-DD or DD-MM-YYYY format (e.g. 2026-11-05). If omitted, nearest expiry is used.",
             "example": "2026-11-05"
           }
         },
@@ -1145,41 +1070,6 @@
           "symbol",
           "securityId",
           "transactionType",
-          "quantity"
-        ]
-      },
-      "AutoSlDto": {
-        "type": "object",
-        "properties": {
-          "symbol": {
-            "type": "string",
-            "description": "Option contract symbol",
-            "example": "NIFTY 24600 CE"
-          },
-          "entryPrice": {
-            "type": "number",
-            "description": "Long entry price",
-            "example": 140
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Contract quantity",
-            "example": 50
-          },
-          "strike": {
-            "type": "number",
-            "description": "Strike price if symbol not provided",
-            "example": 24600
-          },
-          "securityId": {
-            "type": "string",
-            "description": "Dhan security ID",
-            "example": "45021"
-          }
-        },
-        "required": [
-          "symbol",
-          "entryPrice",
           "quantity"
         ]
       }

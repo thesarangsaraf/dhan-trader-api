@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { DhanService } from '../dhan/dhan.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 function decodeJwtPayload(token: string): any {
   if (!token || typeof token !== 'string') return null;
@@ -51,11 +52,107 @@ function formatDuration(totalSeconds: number): string {
 }
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AuthService.name);
+  private autoRenewTimer: NodeJS.Timeout | null = null;
+  public static readonly AUTO_RENEW_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+  public static readonly RENEW_THRESHOLD_SEC = 4 * 3600; // 4 hours before expiry
+
   constructor(
     private readonly config: ConfigService,
     private readonly dhanService: DhanService,
+    @Optional() private readonly telegramService?: TelegramService,
   ) {}
+
+  onModuleInit() {
+    this.startAutoRenewTimer();
+  }
+
+  onModuleDestroy() {
+    this.stopAutoRenewTimer();
+  }
+
+  startAutoRenewTimer() {
+    if (this.autoRenewTimer) {
+      clearInterval(this.autoRenewTimer);
+      this.autoRenewTimer = null;
+    }
+
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    this.logger.log('Starting hourly Dhan token auto-renew timer (checks every 1 hour, renews when < 4h remaining)');
+    this.autoRenewTimer = setInterval(() => {
+      this.checkAndAutoRenew().catch((err) => {
+        this.logger.error(`Error in token auto-renew interval: ${err.message}`);
+      });
+    }, AuthService.AUTO_RENEW_INTERVAL_MS);
+
+    if (this.autoRenewTimer && typeof this.autoRenewTimer.unref === 'function') {
+      this.autoRenewTimer.unref();
+    }
+
+    // Schedule initial check shortly after startup
+    setTimeout(() => {
+      this.checkAndAutoRenew().catch(() => {});
+    }, 5000).unref();
+  }
+
+  stopAutoRenewTimer() {
+    if (this.autoRenewTimer) {
+      clearInterval(this.autoRenewTimer);
+      this.autoRenewTimer = null;
+    }
+  }
+
+  async checkAndAutoRenew() {
+    const inspection = this.getTokenInspection();
+    if (!inspection.configured) {
+      this.logger.debug('Token auto-renew check skipped: No token configured');
+      return { skipped: true, reason: 'NO_TOKEN' };
+    }
+
+    if (inspection.isExpired) {
+      this.logger.warn(
+        'Token auto-renew check: Current token is already EXPIRED. Dhan RenewToken API only accepts active tokens. Manual login required.'
+      );
+      return { skipped: true, reason: 'EXPIRED' };
+    }
+
+    const secondsRemaining = inspection.secondsRemaining;
+    if (secondsRemaining !== null && secondsRemaining > AuthService.RENEW_THRESHOLD_SEC) {
+      this.logger.log(
+        `Token auto-renew check: Token active with ${inspection.timeRemainingFormatted} remaining. Renewal not needed yet (threshold: 4h).`
+      );
+      return { skipped: true, reason: 'NOT_DUE', secondsRemaining };
+    }
+
+    this.logger.log(
+      `Token auto-renew triggered: ${inspection.timeRemainingFormatted} remaining. Requesting fresh token from Dhan API...`
+    );
+
+    const res = await this.renewToken();
+    if (res.success) {
+      this.logger.log(`Dhan token renewed and synced to .env! New expiry: ${res.inspection?.expiresAtIST}`);
+      if (this.telegramService?.isConfigured()) {
+        const msg = `<b>🔐 Dhan Access Token Auto-Renewed</b>\n` +
+          `Your Dhan API access token was automatically renewed for 24 hours and persisted to .env.\n` +
+          `<b>New Expiry:</b> <code>${res.inspection?.expiresAtIST}</code>`;
+        this.telegramService.sendMessage(msg).catch(() => {});
+      }
+      return { renewed: true, res };
+    } else {
+      this.logger.error(`Dhan token auto-renewal failed: ${res.error}`);
+      if (this.telegramService?.isConfigured()) {
+        const msg = `<b>⚠️ Dhan Token Auto-Renewal Failed</b>\n` +
+          `Could not renew Dhan token: <i>${res.error}</i>\n` +
+          `Time remaining: <code>${inspection.timeRemainingFormatted}</code>`;
+        this.telegramService.sendMessage(msg).catch(() => {});
+      }
+      return { renewed: false, error: res.error };
+    }
+  }
 
   getTokenInspection() {
     const token = this.config.accessToken;
@@ -154,22 +251,29 @@ export class AuthService {
 
     const apiResult = await this.dhanService.getProfile();
     if (!apiResult.ok) {
-      const errorMsg = apiResult.data?.errorMessage
+      let errorMsg = apiResult.data?.errorMessage
         || apiResult.data?.message
         || apiResult.data?.data?.['808']
         || apiResult.error
         || `Dhan API rejection (HTTP ${apiResult.status})`;
 
+      if (errorMsg === 'Invalid Token' || apiResult.data?.errorCode === 'DH-906') {
+        errorMsg = 'Dhan rejected token (DH-906: Invalid Token). The token was revoked or superseded by Dhan (e.g. newer token generated, logged out, or expired on server). Please generate a fresh token from Dhan HQ web console.';
+      }
+
       return {
+        valid: false,
         verified: false,
         source: 'dhan_api',
         status: apiResult.status,
+        errorCode: apiResult.data?.errorCode,
         message: errorMsg,
         inspection: { ...inspection, status: 'INVALID', statusText: errorMsg },
       };
     }
 
     return {
+      valid: true,
       verified: true,
       source: 'dhan_api',
       message: 'Successfully verified live with Dhan API v2',
@@ -182,7 +286,7 @@ export class AuthService {
     const apiResult = await this.dhanService.renewToken();
 
     if (apiResult.ok && apiResult.data) {
-      const newToken = apiResult.data.accessToken || apiResult.data.token || apiResult.data;
+      const newToken = apiResult.data.token || apiResult.data.accessToken || apiResult.data;
       if (typeof newToken === 'string') {
         this.config.updateCredentials({ accessToken: newToken });
         return {

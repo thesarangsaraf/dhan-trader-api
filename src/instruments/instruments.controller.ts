@@ -10,8 +10,8 @@ export class InstrumentsController {
 
   @Get('option-contracts')
   @ApiOperation({
-    summary: 'Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry',
-    description: 'Accepts instrument name (e.g. NIFTY 50) and reference price (e.g. 25500), returning contracts for 25450, 25500, 25550 for current and next expiry dates.',
+    summary: 'Get 3 option contracts (ATM, ITM, OTM) for current and next expiry',
+    description: 'Accepts instrument name (e.g. NIFTY 50), optional reference price (e.g. 25500), and optional expiry date. Returns 3 strikes (At The Money, In The Money, Out of The Money) with live/model LTP for current and next expiry.',
   })
   @ApiResponse({ status: 200, description: 'Option contracts for current and next expiry with live/model LTP' })
   @ApiResponse({ status: 400, description: 'Instrument name missing or invalid' })
@@ -22,13 +22,21 @@ export class InstrumentsController {
   @Post('option-contracts')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Get 3 option contracts (ATM-1, ATM, ATM+1) for current and next expiry via POST payload',
-    description: 'JSON body alternative for frontend convenience containing instrument name and optional reference price.',
+    summary: 'Get 3 option contracts (ATM, ITM, OTM) for current and next expiry via POST payload',
+    description: 'JSON body alternative accepting instrument, optional price, and optional expiry date, returning ATM, ITM, and OTM contracts.',
   })
   @ApiResponse({ status: 200, description: 'Option contracts for current and next expiry with live/model LTP' })
   @ApiResponse({ status: 400, description: 'Instrument name missing or invalid' })
   async getOptionContractsPost(@Body() dto: GetOptionContractsDto) {
     return this.instrumentsService.getOptionContracts(dto);
+  }
+
+  @Get('expiries')
+  @ApiOperation({ summary: 'Get list of option expiries for an instrument' })
+  @ApiQuery({ name: 'instrument', required: false, description: 'Instrument name (e.g. NIFTY 50, BANK NIFTY, SENSEX)' })
+  @ApiResponse({ status: 200, description: 'List of option expiries' })
+  async getExpiries(@Query('instrument') instrument?: string) {
+    return this.instrumentsService.getExpiries(instrument);
   }
 
   @Get('ltp')

@@ -17,8 +17,18 @@ export class CreateAlertDto {
 
   @ApiProperty({
     description: 'Trigger condition operator',
-    enum: ['GREATER_THAN_OR_EQUAL', 'LESS_THAN_OR_EQUAL', 'CROSSING_UP', 'CROSSING_DOWN'],
-    default: 'GREATER_THAN_OR_EQUAL',
+    enum: [
+      'GREATER_THAN_EQUAL',
+      'LESS_THAN_EQUAL',
+      'GREATER_THAN',
+      'LESS_THAN',
+      'CROSSING_ANY_SIDE',
+      'GREATER_THAN_OR_EQUAL',
+      'LESS_THAN_OR_EQUAL',
+      'CROSSING_UP',
+      'CROSSING_DOWN',
+    ],
+    default: 'GREATER_THAN_EQUAL',
     required: false,
   })
   @IsOptional()
@@ -57,4 +67,13 @@ export class CreateAlertDto {
   @ValidateNested({ each: true })
   @Type(() => ConditionalOrderDto)
   conditionalOrders?: ConditionalOrderDto[];
+
+  @ApiPropertyOptional({ description: 'Legacy attached order object' })
+  @IsOptional()
+  attachedOrder?: any;
+
+  @ApiPropertyOptional({ description: 'Expiration date in YYYY-MM-DD format for Dhan conditional trigger', example: '2026-12-31' })
+  @IsOptional()
+  @IsString()
+  expDate?: string;
 }

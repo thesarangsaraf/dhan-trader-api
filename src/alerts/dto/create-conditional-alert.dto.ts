@@ -24,8 +24,18 @@ export class CreateConditionalAlertDto {
 
   @ApiPropertyOptional({
     description: 'Trigger condition operator',
-    enum: ['GREATER_THAN_OR_EQUAL', 'LESS_THAN_OR_EQUAL', 'CROSSING_UP', 'CROSSING_DOWN'],
-    default: 'GREATER_THAN_OR_EQUAL',
+    enum: [
+      'GREATER_THAN_EQUAL',
+      'LESS_THAN_EQUAL',
+      'GREATER_THAN',
+      'LESS_THAN',
+      'CROSSING_ANY_SIDE',
+      'GREATER_THAN_OR_EQUAL',
+      'LESS_THAN_OR_EQUAL',
+      'CROSSING_UP',
+      'CROSSING_DOWN',
+    ],
+    default: 'GREATER_THAN_EQUAL',
   })
   @IsOptional()
   @IsString()
@@ -99,10 +109,19 @@ export class CreateConditionalAlertDto {
 
   @ApiPropertyOptional({
     description: 'Comparison type',
-    enum: ['PRICE', 'TECHNICAL_WITH_VALUE'],
-    default: 'PRICE',
+    enum: ['PRICE_WITH_VALUE', 'TECHNICAL_WITH_VALUE'],
+    default: 'PRICE_WITH_VALUE',
   })
   @IsOptional()
   @IsString()
   comparisonType?: string;
+
+  @ApiPropertyOptional({ description: 'Expiration date in YYYY-MM-DD format for Dhan conditional trigger', example: '2026-12-31' })
+  @IsOptional()
+  @IsString()
+  expDate?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy attached order object' })
+  @IsOptional()
+  attachedOrder?: any;
 }

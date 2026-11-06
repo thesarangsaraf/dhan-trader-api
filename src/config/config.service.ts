@@ -41,14 +41,14 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
 
   constructor() {
     this.env = parseEnvFile(ENV_PATH);
-    this.clientId = process.env.DHAN_CLIENT_ID || this.env.DHAN_CLIENT_ID || '';
-    this.accessToken = process.env.DHAN_ACCESS_TOKEN || this.env.DHAN_ACCESS_TOKEN || '';
-    this.telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || this.env.TELEGRAM_BOT_TOKEN || '';
-    this.telegramChatId = process.env.TELEGRAM_CHAT_ID || this.env.TELEGRAM_CHAT_ID || '';
+    this.clientId = (process.env.DHAN_CLIENT_ID || this.env.DHAN_CLIENT_ID || '').trim();
+    this.accessToken = (process.env.DHAN_ACCESS_TOKEN || this.env.DHAN_ACCESS_TOKEN || '').trim();
+    this.telegramBotToken = (process.env.TELEGRAM_BOT_TOKEN || this.env.TELEGRAM_BOT_TOKEN || '').trim();
+    this.telegramChatId = (process.env.TELEGRAM_CHAT_ID || this.env.TELEGRAM_CHAT_ID || '').trim();
     this.port = parseInt(process.env.PORT || this.env.PORT || '8000', 10);
     this.host = process.env.HOST || this.env.HOST || '127.0.0.1';
     this.pollIntervalMs = parseInt(process.env.POLL_INTERVAL_MS || this.env.POLL_INTERVAL_MS || '4000', 10);
-    this.dhanApiBase = process.env.DHAN_API_BASE || 'https://api.dhan.co/v2';
+    this.dhanApiBase = (process.env.DHAN_API_BASE || 'https://api.dhan.co/v2').trim();
   }
 
   onModuleInit() {
@@ -74,20 +74,25 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
   reloadFromEnv() {
     this.env = parseEnvFile(ENV_PATH);
     let changed = false;
-    if (this.env.DHAN_CLIENT_ID && this.env.DHAN_CLIENT_ID !== this.clientId) {
-      this.clientId = this.env.DHAN_CLIENT_ID;
+    const envClientId = (this.env.DHAN_CLIENT_ID || '').trim();
+    const envAccessToken = (this.env.DHAN_ACCESS_TOKEN || '').trim();
+    const envTgToken = (this.env.TELEGRAM_BOT_TOKEN || '').trim();
+    const envTgChat = (this.env.TELEGRAM_CHAT_ID || '').trim();
+
+    if (envClientId && envClientId !== this.clientId) {
+      this.clientId = envClientId;
       changed = true;
     }
-    if (this.env.DHAN_ACCESS_TOKEN && this.env.DHAN_ACCESS_TOKEN !== this.accessToken) {
-      this.accessToken = this.env.DHAN_ACCESS_TOKEN;
+    if (envAccessToken && envAccessToken !== this.accessToken) {
+      this.accessToken = envAccessToken;
       changed = true;
     }
-    if (this.env.TELEGRAM_BOT_TOKEN && this.env.TELEGRAM_BOT_TOKEN !== this.telegramBotToken) {
-      this.telegramBotToken = this.env.TELEGRAM_BOT_TOKEN;
+    if (envTgToken && envTgToken !== this.telegramBotToken) {
+      this.telegramBotToken = envTgToken;
       changed = true;
     }
-    if (this.env.TELEGRAM_CHAT_ID && this.env.TELEGRAM_CHAT_ID !== this.telegramChatId) {
-      this.telegramChatId = this.env.TELEGRAM_CHAT_ID;
+    if (envTgChat && envTgChat !== this.telegramChatId) {
+      this.telegramChatId = envTgChat;
       changed = true;
     }
     if (changed) {

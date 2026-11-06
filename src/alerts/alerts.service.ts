@@ -1,6 +1,4 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
 import { ConfigService } from '../config/config.service';
 import { DhanService } from '../dhan/dhan.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -10,8 +8,6 @@ import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
 import { ConditionalOrderDto } from './dto/conditional-order.dto';
-
-const ALERTS_FILE = path.resolve(__dirname, '..', '..', 'data', 'alerts.json');
 
 export const POPULAR_NSE_INDICES = [
   { name: 'NIFTY 50', securityId: '13', exchangeSegment: 'IDX_I' },
@@ -44,9 +40,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     private readonly telegramService: TelegramService,
     @Optional() private readonly yahooService?: YahooFinanceService,
     @Optional() private readonly instrumentsService?: InstrumentsService,
-  ) {
-    this.loadAlerts();
-  }
+  ) {}
 
   onModuleInit() {
     this.startMonitor();
@@ -60,37 +54,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  loadAlerts() {
-    try {
-      if (fs.existsSync(ALERTS_FILE)) {
-        const raw = fs.readFileSync(ALERTS_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        this.alerts = Array.isArray(parsed) ? parsed : [];
-      } else {
-        this.alerts = [];
-        this.saveAlerts();
-      }
-    } catch (err) {
-      console.error('Failed to load alerts file, initializing empty:', err);
-      this.alerts = [];
-    }
-  }
-
-  saveAlerts() {
-    if (process.env.NODE_ENV === 'test') {
-      return;
-    }
-    try {
-      const dir = path.dirname(ALERTS_FILE);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(ALERTS_FILE, JSON.stringify(this.alerts, null, 2), 'utf8');
-    } catch (err) {
-      console.error('Failed to save alerts to file:', err);
-    }
-  }
-
   /**
    * Sync active conditional triggers from Dhan HQ API v2 and refresh live LTP.
    */
@@ -98,21 +61,75 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     try {
       const dhanRes = await this.dhanService.getAlerts();
       if (dhanRes.ok && Array.isArray(dhanRes.data)) {
-        this.dhanAlerts = dhanRes.data.map((d: any) => ({
-          id: String(d.alertId || d.id),
-          instrument: d.condition?.userNote || d.tradingSymbol || `SEC-${d.condition?.securityId || d.securityId}`,
-          securityId: String(d.condition?.securityId || d.securityId || ''),
-          exchangeSegment: d.condition?.exchangeSegment || d.exchangeSegment || 'NSE_EQ',
-          targetPrice: parseFloat(d.condition?.comparingValue || d.targetPrice || 0),
-          currentPrice: this.getCurrentPrice(d.condition?.userNote, d.condition?.securityId, d.condition?.exchangeSegment),
-          operator: d.condition?.operator || d.operator || 'GREATER_THAN_OR_EQUAL',
-          status: (d.alertStatus || d.status || 'ACTIVE').toUpperCase(),
-          remarks: d.condition?.userNote || d.remarks || 'Dhan Conditional Trigger',
-          createdAt: d.createdTime || d.createdAt || new Date().toISOString(),
-          triggeredAt: d.triggeredAt || null,
-          source: 'dhan_api',
-          orders: d.orders || [],
-        }));
+        const liveDhanIds = new Set(dhanRes.data.map((d: any) => String(d.alertId || d.id)));
+
+        // Remove any alert from this.alerts that originated from Dhan but is NO LONGER in Dhan (deleted on Dhan web/app)
+        this.alerts = this.alerts.filter((a) => {
+          const isDhanAlert = a.source === 'dhan_api' || Boolean(a.dhanAlertId) || a.id.startsWith('DHAN-') || /^\d+$/.test(a.id);
+          if (isDhanAlert) {
+            const rawId = a.dhanAlertId || (a.id.startsWith('DHAN-') ? a.id.slice(5) : a.id);
+            if (!liveDhanIds.has(rawId)) {
+              return false; // Alert was deleted on Dhan!
+            }
+            a.id = rawId; // Normalize ID without DHAN- prefix
+            a.dhanAlertId = rawId;
+          }
+          return true;
+        });
+
+        this.dhanAlerts = dhanRes.data.map((d: any) => {
+          const alertId = String(d.alertId || d.id);
+          const localMatch = this.alerts.find(
+            (a) => a.id === alertId || a.dhanAlertId === alertId || a.id === `DHAN-${alertId}`,
+          );
+
+          let instName = localMatch?.instrument;
+          if (!instName) {
+            const matchedIndex = POPULAR_NSE_INDICES.find(
+              (i) => i.securityId === String(d.condition?.securityId || d.securityId),
+            );
+            instName = matchedIndex
+              ? matchedIndex.name
+              : (d.condition?.userNote || d.tradingSymbol || `SEC-${d.condition?.securityId || d.securityId}`);
+          }
+
+          return {
+            id: alertId,
+            instrument: instName,
+            securityId: String(d.condition?.securityId || d.securityId || ''),
+            exchangeSegment: d.condition?.exchangeSegment || d.exchangeSegment || 'NSE_EQ',
+            targetPrice: parseFloat(d.condition?.comparingValue || d.targetPrice || 0),
+            currentPrice: this.getCurrentPrice(instName, d.condition?.securityId, d.condition?.exchangeSegment),
+            operator: d.condition?.operator || d.operator || 'GREATER_THAN_EQUAL',
+            status: (d.alertStatus || d.status || 'ACTIVE').toUpperCase(),
+            remarks: d.condition?.userNote || d.remarks || 'Dhan Conditional Trigger',
+            createdAt: d.createdTime
+              ? (typeof d.createdTime === 'number' ? new Date(d.createdTime * 1000).toISOString() : String(d.createdTime))
+              : (localMatch?.createdAt || new Date().toISOString()),
+            triggeredAt: d.triggeredAt || null,
+            source: 'dhan_api',
+            orders: d.orders || [],
+            hasConditionalOrder: Boolean(d.orders && d.orders.length > 0),
+            conditionalOrders: localMatch?.conditionalOrders || d.orders || [],
+            dhanAlertId: alertId,
+          };
+        });
+
+        // Reconcile this.alerts with this.dhanAlerts
+        for (const da of this.dhanAlerts) {
+          const localIdx = this.alerts.findIndex(
+            (a) => a.id === da.id || a.dhanAlertId === da.id || a.id === `DHAN-${da.id}`,
+          );
+          if (localIdx >= 0) {
+            this.alerts[localIdx].id = da.id;
+            this.alerts[localIdx].status = da.status;
+            this.alerts[localIdx].dhanAlertId = da.id;
+            if (da.operator) this.alerts[localIdx].operator = da.operator;
+            if (da.currentPrice) this.alerts[localIdx].currentPrice = da.currentPrice;
+          } else {
+            this.alerts.push(da);
+          }
+        }
       }
     } catch {
       // If Dhan API is offline or alerts not subscribed, retain local alerts
@@ -142,14 +159,18 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   }
 
   getAllAlerts() {
-    const combined = [...this.alerts];
-    for (const da of this.dhanAlerts) {
-      if (!combined.some((a) => a.id === da.id)) {
-        combined.push(da);
+    const seen = new Set<string>();
+    const unique: any[] = [];
+
+    for (const a of this.alerts) {
+      const key = a.dhanAlertId || a.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(a);
       }
     }
 
-    return combined.map((a) => ({
+    return unique.map((a) => ({
       ...a,
       currentPrice: this.getCurrentPrice(a.instrument, a.securityId, a.exchangeSegment),
     }));
@@ -179,6 +200,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   }
 
   createAlert(dto: CreateAlertDto) {
+    if (dto.attachedOrder && !dto.conditionalOrder) {
+      dto.conditionalOrder = {
+        symbol: dto.attachedOrder.symbol,
+        securityId: dto.attachedOrder.securityId,
+        exchangeSegment: dto.attachedOrder.exchangeSegment || 'NSE_FNO',
+        transactionType: dto.attachedOrder.action || dto.attachedOrder.transactionType || 'BUY',
+        orderType: dto.attachedOrder.orderType || 'MARKET',
+        productType: dto.attachedOrder.productType || 'INTRADAY',
+        quantity: dto.attachedOrder.quantity || 50,
+        price: dto.attachedOrder.price || 0,
+        validity: 'DAY',
+      };
+    }
+
     if (dto.conditionalOrder || (Array.isArray(dto.conditionalOrders) && dto.conditionalOrders.length > 0)) {
       return this.createConditionalAlert(dto as CreateConditionalAlertDto);
     }
@@ -198,9 +233,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     const secId = dto.securityId || (matchedIndex ? matchedIndex.securityId : '0');
     const exSegment = dto.exchangeSegment || (matchedIndex ? matchedIndex.exchangeSegment : 'NSE_EQ');
-    const validOp = dto.operator || 'GREATER_THAN_OR_EQUAL';
-
     const currentPrice = this.getCurrentPrice(dto.instrument, secId, exSegment);
+
+    // Operator is decided automatically if omitted: GREATER_THAN_EQUAL if target >= current, LESS_THAN_EQUAL if target < current
+    let validOp = dto.operator;
+    if (!validOp || validOp === 'AUTO') {
+      validOp = currentPrice && priceNum < currentPrice ? 'LESS_THAN_EQUAL' : 'GREATER_THAN_EQUAL';
+    }
 
     const newAlert = {
       id: `ALT-${Date.now().toString().slice(-6)}`,
@@ -211,7 +250,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       currentPrice,
       operator: validOp,
       status: 'ACTIVE',
-      remarks: dto.remarks ? dto.remarks.trim() : `Alert for ${dto.instrument} at ${priceNum}`,
+      remarks: dto.remarks ? dto.remarks.trim() : `Alert for ${dto.instrument} at ₹${priceNum}`,
       createdAt: new Date().toISOString(),
       triggeredAt: null,
       hasConditionalOrder: false,
@@ -224,7 +263,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.alerts.unshift(newAlert);
-    this.saveAlerts();
 
     // Trigger immediate live price tick check
     this.checkAndTick().catch(() => {});
@@ -241,6 +279,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
    * Registers directly with Dhan HQ v2 (/alerts/orders) and runs locally in memory without static IP requirement.
    */
   async createConditionalAlert(dto: CreateConditionalAlertDto) {
+    if (dto.attachedOrder && !dto.conditionalOrder) {
+      dto.conditionalOrder = {
+        symbol: dto.attachedOrder.symbol,
+        securityId: dto.attachedOrder.securityId,
+        exchangeSegment: dto.attachedOrder.exchangeSegment || 'NSE_FNO',
+        transactionType: dto.attachedOrder.action || dto.attachedOrder.transactionType || 'BUY',
+        orderType: dto.attachedOrder.orderType || 'MARKET',
+        productType: dto.attachedOrder.productType || 'INTRADAY',
+        quantity: dto.attachedOrder.quantity || 50,
+        price: dto.attachedOrder.price || 0,
+        validity: 'DAY',
+      };
+    }
+
     if (!dto.instrument || dto.targetPrice === undefined || dto.targetPrice === null) {
       throw new BadRequestException('Instrument and target price are required');
     }
@@ -273,7 +325,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       if (isNaN(qty) || qty <= 0) {
         throw new BadRequestException(`Order at index ${idx} requires a positive quantity`);
       }
-      const side = (ord.transactionType || 'BUY').toUpperCase();
+      const side = (ord.transactionType || (ord as any).action || 'BUY').toUpperCase();
       if (side !== 'BUY' && side !== 'SELL') {
         throw new BadRequestException(`Order at index ${idx} transactionType must be BUY or SELL`);
       }
@@ -323,8 +375,30 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     secId = secId || '0';
     exSegment = exSegment || 'IDX_I';
-    const validOp = dto.operator || 'GREATER_THAN_OR_EQUAL';
     const currentPrice = this.getCurrentPrice(dto.instrument, secId, exSegment);
+
+    // Operator is decided automatically if omitted: GREATER_THAN_EQUAL if target >= current, LESS_THAN_EQUAL if target < current
+    let validOp = dto.operator;
+    if (!validOp || validOp === 'AUTO') {
+      validOp = currentPrice && priceNum < currentPrice ? 'LESS_THAN_EQUAL' : 'GREATER_THAN_EQUAL';
+    }
+
+    // Map operator to official Dhan HQ API v2 enums
+    // For PRICE_WITH_VALUE comparisons, Dhan Web UI natively supports GREATER_THAN_EQUAL and LESS_THAN_EQUAL
+    let dhanOp = validOp;
+    if (validOp === 'GREATER_THAN_OR_EQUAL' || validOp === 'CROSSING_UP') {
+      dhanOp = 'GREATER_THAN_EQUAL';
+    } else if (validOp === 'LESS_THAN_OR_EQUAL' || validOp === 'CROSSING_DOWN') {
+      dhanOp = 'LESS_THAN_EQUAL';
+    } else if (validOp === 'CROSS_ANY_SIDE' || validOp === 'CROSSING_ANY_SIDE') {
+      dhanOp = 'CROSSING_ANY_SIDE';
+    }
+
+    // Expiry date (mandatory for Dhan API)
+    const expDate = dto.expDate || (() => {
+      const d = new Date(Date.now() + 30 * 86400000);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
 
     // Dhan HQ API v2 /alerts/orders submission
     let dhanAlertId: string | null = null;
@@ -335,11 +409,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         const dhanPayload = {
           dhanClientId: this.config.clientId,
           condition: {
-            comparisonType: dto.comparisonType || 'PRICE',
+            comparisonType: 'PRICE_WITH_VALUE',
             exchangeSegment: exSegment,
             securityId: String(secId),
-            operator: validOp,
+            operator: dhanOp,
             comparingValue: priceNum,
+            expDate,
             userNote: dto.remarks ? dto.remarks.trim() : `Conditional order for ${dto.instrument} at ${priceNum}`,
             frequency: dto.frequency || 'ONCE',
           },
@@ -348,11 +423,11 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             exchangeSegment: o.exchangeSegment,
             productType: o.productType,
             orderType: o.orderType,
-            securityId: o.securityId,
-            quantity: o.quantity,
-            price: o.price,
-            validity: o.validity,
-            ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}),
+            securityId: String(o.securityId),
+            quantity: Number(o.quantity),
+            price: o.price ? String(o.price) : '0',
+            validity: o.validity || 'DAY',
+            ...(o.triggerPrice ? { triggerPrice: String(o.triggerPrice) } : {}),
           })),
         };
 
@@ -360,13 +435,18 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         dhanApiResult = res;
         if (res.ok && res.data) {
           dhanAlertId = String(res.data.alertId || res.data.id || '');
+          await this.syncWithDhan();
+        } else if (!res.ok) {
+          const errMsg = res.data?.errorMessage || res.error || 'Dhan conditional alert placement rejected';
+          console.warn('Dhan create alert rejected by Dhan API, running via local monitoring engine:', errMsg);
         }
       } catch (err: any) {
         dhanApiResult = { ok: false, error: err.message };
+        console.warn('Dhan create alert exception, running via local monitoring engine:', err.message);
       }
     }
 
-    const alertId = dhanAlertId ? `DHAN-${dhanAlertId}` : `ALT-${Date.now().toString().slice(-6)}`;
+    const alertId = dhanAlertId ? dhanAlertId : `ALT-${Date.now().toString().slice(-6)}`;
 
     const newAlert = {
       id: alertId,
@@ -388,20 +468,33 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         noStaticIpRequired: true,
         monitoringMode: 'Live Dhan Marketfeed & In-Memory Check Engine',
         dhanApiAlertCreated: Boolean(dhanAlertId),
+        dhanApiError: dhanApiResult && !dhanApiResult.ok ? (dhanApiResult.data?.errorMessage || dhanApiResult.error) : null,
         exchangeSegment: exSegment,
         securityId: String(secId),
       },
     };
 
-    this.alerts.unshift(newAlert);
-    this.saveAlerts();
+    // Update existing if already inserted by syncWithDhan to prevent duplicate cards in UI
+    const existingIdx = this.alerts.findIndex(
+      (a) => a.id === alertId || (dhanAlertId && a.dhanAlertId === dhanAlertId),
+    );
+    if (existingIdx >= 0) {
+      this.alerts[existingIdx] = { ...this.alerts[existingIdx], ...newAlert };
+    } else {
+      this.alerts.unshift(newAlert);
+    }
 
     // Trigger tick check immediately
     this.checkAndTick().catch(() => {});
 
+    const isDhanRegistered = Boolean(dhanAlertId);
+    const msg = isDhanRegistered
+      ? `Dhan alert with conditional order placed on Dhan for ${newAlert.instrument} at ₹${newAlert.targetPrice}`
+      : `Conditional alert placed in local engine for ${newAlert.instrument} at ₹${newAlert.targetPrice}${dhanApiResult?.data?.errorMessage ? ` (Dhan note: ${dhanApiResult.data.errorMessage})` : ''}`;
+
     return {
       success: true,
-      message: `Dhan alert with conditional order successfully placed for ${newAlert.instrument} at ₹${newAlert.targetPrice}`,
+      message: msg,
       alert: newAlert,
       dhanApiResult,
     };
@@ -421,50 +514,45 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     if (dto.remarks !== undefined) alert.remarks = dto.remarks;
     if (dto.status) alert.status = dto.status;
 
-    this.saveAlerts();
     return { success: true, alert };
   }
 
   cancelAlert(id: string) {
-    if (this.dhanAlerts.some((da) => da.id === id)) {
-      this.dhanService.cancelDhanAlert(id).catch(() => {});
-      this.dhanAlerts = this.dhanAlerts.filter((da) => da.id !== id);
+    const rawId = id.startsWith('DHAN-') ? id.slice(5) : id;
+    if (rawId) {
+      this.dhanService.cancelDhanAlert(rawId).catch(() => {});
     }
 
-    const alert = this.alerts.find((a) => a.id === id);
-    if (!alert) {
-      if (this.dhanAlerts.some((da) => da.id === id)) {
-        return { success: true, message: `Dhan alert ${id} cancelled` };
-      }
-      throw new NotFoundException(`Alert ${id} not found`);
+    const matched = this.alerts.filter((a) => a.id === id || a.id === rawId || a.dhanAlertId === rawId || a.dhanAlertId === id);
+    for (const a of matched) {
+      a.status = 'CANCELLED';
+    }
+    const matchedDhan = this.dhanAlerts.filter((a) => a.id === id || a.id === rawId || a.dhanAlertId === rawId || a.dhanAlertId === id);
+    for (const a of matchedDhan) {
+      a.status = 'CANCELLED';
     }
 
-    alert.status = 'CANCELLED';
-    if (alert.dhanAlertId) {
-      this.dhanService.cancelDhanAlert(alert.dhanAlertId).catch(() => {});
-    }
-
-    this.saveAlerts();
+    const alert = matched[0] || matchedDhan[0] || { id, status: 'CANCELLED' };
     return { success: true, message: `Alert ${id} cancelled`, alert };
   }
 
   deleteAlert(id: string) {
-    if (this.dhanAlerts.some((da) => da.id === id)) {
-      this.dhanService.cancelDhanAlert(id).catch(() => {});
-      this.dhanAlerts = this.dhanAlerts.filter((da) => da.id !== id);
+    const rawId = id.startsWith('DHAN-') ? id.slice(5) : id;
+    if (rawId) {
+      this.dhanService.cancelDhanAlert(rawId).catch(() => {});
     }
 
-    const idx = this.alerts.findIndex((a) => a.id === id);
-    if (idx === -1) {
-      return { success: true, message: `Alert ${id} deleted` };
-    }
-    const removed = this.alerts.splice(idx, 1)[0];
-    if (removed.dhanAlertId) {
-      this.dhanService.cancelDhanAlert(removed.dhanAlertId).catch(() => {});
-    }
+    const removed = this.alerts.filter(
+      (a) => a.id === id || a.id === rawId || a.dhanAlertId === rawId || a.dhanAlertId === id,
+    );
+    this.alerts = this.alerts.filter(
+      (a) => a.id !== id && a.id !== rawId && a.dhanAlertId !== rawId && a.dhanAlertId !== id,
+    );
+    this.dhanAlerts = this.dhanAlerts.filter(
+      (a) => a.id !== id && a.id !== rawId && a.dhanAlertId !== rawId && a.dhanAlertId !== id,
+    );
 
-    this.saveAlerts();
-    return { success: true, message: `Alert ${id} deleted`, alert: removed };
+    return { success: true, message: `Alert ${id} deleted`, alert: removed[0] };
   }
 
   startMonitor() {
@@ -583,10 +671,22 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
         let triggered = false;
 
-        if (alert.operator === 'GREATER_THAN_OR_EQUAL' || alert.operator === 'CROSSING_UP') {
+        if (
+          alert.operator === 'GREATER_THAN_OR_EQUAL' ||
+          alert.operator === 'GREATER_THAN_EQUAL' ||
+          alert.operator === 'GREATER_THAN' ||
+          alert.operator === 'CROSSING_UP'
+        ) {
           if (currentLtp >= alert.targetPrice) triggered = true;
-        } else if (alert.operator === 'LESS_THAN_OR_EQUAL' || alert.operator === 'CROSSING_DOWN') {
+        } else if (
+          alert.operator === 'LESS_THAN_OR_EQUAL' ||
+          alert.operator === 'LESS_THAN_EQUAL' ||
+          alert.operator === 'LESS_THAN' ||
+          alert.operator === 'CROSSING_DOWN'
+        ) {
           if (currentLtp <= alert.targetPrice) triggered = true;
+        } else if (alert.operator === 'CROSSING_ANY_SIDE' || alert.operator === 'CROSS_ANY_SIDE') {
+          if (Math.abs(currentLtp - alert.targetPrice) <= currentLtp * 0.001) triggered = true;
         }
 
         if (triggered) {
@@ -658,10 +758,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             this.triggeredEvents.shift();
           }
         }
-      }
-
-      if (hasChanges) {
-        this.saveAlerts();
       }
     } finally {
       this.isFetchingPrices = false;

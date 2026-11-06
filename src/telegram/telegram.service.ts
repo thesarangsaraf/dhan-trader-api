@@ -65,8 +65,10 @@ export class TelegramService {
   async sendAlertNotification(alert: any) {
     const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
     const op = alert.operator.includes('GREATER') || alert.operator.includes('UP')
-      ? '≥ Crossing Up'
-      : '≤ Crossing Down';
+      ? '≥ Breakout'
+      : alert.operator.includes('ANY')
+        ? '⇋ Any Side'
+        : '≤ Breakdown';
 
     const msg = `
 🚨 <b>DHAN TRADER PRICE ALERT TRIGGERED</b> 🚨
@@ -95,24 +97,6 @@ export class TelegramService {
 <b>Type:</b> ${order.orderType} | ${order.productType}
 <b>Status:</b> ${order.status}
 <b>Order ID:</b> <code>${order.orderId}</code>
-<b>Time:</b> ${timeStr} IST
-    `.trim();
-
-    return this.sendMessage(msg);
-  }
-
-  async sendStrategyNotification(summary: any) {
-    const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-
-    const msg = `
-🎯 <b>AUTO-SL STRATEGY DEPLOYED</b> 🎯
-
-<b>Symbol:</b> ${summary.symbol}
-<b>Quantity:</b> ${summary.quantity}
-<b>Entry:</b> ₹${summary.entryPrice}
-<b>Stop Loss:</b> ₹${summary.slPrice} (-${summary.slPoints} pts)
-<b>Profit Target:</b> ₹${summary.targetPrice} (+${summary.targetPoints} pts)
-<b>Risk:Reward:</b> ${summary.riskRewardRatio}
 <b>Time:</b> ${timeStr} IST
     `.trim();
 
