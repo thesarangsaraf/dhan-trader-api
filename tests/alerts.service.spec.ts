@@ -91,16 +91,30 @@ test('AlertsService (NestJS)', async (t) => {
   await t.test('returns predefined popular NSE indices without static IP requirement', () => {
     const indices = service.getIndices();
     assert.ok(Array.isArray(indices));
-    assert.ok(indices.length >= 10);
+    assert.strictEqual(indices.length, 4);
 
     const nifty50 = indices.find((i) => i.name === 'NIFTY 50');
     assert.ok(nifty50);
     assert.strictEqual(nifty50.securityId, '13');
     assert.strictEqual(nifty50.exchangeSegment, 'IDX_I');
 
-    const bankNifty = indices.find((i) => i.name === 'NIFTY BANK');
+    const bankNifty = indices.find((i) => i.name === 'BANK NIFTY');
     assert.ok(bankNifty);
     assert.strictEqual(bankNifty.securityId, '25');
+
+    const sensex = indices.find((i) => i.name === 'SENSEX');
+    assert.ok(sensex);
+    assert.strictEqual(sensex.securityId, '51');
+
+    const midcapNifty = indices.find((i) => i.name === 'MIDCAP NIFTY');
+    assert.ok(midcapNifty);
+    assert.strictEqual(midcapNifty.securityId, '442');
+
+    // Confirm that removed indices are NOT present
+    const removedNames = ['NIFTY NEXT 50', 'INDIA VIX', 'NIFTY IT', 'NIFTY AUTO', 'NIFTY FMCG', 'NIFTY PHARMA', 'NIFTY METAL', 'NIFTY FIN SERVICE'];
+    for (const rName of removedNames) {
+      assert.ok(!indices.some((i) => i.name === rName), `Expected ${rName} to be deleted`);
+    }
   });
 
   await t.test('creates, reads, categorizes and manages price alerts', () => {

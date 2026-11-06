@@ -20,19 +20,9 @@ export class YahooFinanceService {
     'BANKNIFTY': '^NSEBANK',
     'SENSEX': '^BSESN',
     'BSE SENSEX': '^BSESN',
-    'NIFTY FIN SERVICE': 'NIFTY_FIN_SERVICE.NS',
-    'FIN NIFTY': 'NIFTY_FIN_SERVICE.NS',
-    'FINNIFTY': 'NIFTY_FIN_SERVICE.NS',
+    'MIDCAP NIFTY': 'NIFTY_MID_SELECT.NS',
     'MIDCP NIFTY': 'NIFTY_MID_SELECT.NS',
     'MIDCPNIFTY': 'NIFTY_MID_SELECT.NS',
-    'NIFTY NEXT 50': '^NSMIDCP',
-    'INDIA VIX': '^INDIAVIX',
-    'INDIAVIX': '^INDIAVIX',
-    'NIFTY IT': '^CNXIT',
-    'NIFTY AUTO': '^CNXAUTO',
-    'NIFTY FMCG': '^CNXFMCG',
-    'NIFTY PHARMA': '^CNXPHARMA',
-    'NIFTY METAL': '^CNXMETAL',
   };
 
   /**
@@ -79,12 +69,12 @@ export class YahooFinanceService {
     let underlying = rawUnderlying;
     if (rawUnderlying.includes('BANK')) {
       underlying = 'BANK NIFTY';
-    } else if (rawUnderlying.includes('FIN')) {
-      underlying = 'NIFTY FIN SERVICE';
-    } else if (rawUnderlying.includes('NIFTY')) {
-      underlying = 'NIFTY 50';
+    } else if (rawUnderlying.includes('MIDCAP') || rawUnderlying.includes('MIDCP')) {
+      underlying = 'MIDCAP NIFTY';
     } else if (rawUnderlying.includes('SENSEX')) {
       underlying = 'SENSEX';
+    } else if (rawUnderlying.includes('NIFTY')) {
+      underlying = 'NIFTY 50';
     }
 
     return {

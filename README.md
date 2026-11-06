@@ -157,7 +157,7 @@ Returns all registered price alerts.
 Returns alerts grouped by instrument with active and triggered counts.
 
 #### `GET /api/alerts/indices`
-Returns pre-populated NSE benchmark indices (NIFTY 50, NIFTY BANK, FIN NIFTY, MIDCP NIFTY, INDIA VIX, etc.).
+Returns pre-populated benchmark indices (NIFTY 50, BANK NIFTY, SENSEX, MIDCAP NIFTY).
 
 #### `POST /api/alerts`
 Creates a new price alert.

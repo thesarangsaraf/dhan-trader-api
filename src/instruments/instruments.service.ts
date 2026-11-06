@@ -69,17 +69,9 @@ export interface CachedIndexOption {
 const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
   // Indices
   { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
-  { symbol: 'NIFTY BANK', name: 'Nifty Bank Index', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
+  { symbol: 'BANK NIFTY', name: 'Nifty Bank Index', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
   { symbol: 'SENSEX', name: 'BSE Sensex Index', securityId: '51', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 20 },
-  { symbol: 'NIFTY FIN SERVICE', name: 'Nifty Financial Services', securityId: '27', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 60 },
-  { symbol: 'MIDCP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
-  { symbol: 'NIFTY NEXT 50', name: 'Nifty Next 50', securityId: '18', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 25 },
-  { symbol: 'INDIA VIX', name: 'India Volatility Index', securityId: '21', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
-  { symbol: 'NIFTY IT', name: 'Nifty IT Index', securityId: '29', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
-  { symbol: 'NIFTY AUTO', name: 'Nifty Auto Index', securityId: '31', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
-  { symbol: 'NIFTY FMCG', name: 'Nifty FMCG Index', securityId: '30', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
-  { symbol: 'NIFTY PHARMA', name: 'Nifty Pharma Index', securityId: '32', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
-  { symbol: 'NIFTY METAL', name: 'Nifty Metal Index', securityId: '33', exchangeSegment: 'IDX_I', instrumentType: 'INDEX' },
+  { symbol: 'MIDCAP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
 
   // FNO Options
   { symbol: 'NIFTY 24500 CE', name: 'Nifty 24500 Call', securityId: '45021', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 50 },
@@ -136,8 +128,7 @@ export class InstrumentsService {
   public findRealOption(symbolName: string, expiryDate: string, strikePrice: number, optionType: string): CachedIndexOption | undefined {
     let symKey = symbolName.toUpperCase();
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
-    else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
-    else if (symKey.includes('MIDCP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -174,6 +165,18 @@ export class InstrumentsService {
 
   findBySymbol(symbol: string): Omit<InstrumentItem, 'ltp'> | undefined {
     const clean = symbol.trim().toUpperCase();
+    if (clean === 'BANK NIFTY' || clean === 'NIFTY BANK' || clean === 'BANKNIFTY') {
+      return (
+        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'BANK NIFTY') ||
+        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'NIFTY BANK')
+      );
+    }
+    if (clean === 'MIDCAP NIFTY' || clean === 'MIDCP NIFTY' || clean === 'MIDCPNIFTY' || clean === 'NIFTY MIDCAP') {
+      return (
+        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'MIDCAP NIFTY') ||
+        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'MIDCP NIFTY')
+      );
+    }
     return POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
   }
 
@@ -250,8 +253,7 @@ export class InstrumentsService {
     const raw = (instrument || 'NIFTY 50').trim().toUpperCase();
     let symKey = raw;
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
-    else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
-    else if (symKey.includes('MIDCP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -283,10 +285,7 @@ export class InstrumentsService {
     if (raw.includes('BANK')) {
       securityId = '25';
       targetWeekday = 3;
-    } else if (raw.includes('FIN')) {
-      securityId = '27';
-      targetWeekday = 2;
-    } else if (raw.includes('MIDCP')) {
+    } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
       securityId = '442';
       targetWeekday = 1;
     } else if (raw.includes('SENSEX')) {
@@ -369,15 +368,8 @@ export class InstrumentsService {
       lotSize = 30;
       defaultStep = 100;
       targetWeekday = 3;
-    } else if (raw.includes('FIN')) {
-      normalizedName = 'NIFTY FIN SERVICE';
-      baseSymbol = 'FINNIFTY';
-      securityId = '27';
-      lotSize = 60;
-      defaultStep = 50;
-      targetWeekday = 2;
-    } else if (raw.includes('MIDCP')) {
-      normalizedName = 'MIDCP NIFTY';
+    } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
+      normalizedName = 'MIDCAP NIFTY';
       baseSymbol = 'MIDCPNIFTY';
       securityId = '442';
       lotSize = 120;

@@ -223,7 +223,14 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     const res = await makeMockRequest('GET', '/api/alerts/indices');
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body));
+    assert.strictEqual(res.body.length, 4);
     assert.ok(res.body.some((i: any) => i.name === 'NIFTY 50'));
+    assert.ok(res.body.some((i: any) => i.name === 'BANK NIFTY'));
+    assert.ok(res.body.some((i: any) => i.name === 'SENSEX'));
+    assert.ok(res.body.some((i: any) => i.name === 'MIDCAP NIFTY'));
+    assert.ok(!res.body.some((i: any) => i.name.includes('FIN')));
+    assert.ok(!res.body.some((i: any) => i.name.includes('NEXT')));
+    assert.ok(!res.body.some((i: any) => i.name.includes('VIX')));
   });
 
   await t.test('POST /api/alerts creates new alert without static IP requirement', async () => {

@@ -11,17 +11,9 @@ import { ConditionalOrderDto } from './dto/conditional-order.dto';
 
 export const POPULAR_NSE_INDICES = [
   { name: 'NIFTY 50', securityId: '13', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY BANK', securityId: '25', exchangeSegment: 'IDX_I' },
+  { name: 'BANK NIFTY', securityId: '25', exchangeSegment: 'IDX_I' },
   { name: 'SENSEX', securityId: '51', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY FIN SERVICE', securityId: '27', exchangeSegment: 'IDX_I' },
-  { name: 'MIDCP NIFTY', securityId: '442', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY NEXT 50', securityId: '18', exchangeSegment: 'IDX_I' },
-  { name: 'INDIA VIX', securityId: '21', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY IT', securityId: '29', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY AUTO', securityId: '31', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY FMCG', securityId: '30', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY PHARMA', securityId: '32', exchangeSegment: 'IDX_I' },
-  { name: 'NIFTY METAL', securityId: '33', exchangeSegment: 'IDX_I' },
+  { name: 'MIDCAP NIFTY', securityId: '442', exchangeSegment: 'IDX_I' },
 ];
 
 @Injectable()
@@ -325,8 +317,19 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         return this.priceCache.get(key) || null;
       }
     }
-    if (instrument && this.priceCache.has(instrument.toUpperCase())) {
-      return this.priceCache.get(instrument.toUpperCase()) || null;
+    if (instrument) {
+      const instUp = instrument.toUpperCase();
+      if (this.priceCache.has(instUp)) {
+        return this.priceCache.get(instUp) || null;
+      }
+      if (instUp.includes('BANK')) {
+        if (this.priceCache.has('BANK NIFTY')) return this.priceCache.get('BANK NIFTY') || null;
+        if (this.priceCache.has('NIFTY BANK')) return this.priceCache.get('NIFTY BANK') || null;
+      }
+      if (instUp.includes('MIDCAP') || instUp.includes('MIDCP')) {
+        if (this.priceCache.has('MIDCAP NIFTY')) return this.priceCache.get('MIDCAP NIFTY') || null;
+        if (this.priceCache.has('MIDCP NIFTY')) return this.priceCache.get('MIDCP NIFTY') || null;
+      }
     }
     return null;
   }
@@ -506,8 +509,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Target price must be a positive number');
     }
 
+    const instUpper = dto.instrument.toUpperCase();
     const matchedIndex = POPULAR_NSE_INDICES.find(
-      (i) => i.name.toUpperCase() === dto.instrument.toUpperCase(),
+      (i) =>
+        i.name.toUpperCase() === instUpper ||
+        (i.name === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
+        (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
     );
 
     const secId = dto.securityId || (matchedIndex ? matchedIndex.securityId : '0');
@@ -522,7 +529,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     const newAlert = {
       id: `ALT-${Date.now().toString().slice(-6)}`,
-      instrument: matchedIndex ? matchedIndex.name : dto.instrument.toUpperCase(),
+      instrument: instUpper === 'NIFTY BANK' ? 'NIFTY BANK' : (matchedIndex ? matchedIndex.name : instUpper),
       securityId: String(secId),
       exchangeSegment: exSegment,
       targetPrice: priceNum,
@@ -562,6 +569,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   getDefaultSlPoints(instrument: string): number {
     const upper = (instrument || '').toUpperCase();
     if (upper.includes('BANK')) return 20;
+    if (upper.includes('MIDCAP') || upper.includes('MIDCP')) return 15;
+    if (upper.includes('SENSEX')) return 30;
     if (upper.includes('NIFTY')) return 12;
     return 15;
   }
@@ -676,8 +685,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       };
     });
 
+    const instUpper = dto.instrument.toUpperCase();
     const matchedIndex = POPULAR_NSE_INDICES.find(
-      (i) => i.name.toUpperCase() === dto.instrument.toUpperCase(),
+      (i) =>
+        i.name.toUpperCase() === instUpper ||
+        (i.name === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
+        (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
     );
 
     let secId = dto.securityId;
@@ -1130,6 +1143,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                   );
                   if (matched) {
                     this.priceCache.set(matched.name.toUpperCase(), liveLtp);
+                    if (matched.name === 'BANK NIFTY') {
+                      this.priceCache.set('NIFTY BANK', liveLtp);
+                    }
+                    if (matched.name === 'MIDCAP NIFTY') {
+                      this.priceCache.set('MIDCP NIFTY', liveLtp);
+                      this.priceCache.set('MIDCPNIFTY', liveLtp);
+                    }
                   }
                 }
               }
@@ -1159,10 +1179,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
               this.priceCache.set(sym.toUpperCase(), price);
 
               const matchedIdx = POPULAR_NSE_INDICES.find(
-                (i) => i.name.toUpperCase() === sym.toUpperCase(),
+                (i) =>
+                  i.name.toUpperCase() === sym.toUpperCase() ||
+                  (i.name === 'BANK NIFTY' && sym.toUpperCase() === 'NIFTY BANK') ||
+                  (i.name === 'MIDCAP NIFTY' && (sym.toUpperCase() === 'MIDCP NIFTY' || sym.toUpperCase() === 'MIDCPNIFTY')),
               );
               if (matchedIdx) {
                 this.priceCache.set(`${matchedIdx.exchangeSegment}:${matchedIdx.securityId}`, price);
+                if (matchedIdx.name === 'BANK NIFTY') {
+                  this.priceCache.set('NIFTY BANK', price);
+                }
+                if (matchedIdx.name === 'MIDCAP NIFTY') {
+                  this.priceCache.set('MIDCP NIFTY', price);
+                  this.priceCache.set('MIDCPNIFTY', price);
+                }
               }
 
               for (const alert of allActive) {

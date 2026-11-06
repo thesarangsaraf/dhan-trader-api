@@ -18,6 +18,8 @@ test('YahooFinanceService (NestJS)', async (t) => {
     assert.strictEqual(service.mapToYahooSymbol('NIFTY 50'), '^NSEI');
     assert.strictEqual(service.mapToYahooSymbol('BANK NIFTY'), '^NSEBANK');
     assert.strictEqual(service.mapToYahooSymbol('SENSEX'), '^BSESN');
+    assert.strictEqual(service.mapToYahooSymbol('MIDCAP NIFTY'), 'NIFTY_MID_SELECT.NS');
+    assert.strictEqual(service.mapToYahooSymbol('MIDCP NIFTY'), 'NIFTY_MID_SELECT.NS');
     assert.strictEqual(service.mapToYahooSymbol('RELIANCE'), 'RELIANCE.NS');
     assert.strictEqual(service.mapToYahooSymbol('TCS'), 'TCS.NS');
     assert.strictEqual(service.mapToYahooSymbol('^NSEI'), '^NSEI');
