@@ -268,7 +268,8 @@ export class OrdersService {
         updateTime: new Date().toISOString(),
       };
 
-      this.telegramService.sendOrderNotification(liveOrder, 'PLACED');
+      // Event notifications stopped per user instruction
+      // this.telegramService.sendOrderNotification(liveOrder, 'PLACED');
 
       return {
         success: true,
@@ -294,7 +295,8 @@ export class OrdersService {
     const apiResult = await this.dhanService.cancelOrder(orderId);
 
     if (apiResult.ok) {
-      this.telegramService.sendOrderNotification({ orderId, status: 'CANCELLED', symbol: 'ORDER' }, 'CANCELLED');
+      // Event notifications stopped per user instruction
+      // this.telegramService.sendOrderNotification({ orderId, status: 'CANCELLED', symbol: 'ORDER' }, 'CANCELLED');
       return {
         success: true,
         source: 'dhan_api',

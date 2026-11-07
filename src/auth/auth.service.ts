@@ -149,21 +149,11 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const res = await this.renewToken();
     if (res.success) {
       this.logger.log(`Dhan token renewed and synced to Firestore database! New expiry: ${res.inspection?.expiresAtIST}`);
-      if (this.telegramService?.isConfigured()) {
-        const msg = `<b>🔐 Dhan Access Token Auto-Renewed</b>\n` +
-          `Your Dhan API access token was automatically renewed for 24 hours and saved to Firestore database.\n` +
-          `<b>New Expiry:</b> <code>${res.inspection?.expiresAtIST}</code>`;
-        this.telegramService.sendMessage(msg).catch(() => {});
-      }
+      // Event notifications stopped per user instruction
       return { renewed: true, res };
     } else {
       this.logger.error(`Dhan token auto-renewal failed: ${res.error}`);
-      if (this.telegramService?.isConfigured()) {
-        const msg = `<b>⚠️ Dhan Token Auto-Renewal Failed</b>\n` +
-          `Could not renew Dhan token: <i>${res.error}</i>\n` +
-          `Time remaining: <code>${inspection.timeRemainingFormatted}</code>`;
-        this.telegramService.sendMessage(msg).catch(() => {});
-      }
+      // Event notifications stopped per user instruction
       return { renewed: false, error: res.error };
     }
   }

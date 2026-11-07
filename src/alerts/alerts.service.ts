@@ -218,6 +218,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             isStopLossAlert,
             parentAlertId,
             dhanAlertId: alertId,
+            rawDhanJson: d,
+            rawAlertJson: d,
           };
         });
 
@@ -253,6 +255,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             this.alerts[localIdx] = {
               ...this.alerts[localIdx],
               ...da,
+              rawDhanJson: da.rawDhanJson || this.alerts[localIdx].rawDhanJson,
+              rawAlertJson: da.rawAlertJson || this.alerts[localIdx].rawAlertJson,
               stopLoss: da.stopLoss || this.alerts[localIdx].stopLoss,
               stopLossAlertPlaced: da.stopLossAlertPlaced !== undefined ? da.stopLossAlertPlaced : this.alerts[localIdx].stopLossAlertPlaced,
               stopLossAlertId: da.stopLossAlertId || this.alerts[localIdx].stopLossAlertId,
@@ -511,6 +515,21 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         inst = this.resolveInstrumentName(a.securityId, a.remarks || a.condition?.userNote, a.tradingSymbol || a.symbol);
       }
 
+      const rawJson = a.rawDhanJson || a.rawAlertJson || {
+        alertId: a.dhanAlertId || a.id,
+        alertStatus: a.status || 'ACTIVE',
+        createdTime: a.createdAt,
+        condition: {
+          securityId: a.securityId,
+          exchangeSegment: a.exchangeSegment,
+          comparingValue: a.targetPrice,
+          operator: a.operator,
+          userNote: a.remarks,
+          expDate: a.expDate,
+        },
+        orders: orders,
+      };
+
       return {
         ...a,
         instrument: inst,
@@ -520,6 +539,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         hasConditionalOrder: orders.length > 0,
         attachedOrder,
         currentPrice: this.getCurrentPrice(inst, a.securityId, a.exchangeSegment),
+        rawDhanJson: rawJson,
+        rawAlertJson: rawJson,
       };
     });
 
@@ -599,6 +620,21 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return alerts;
+  }
+
+  getAlertById(id: string) {
+    const rawId = id.replace(/^DHAN-/, '');
+    const all = this.getAllAlerts();
+    return (
+      all.find(
+        (a: any) =>
+          a.id === id ||
+          a.id === rawId ||
+          a.id === `DHAN-${rawId}` ||
+          a.dhanAlertId === id ||
+          a.dhanAlertId === rawId,
+      ) || null
+    );
   }
 
   getGroupedAlerts() {
@@ -1123,6 +1159,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         exchangeSegment: exSegment,
         securityId: String(secId),
       },
+      rawDhanJson: dhanApiResult?.data || null,
+      rawAlertJson: dhanApiResult?.data || null,
     };
 
     // Sync with Dhan to fetch both alerts straight from Dhan HQ API v2
@@ -1136,6 +1174,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       this.alerts[existingIdx] = {
         ...this.alerts[existingIdx],
         ...newAlert,
+        rawDhanJson: this.alerts[existingIdx].rawDhanJson || newAlert.rawDhanJson,
+        rawAlertJson: this.alerts[existingIdx].rawAlertJson || newAlert.rawAlertJson,
         stopLoss: stopLossConfig || this.alerts[existingIdx].stopLoss,
         stopLossAlertPlaced: Boolean(slDhanAlertId) || this.alerts[existingIdx].stopLossAlertPlaced,
         stopLossAlertId: slDhanAlertId || this.alerts[existingIdx].stopLossAlertId,
@@ -1144,21 +1184,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       this.alerts.unshift(newAlert);
     }
 
-    if (slDhanAlertId) {
-      const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-      const msg = `
-🛡️ <b>CONDITIONAL ALERT & STOP LOSS ORDER PLACED ON DHAN</b> 🛡️
-
-<b>Instrument:</b> ${newAlert.instrument}
-<b>Entry Alert:</b> #${alertId} @ ₹${priceNum} (${dhanOp})
-<b>Entry Order:</b> ${validatedOrders[0].transactionType} ${validatedOrders[0].quantity}x ${validatedOrders[0].symbol}
-<b>Stop Loss Alert:</b> #${slDhanAlertId} @ ₹${stopLossConfig.targetPrice} (${stopLossConfig.operator})
-<b>SL Square-off Order:</b> ${stopLossConfig.action || 'SELL'} ${validatedOrders[0].quantity}x ${validatedOrders[0].symbol}
-<b>Time:</b> ${timeStr} IST
-      `.trim();
-      this.telegramService.sendMessage(msg).catch(() => {});
-    }
-
+    // Telegram event notification disabled per user instruction
     // Trigger tick check immediately
     this.checkAndTick().catch(() => {});
 
@@ -1437,7 +1463,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             hasConditionalOrder: Boolean(alert.hasConditionalOrder),
           });
 
-          this.telegramService.sendAlertNotification(alert);
+          // Event notifications stopped per user instruction
+          // this.telegramService.sendAlertNotification(alert);
 
           // If attached conditional order exists and autoExecuteOnTrigger is enabled, place order on Dhan
           if (alert.hasConditionalOrder && alert.autoExecuteOnTrigger && Array.isArray(alert.conditionalOrders)) {
@@ -1468,16 +1495,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                       alert.attachedOrder.executedAt = ord.executedAt;
                     }
 
-                    this.telegramService.sendOrderNotification({
-                      orderId: ord.orderId,
-                      symbol: ord.symbol,
-                      transactionType: ord.transactionType,
-                      quantity: ord.quantity,
-                      price: ord.price || currentLtp,
-                      orderType: ord.orderType,
-                      productType: ord.productType,
-                      status: 'PLACED',
-                    }, 'PLACED').catch(() => {});
+                    // Event notifications stopped per user instruction
+                    // this.telegramService.sendOrderNotification({ ... }, 'PLACED')
 
                     // Automatically deploy linked Stop Loss alert if configured
                     if (alert.stopLoss && alert.stopLoss.enabled && !alert.stopLossAlertPlaced) {
@@ -1575,7 +1594,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 <b>SL Alert ID:</b> <code>${result.alert.id}</code>
 <b>Time:</b> ${timeStr} IST
         `.trim();
-        this.telegramService.sendMessage(msg).catch(() => {});
+        // Event notifications stopped per user instruction
+        // this.telegramService.sendMessage(msg).catch(() => {});
       }
       return result;
     } catch (err: any) {

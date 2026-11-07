@@ -76,24 +76,8 @@ export class TelegramService {
   }
 
   async sendAlertNotification(alert: any) {
-    const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-    const op = alert.operator.includes('GREATER') || alert.operator.includes('UP')
-      ? '≥ Breakout'
-      : alert.operator.includes('ANY')
-        ? '⇋ Any Side'
-        : '≤ Breakdown';
-
-    const msg = `
-🚨 <b>DHAN TRADER PRICE ALERT TRIGGERED</b> 🚨
-
-<b>Instrument:</b> ${alert.instrument}
-<b>Trigger Price:</b> ₹${alert.triggeredPrice || alert.currentPrice}
-<b>Target Level:</b> ₹${alert.targetPrice} (${op})
-<b>Time:</b> ${timeStr} IST
-<b>Remarks:</b> ${alert.remarks || 'None'}
-    `.trim();
-
-    return this.sendMessage(msg);
+    // Event notifications stopped per user instruction (will decide later when to send)
+    return { success: true, disabled: true, reason: 'Telegram event notifications disabled' };
   }
 
   formatOrderEventHtml(o: any): string {
@@ -208,18 +192,13 @@ export class TelegramService {
   }
 
   async sendOrderEvent(order: any) {
-    const htmlMessage = this.formatOrderEventHtml(order);
-    return this.sendMessage(htmlMessage);
+    // Event notifications stopped per user instruction (will decide later when to send)
+    return { success: true, disabled: true, reason: 'Telegram event notifications disabled' };
   }
 
   async sendOrderNotification(order: any, action = 'PLACED') {
-    const enriched = {
-      ...order,
-      orderStatus: order.orderStatus || order.status || action,
-      tradingSymbol: order.tradingSymbol || order.symbol,
-      transactionType: order.transactionType || order.action || 'BUY',
-    };
-    return this.sendOrderEvent(enriched);
+    // Event notifications stopped per user instruction (will decide later when to send)
+    return { success: true, disabled: true, reason: 'Telegram event notifications disabled' };
   }
 
   async sendTestNotification() {

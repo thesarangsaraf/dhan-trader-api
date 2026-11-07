@@ -50,6 +50,20 @@ export class AlertsController {
     return details;
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get single alert with raw Dhan HQ API JSON by alert ID' })
+  @ApiParam({ name: 'id', description: 'Alert ID (e.g. 100234 or DHAN-100234)' })
+  @ApiResponse({ status: 200, description: 'Alert object with raw Dhan HQ JSON payload' })
+  @ApiResponse({ status: 404, description: 'Alert not found' })
+  async getAlertById(@Param('id') id: string) {
+    await this.alertsService.syncWithDhan();
+    const alert = this.alertsService.getAlertById(id);
+    if (!alert) {
+      throw new NotFoundException(`Alert with ID ${id} not found`);
+    }
+    return alert;
+  }
+
   @Post()
   @HttpCode(201)
   @ApiOperation({ summary: 'Create new price alert' })
