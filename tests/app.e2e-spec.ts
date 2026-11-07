@@ -324,6 +324,23 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.alert.instrument, 'NIFTY BANK');
   });
 
+  await t.test('GET /api/alerts/instrument-name/:securityId returns instrument metadata', async () => {
+    const res = await makeMockRequest('GET', '/api/alerts/instrument-name/13');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.securityId, '13');
+    assert.strictEqual(res.body.instrumentName, 'NIFTY 50');
+    assert.strictEqual(res.body.exchangeSegment, 'IDX_I');
+
+    const resEq = await makeMockRequest('GET', '/api/alerts/instrument-name/2885');
+    assert.strictEqual(resEq.status, 200);
+    assert.strictEqual(resEq.body.securityId, '2885');
+    assert.strictEqual(resEq.body.symbol, 'RELIANCE');
+    assert.strictEqual(resEq.body.exchangeSegment, 'NSE_EQ');
+
+    const resNotFound = await makeMockRequest('GET', '/api/alerts/instrument-name/999999');
+    assert.strictEqual(resNotFound.status, 404);
+  });
+
   await t.test('POST /api/alerts/conditional-order creates alert with conditional order', async () => {
     const res = await makeMockRequest('POST', '/api/alerts/conditional-order', {
       instrument: 'NIFTY 50',

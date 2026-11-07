@@ -97,6 +97,9 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
 @Injectable()
 export class InstrumentsService {
   private indexOptions: CachedIndexOption[] = [];
+  private scripMaster: Omit<InstrumentItem, 'ltp'>[] = [];
+  private scripMasterBySecId = new Map<string, Omit<InstrumentItem, 'ltp'>>();
+  private scripMasterBySymbol = new Map<string, Omit<InstrumentItem, 'ltp'>>();
   private securityIdMap = new Map<string, string>();
 
   constructor(
@@ -104,6 +107,35 @@ export class InstrumentsService {
     @Optional() private readonly yahooService?: YahooFinanceService,
   ) {
     this.loadIndexOptions();
+    this.loadScripMaster();
+  }
+
+  private loadScripMaster() {
+    try {
+      const candidatePaths = [
+        path.resolve(__dirname, '..', '..', 'data', 'scrip-master.json'),
+        path.resolve(__dirname, '..', 'data', 'scrip-master.json'),
+        path.resolve(process.cwd(), 'data', 'scrip-master.json'),
+        path.resolve(process.cwd(), '..', 'dhan-trader-api', 'data', 'scrip-master.json'),
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+          const raw = fs.readFileSync(p, 'utf8');
+          this.scripMaster = JSON.parse(raw);
+          for (const item of this.scripMaster) {
+            if (item.securityId) {
+              this.scripMasterBySecId.set(String(item.securityId).trim(), item);
+            }
+            if (item.symbol) {
+              this.scripMasterBySymbol.set(item.symbol.trim().toUpperCase(), item);
+            }
+          }
+          break;
+        }
+      }
+    } catch {
+      this.scripMaster = [];
+    }
   }
 
   private loadIndexOptions() {
@@ -148,9 +180,27 @@ export class InstrumentsService {
       matched = POPULAR_INSTRUMENTS.slice(0, limit);
     } else {
       const clean = query.trim().toUpperCase();
-      matched = POPULAR_INSTRUMENTS.filter(
+      const popMatches = POPULAR_INSTRUMENTS.filter(
         (item) => item.symbol.includes(clean) || item.name.toUpperCase().includes(clean),
-      ).slice(0, limit);
+      );
+
+      if (popMatches.length >= limit) {
+        matched = popMatches.slice(0, limit);
+      } else {
+        if (this.scripMasterBySecId.size === 0) {
+          this.loadScripMaster();
+        }
+        const seenSecIds = new Set(popMatches.map((p) => p.securityId));
+        const masterMatches: Omit<InstrumentItem, 'ltp'>[] = [];
+        for (const item of this.scripMaster) {
+          if (seenSecIds.has(item.securityId)) continue;
+          if (item.symbol.includes(clean) || item.name.toUpperCase().includes(clean)) {
+            masterMatches.push(item);
+            if (popMatches.length + masterMatches.length >= limit) break;
+          }
+        }
+        matched = [...popMatches, ...masterMatches].slice(0, limit);
+      }
     }
 
     return this.enrichWithLiveLtp(matched);
@@ -165,6 +215,7 @@ export class InstrumentsService {
   }
 
   findBySymbol(symbol: string): Omit<InstrumentItem, 'ltp'> | undefined {
+    if (!symbol) return undefined;
     const clean = symbol.trim().toUpperCase();
     if (clean === 'BANK NIFTY' || clean === 'NIFTY BANK' || clean === 'BANKNIFTY') {
       return (
@@ -178,7 +229,14 @@ export class InstrumentsService {
         POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'MIDCP NIFTY')
       );
     }
-    return POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
+
+    const popMatch = POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
+    if (popMatch) return popMatch;
+
+    if (this.scripMasterBySymbol.size === 0) {
+      this.loadScripMaster();
+    }
+    return this.scripMasterBySymbol.get(clean);
   }
 
   findBySecurityId(securityId: string): {
@@ -198,6 +256,9 @@ export class InstrumentsService {
     if (this.indexOptions.length === 0) {
       this.loadIndexOptions();
     }
+    if (this.scripMasterBySecId.size === 0) {
+      this.loadScripMaster();
+    }
 
     // 1. Search indexOptions first (12,900+ contracts with full strike, expiry, symbol details)
     const matchedOpt = this.indexOptions.find((opt) => String(opt.securityId).trim() === cleanId);
@@ -215,7 +276,20 @@ export class InstrumentsService {
       };
     }
 
-    // 2. Search POPULAR_INSTRUMENTS (indices, equities, etc.)
+    // 2. Search scripMaster (23,900+ equities and indices from Dhan scrip master)
+    const matchedMaster = this.scripMasterBySecId.get(cleanId);
+    if (matchedMaster) {
+      return {
+        symbol: matchedMaster.symbol,
+        name: matchedMaster.name,
+        customSymbol: matchedMaster.symbol,
+        tradingSymbol: matchedMaster.symbol,
+        exchangeSegment: matchedMaster.exchangeSegment,
+        lotSize: matchedMaster.lotSize || 1,
+      };
+    }
+
+    // 3. Search POPULAR_INSTRUMENTS (fallback)
     const matchedPop = POPULAR_INSTRUMENTS.find((item) => String(item.securityId).trim() === cleanId);
     if (matchedPop) {
       return {

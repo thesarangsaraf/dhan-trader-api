@@ -46,6 +46,13 @@ This document provides definitive instructions, architecture patterns, constrain
    - Go there, check the frontend codebase, and make changes if needed (e.g. updating API models, service methods, endpoints, or UI components).
    - Always ensure both projects remain in sync, pass their test suites (`npm test`), and compile production builds (`npm run build`) without errors.
 
+7. **Strict NSE-Only Scope for Data Masters (`data/*.json`)**:
+   - The user trades strictly on the **National Stock Exchange (NSE)**.
+   - When generating, downloading, or updating data master files:
+     - `data/scrip-master.json`: Must include **only** NSE Equities (`NSE_EQ`) and NSE Benchmark Indices (`IDX_I`).
+     - `data/index-options.json`: Must include **only** NSE Derivatives / F&O contracts (`NSE_FNO`).
+   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed to `data/*.json`. This preserves a lightweight disk/memory footprint and maximum query speed.
+
 ---
 
 ## 📂 Architecture & Directory Structure
@@ -58,6 +65,9 @@ dhan-trader/
 ├── tsconfig.json                      # TypeScript configuration (ES2022, CommonJS, Decorators)
 ├── README.md                          # Human-facing documentation
 ├── AGENTS.md                          # Agent-facing operational guidelines (this file)
+├── data/
+│   ├── scrip-master.json              # NSE equities & indices scrip master (NSE_EQ, IDX_I)
+│   └── index-options.json             # NSE F&O index options master (NSE_FNO)
 ├── dist/                              # Output directory for tsc compiler
 ├── scripts/
 │   └── verify-dhan.ts                 # Real live Dhan HQ API connectivity script
@@ -179,4 +189,5 @@ Before marking any task as complete:
 - [ ] Every new endpoint is registered with appropriate `@ApiTags`, `@ApiOperation`, and `@ApiResponse` decorators.
 - [ ] Input payloads have corresponding DTO classes with `class-validator` rules.
 - [ ] If any backend API or UI-affecting functionality was modified, checked `../dhan-trader-ui` and made necessary changes there.
+- [ ] Data masters in `data/*.json` strictly contain NSE instruments only (`NSE_EQ`, `NSE_FNO`, `IDX_I`), with zero BSE entries.
 - [ ] Code comments and existing docstrings remain intact.

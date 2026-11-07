@@ -73,14 +73,10 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             (a) => a.id === alertId || a.dhanAlertId === alertId || a.id === `DHAN-${alertId}` || (alertId.startsWith('DHAN-') && a.id === alertId.slice(5)),
           );
 
+          const secId = String(d.condition?.securityId || d.securityId || '');
           let instName = localMatch?.instrument;
-          if (!instName) {
-            const matchedIndex = POPULAR_NSE_INDICES.find(
-              (i) => i.securityId === String(d.condition?.securityId || d.securityId),
-            );
-            instName = matchedIndex
-              ? matchedIndex.name
-              : (d.condition?.userNote || d.tradingSymbol || `SEC-${d.condition?.securityId || d.securityId}`);
+          if (!instName || instName.startsWith('SEC-')) {
+            instName = this.resolveInstrumentName(secId, d.condition?.userNote, d.tradingSymbol);
           }
 
           let expDateStr: string | undefined;
@@ -303,6 +299,93 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     await this.checkAndTick();
   }
 
+  /**
+   * Resolves the human-readable instrument name from a security ID or condition details.
+   */
+  resolveInstrumentName(securityId?: string, fallbackUserNote?: string, fallbackSymbol?: string): string {
+    const secId = securityId ? String(securityId).trim() : '';
+
+    // 1. Check popular indices
+    if (secId) {
+      const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+      if (matchedIndex) return matchedIndex.name;
+    }
+
+    // 2. Check InstrumentsService by security ID
+    if (secId && this.instrumentsService && typeof this.instrumentsService.findBySecurityId === 'function') {
+      const found = this.instrumentsService.findBySecurityId(secId);
+      if (found) {
+        return found.customSymbol || found.name || found.symbol || found.tradingSymbol || `SEC-${secId}`;
+      }
+    }
+
+    // 3. Fallback to clean userNote if present and not a system string
+    if (fallbackUserNote && typeof fallbackUserNote === 'string') {
+      const note = fallbackUserNote.trim();
+      if (
+        note &&
+        !note.startsWith('[STOP LOSS]') &&
+        !note.startsWith('Conditional order for') &&
+        !note.startsWith('Alert for') &&
+        !note.startsWith('SEC-') &&
+        !note.startsWith('Dhan Conditional')
+      ) {
+        return note;
+      }
+    }
+
+    // 4. Fallback to tradingSymbol if available
+    if (fallbackSymbol && typeof fallbackSymbol === 'string' && !fallbackSymbol.startsWith('SEC-')) {
+      return fallbackSymbol;
+    }
+
+    // 5. Final fallback
+    return secId ? `SEC-${secId}` : 'CUSTOM';
+  }
+
+  /**
+   * Returns structured instrument details for a given security ID.
+   */
+  getInstrumentDetailsBySecurityId(securityId: string) {
+    const secId = String(securityId || '').trim();
+    if (!secId) return null;
+
+    const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+    if (matchedIndex) {
+      return {
+        securityId: secId,
+        instrumentName: matchedIndex.name,
+        name: matchedIndex.name,
+        symbol: matchedIndex.name,
+        tradingSymbol: matchedIndex.name,
+        exchangeSegment: matchedIndex.exchangeSegment,
+        lotSize: 1,
+      };
+    }
+
+    if (this.instrumentsService && typeof this.instrumentsService.findBySecurityId === 'function') {
+      const found = this.instrumentsService.findBySecurityId(secId);
+      if (found) {
+        const name = found.customSymbol || found.name || found.symbol || found.tradingSymbol;
+        return {
+          securityId: secId,
+          instrumentName: name,
+          name,
+          symbol: found.symbol,
+          tradingSymbol: found.tradingSymbol || found.symbol,
+          customSymbol: found.customSymbol || name,
+          exchangeSegment: found.exchangeSegment || 'NSE_EQ',
+          expiryDate: found.expiryDate,
+          strikePrice: found.strikePrice,
+          optionType: found.optionType,
+          lotSize: found.lotSize || 1,
+        };
+      }
+    }
+
+    return null;
+  }
+
   getIndices() {
     return POPULAR_NSE_INDICES.map((idx) => ({
       ...idx,
@@ -428,14 +511,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         executedAt: firstOrd.executedAt,
       } : undefined;
 
+      let inst = a.instrument;
+      if ((!inst || inst.startsWith('SEC-')) && a.securityId) {
+        inst = this.resolveInstrumentName(a.securityId, a.remarks || a.condition?.userNote, a.tradingSymbol || a.symbol);
+      }
+
       return {
         ...a,
+        instrument: inst,
         expDate: expDateStr,
         orders,
         conditionalOrders: orders,
         hasConditionalOrder: orders.length > 0,
         attachedOrder,
-        currentPrice: this.getCurrentPrice(a.instrument, a.securityId, a.exchangeSegment),
+        currentPrice: this.getCurrentPrice(inst, a.securityId, a.exchangeSegment),
       };
     });
 
@@ -500,6 +589,14 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       return this.createConditionalAlert(dto as CreateConditionalAlertDto);
     }
 
+    if (!dto.instrument && dto.securityId) {
+      dto.instrument = this.resolveInstrumentName(dto.securityId, dto.remarks);
+    }
+
+    if (!dto.instrument && dto.securityId) {
+      dto.instrument = this.resolveInstrumentName(dto.securityId, dto.remarks);
+    }
+
     if (!dto.instrument || dto.targetPrice === undefined || dto.targetPrice === null) {
       throw new BadRequestException('Instrument and target price are required');
     }
@@ -509,7 +606,17 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Target price must be a positive number');
     }
 
-    const instUpper = dto.instrument.toUpperCase();
+    let secId = dto.securityId;
+    let instUpper = dto.instrument.toUpperCase().trim();
+
+    if (secId && (!instUpper || instUpper.startsWith('SEC-') || /^\d+$/.test(instUpper))) {
+      const resolved = this.resolveInstrumentName(secId, dto.remarks);
+      if (resolved && !resolved.startsWith('SEC-')) {
+        instUpper = resolved.toUpperCase();
+        dto.instrument = resolved;
+      }
+    }
+
     const matchedIndex = POPULAR_NSE_INDICES.find(
       (i) =>
         i.name.toUpperCase() === instUpper ||
@@ -517,7 +624,16 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
     );
 
-    const secId = dto.securityId || (matchedIndex ? matchedIndex.securityId : '0');
+    if (!secId && matchedIndex) secId = matchedIndex.securityId;
+    if (!secId && this.instrumentsService) {
+      const found = this.instrumentsService.findBySymbol(dto.instrument);
+      if (found) {
+        secId = found.securityId;
+        if (!dto.exchangeSegment) dto.exchangeSegment = found.exchangeSegment;
+      }
+    }
+
+    secId = secId || (matchedIndex ? matchedIndex.securityId : '0');
     const exSegment = dto.exchangeSegment || (matchedIndex ? matchedIndex.exchangeSegment : 'NSE_EQ');
     const currentPrice = this.getCurrentPrice(dto.instrument, secId, exSegment);
 
@@ -592,6 +708,10 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         price: dto.attachedOrder.price || 0,
         validity: 'DAY',
       };
+    }
+
+    if (!dto.instrument && dto.securityId) {
+      dto.instrument = this.resolveInstrumentName(dto.securityId, dto.remarks);
     }
 
     if (!dto.instrument || dto.targetPrice === undefined || dto.targetPrice === null) {
@@ -685,7 +805,17 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       };
     });
 
-    const instUpper = dto.instrument.toUpperCase();
+    let secId = dto.securityId;
+    let instUpper = dto.instrument.toUpperCase().trim();
+
+    if (secId && (!instUpper || instUpper.startsWith('SEC-') || /^\d+$/.test(instUpper))) {
+      const resolved = this.resolveInstrumentName(secId, dto.remarks);
+      if (resolved && !resolved.startsWith('SEC-')) {
+        instUpper = resolved.toUpperCase();
+        dto.instrument = resolved;
+      }
+    }
+
     const matchedIndex = POPULAR_NSE_INDICES.find(
       (i) =>
         i.name.toUpperCase() === instUpper ||
@@ -693,7 +823,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
     );
 
-    let secId = dto.securityId;
     let exSegment = dto.exchangeSegment;
 
     if (!secId && matchedIndex) secId = matchedIndex.securityId;
@@ -708,7 +837,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
 
     secId = secId || '0';
-    exSegment = exSegment || 'IDX_I';
+    exSegment = exSegment || (matchedIndex ? matchedIndex.exchangeSegment : 'IDX_I');
     const currentPrice = this.getCurrentPrice(dto.instrument, secId, exSegment);
 
     // Operator is decided automatically if omitted: GREATER_THAN if target >= current, LESS_THAN if target < current

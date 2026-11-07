@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
@@ -32,6 +32,22 @@ export class AlertsController {
   async getIndices() {
     await this.alertsService.checkAndTick();
     return this.alertsService.getIndices();
+  }
+
+  @Get('instrument-name/:securityId')
+  @ApiOperation({
+    summary: 'Fetch instrument display name and metadata by security ID for alerts',
+    description: 'Looks up any Dhan security ID (Indices, Equities, or F&O Options) and returns the verified instrument name, symbol, and segment.',
+  })
+  @ApiParam({ name: 'securityId', description: 'Dhan security ID (e.g. 13 for NIFTY 50, 2885 for RELIANCE, 1100742)' })
+  @ApiResponse({ status: 200, description: 'Instrument metadata with display name and symbol' })
+  @ApiResponse({ status: 404, description: 'Security ID not found' })
+  getInstrumentName(@Param('securityId') securityId: string) {
+    const details = this.alertsService.getInstrumentDetailsBySecurityId(securityId);
+    if (!details) {
+      throw new NotFoundException(`Instrument with security ID ${securityId} not found`);
+    }
+    return details;
   }
 
   @Post()

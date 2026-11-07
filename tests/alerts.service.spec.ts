@@ -72,6 +72,17 @@ test('AlertsService (NestJS)', async (t) => {
           optionType: 'CE',
         };
       }
+      if (id === '2885') {
+        return {
+          symbol: 'RELIANCE',
+          tradingSymbol: 'RELIANCE-EQ',
+          customSymbol: 'Reliance Industries Ltd',
+          name: 'Reliance Industries Ltd',
+          securityId: '2885',
+          exchangeSegment: 'NSE_EQ',
+          lotSize: 1,
+        };
+      }
       return undefined;
     },
   };
@@ -390,6 +401,44 @@ test('AlertsService (NestJS)', async (t) => {
     assert.strictEqual(putRes.alert.stopLoss.points, 20);
     assert.strictEqual(putRes.alert.stopLoss.targetPrice, 51870.0); // 51850 + 20 for bearish
     assert.strictEqual(putRes.alert.stopLoss.action, 'SELL'); // Sells the put option
+  });
+
+  await t.test('resolves instrument name from security ID for indices, equities, and options', () => {
+    // 1. Index security ID (13 -> NIFTY 50)
+    const idxName = service.resolveInstrumentName('13');
+    assert.strictEqual(idxName, 'NIFTY 50');
+
+    // 2. Equity security ID (2885 -> Reliance Industries Ltd)
+    const eqName = service.resolveInstrumentName('2885');
+    assert.strictEqual(eqName, 'Reliance Industries Ltd');
+
+    // 3. Option contract security ID (45021 -> NIFTY 24500 CE)
+    const optName = service.resolveInstrumentName('45021');
+    assert.strictEqual(optName, 'NIFTY 24500 CE');
+
+    // 4. Unknown security ID with userNote fallback
+    const noteFallback = service.resolveInstrumentName('999999', 'My Stock Alert');
+    assert.strictEqual(noteFallback, 'My Stock Alert');
+
+    // 5. Unknown security ID with no fallback
+    const rawFallback = service.resolveInstrumentName('999999');
+    assert.strictEqual(rawFallback, 'SEC-999999');
+  });
+
+  await t.test('getInstrumentDetailsBySecurityId returns structured metadata', () => {
+    const idxDetails = service.getInstrumentDetailsBySecurityId('13');
+    assert.ok(idxDetails);
+    assert.strictEqual(idxDetails.instrumentName, 'NIFTY 50');
+    assert.strictEqual(idxDetails.exchangeSegment, 'IDX_I');
+
+    const eqDetails = service.getInstrumentDetailsBySecurityId('2885');
+    assert.ok(eqDetails);
+    assert.strictEqual(eqDetails.instrumentName, 'Reliance Industries Ltd');
+    assert.strictEqual(eqDetails.symbol, 'RELIANCE');
+    assert.strictEqual(eqDetails.exchangeSegment, 'NSE_EQ');
+
+    const notFound = service.getInstrumentDetailsBySecurityId('999999');
+    assert.strictEqual(notFound, null);
   });
 
   await t.test('triggers test notification event', () => {
