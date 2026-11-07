@@ -166,16 +166,11 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             : undefined;
 
           const userNote = d.condition?.userNote || d.remarks || '';
+          const exitMatch = userNote.match(/Exit (?:order )?for (?:parent )?(?:alert )?#(\d+|DHAN-[\w-]+)/i);
           const isStopLossAlert = Boolean(
-            localMatch?.isStopLossAlert || userNote.includes('[STOP LOSS]')
+            localMatch?.isStopLossAlert || userNote.includes('[STOP LOSS]') || exitMatch
           );
-          let parentAlertId = localMatch?.parentAlertId || null;
-          if (!parentAlertId && userNote.includes('[STOP LOSS]')) {
-            const match = userNote.match(/Exit for #(\d+|DHAN-[\w-]+)/i);
-            if (match) {
-              parentAlertId = match[1];
-            }
-          }
+          let parentAlertId = localMatch?.parentAlertId || (exitMatch ? exitMatch[1] : null);
 
           // If Stop Loss alert, ensure order symbol is copied from parent alert if available
           if (isStopLossAlert && parentAlertId && enrichedOrders.length > 0) {
@@ -530,6 +525,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     // Link parent and child stop loss alerts
     for (const a of alerts) {
+      if (!a.parentAlertId && a.remarks) {
+        const m = a.remarks.match(/Exit (?:order )?for (?:parent )?(?:alert )?#(\d+|DHAN-[\w-]+)/i);
+        if (m) {
+          a.parentAlertId = m[1];
+          a.isStopLossAlert = true;
+        }
+      }
       if (a.isStopLossAlert && a.parentAlertId) {
         const parent = alerts.find(
           (p: any) =>
@@ -540,6 +542,58 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         );
         if (parent) {
           parent.linkedStopLossAlert = a;
+          parent.stopLossAlertPlaced = true;
+          parent.stopLossAlertId = a.dhanAlertId || a.id;
+        }
+      }
+    }
+
+    // Pair entry and stop loss alerts by matching contract option (BUY vs SELL on same option contract)
+    const pairedChildIds = new Set<string>();
+    for (const a of alerts) {
+      if (a.linkedStopLossAlert) {
+        pairedChildIds.add(a.linkedStopLossAlert.id);
+        if (a.linkedStopLossAlert.dhanAlertId) pairedChildIds.add(a.linkedStopLossAlert.dhanAlertId);
+      }
+    }
+
+    for (const parent of alerts) {
+      if (parent.linkedStopLossAlert || pairedChildIds.has(parent.id) || (parent.dhanAlertId && pairedChildIds.has(parent.dhanAlertId))) {
+        continue;
+      }
+      const parentOrder = parent.orders?.[0] || parent.conditionalOrders?.[0] || parent.attachedOrder;
+      if (!parentOrder) continue;
+      const parentAction = (parentOrder.action || parentOrder.transactionType || 'BUY').toUpperCase();
+      if (parentAction !== 'BUY') continue;
+
+      const child = alerts.find((c: any) => {
+        if (c === parent || c.linkedStopLossAlert || pairedChildIds.has(c.id) || (c.dhanAlertId && pairedChildIds.has(c.dhanAlertId))) return false;
+        const childOrder = c.orders?.[0] || c.conditionalOrders?.[0] || c.attachedOrder;
+        if (!childOrder) return false;
+        const childAction = (childOrder.action || childOrder.transactionType || '').toUpperCase();
+        if (childAction !== 'SELL') return false;
+
+        return this.isSameOptionContract(parent, parentOrder, c, childOrder);
+      });
+
+      if (child) {
+        parent.linkedStopLossAlert = child;
+        child.isStopLossAlert = true;
+        child.parentAlertId = parent.dhanAlertId || parent.id;
+        parent.stopLossAlertPlaced = true;
+        parent.stopLossAlertId = child.dhanAlertId || child.id;
+        pairedChildIds.add(child.id);
+        if (child.dhanAlertId) pairedChildIds.add(child.dhanAlertId);
+
+        if (!parent.stopLoss) {
+          const slPoints = Math.round(Math.abs(parent.targetPrice - child.targetPrice) * 100) / 100;
+          parent.stopLoss = {
+            enabled: true,
+            points: slPoints,
+            targetPrice: child.targetPrice,
+            operator: child.operator,
+            action: 'SELL',
+          };
         }
       }
     }
@@ -1179,6 +1233,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     if (foundAlert?.stopLossAlertId) {
       this.deleteAlert(foundAlert.stopLossAlertId);
     }
+    if (foundAlert?.linkedStopLossAlert?.id && foundAlert.linkedStopLossAlert.id !== id) {
+      this.deleteAlert(foundAlert.linkedStopLossAlert.id);
+    }
     const childAlerts = this.alerts.filter(
       (a) =>
         a.isStopLossAlert &&
@@ -1542,4 +1599,58 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     this.triggeredEvents.push(testEvent);
     return testEvent;
   }
+
+  isSameOptionContract(alertA: any, ordA: any, alertB: any, ordB: any): boolean {
+    if (!ordA || !ordB) return false;
+
+    // 1. Exact match on option contract securityId
+    if (
+      ordA.securityId &&
+      ordB.securityId &&
+      ordA.securityId !== '0' &&
+      ordA.securityId === ordB.securityId &&
+      ordA.securityId !== alertA.securityId
+    ) {
+      return true;
+    }
+
+    // 2. Normalized symbol comparison
+    const norm = (s: string) => (s || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const symA = norm(ordA.customSymbol || ordA.tradingSymbol || ordA.symbol);
+    const symB = norm(ordB.customSymbol || ordB.tradingSymbol || ordB.symbol);
+    if (symA && symB && !symA.startsWith('SEC') && !symB.startsWith('SEC') && symA === symB) {
+      return true;
+    }
+
+    // 3. Strike and Option Type comparison
+    const strikeA = ordA.strikePrice || this.extractStrike(ordA.customSymbol || ordA.tradingSymbol || ordA.symbol);
+    const strikeB = ordB.strikePrice || this.extractStrike(ordB.customSymbol || ordB.tradingSymbol || ordB.symbol);
+    const typeA = this.normalizeOptType(ordA.optionType || ordA.customSymbol || ordA.tradingSymbol || ordA.symbol);
+    const typeB = this.normalizeOptType(ordB.optionType || ordB.customSymbol || ordB.tradingSymbol || ordB.symbol);
+
+    const instA = (alertA.instrument || '').toUpperCase();
+    const instB = (alertB.instrument || '').toUpperCase();
+    const sameInst = !instA || !instB || instA === instB || instA.includes(instB) || instB.includes(instA);
+
+    if (strikeA && strikeB && strikeA === strikeB && typeA && typeB && typeA === typeB && sameInst) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private extractStrike(sym?: string): number | null {
+    if (!sym || sym.startsWith('SEC-')) return null;
+    const m = sym.match(/(\d{4,6})/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  private normalizeOptType(t?: string): 'CE' | 'PE' | null {
+    if (!t) return null;
+    const upper = t.toUpperCase();
+    if (upper.includes('CE') || upper.includes('CALL')) return 'CE';
+    if (upper.includes('PE') || upper.includes('PUT')) return 'PE';
+    return null;
+  }
+
 }
