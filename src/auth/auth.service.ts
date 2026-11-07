@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Optional } from '@ne
 import { ConfigService } from '../config/config.service';
 import { DhanService } from '../dhan/dhan.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { FirestoreService } from '../firestore/firestore.service';
 
 function decodeJwtPayload(token: string): any {
   if (!token || typeof token !== 'string') return null;
@@ -55,6 +56,7 @@ function formatDuration(totalSeconds: number): string {
 export class AuthService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
   private autoRenewTimer: NodeJS.Timeout | null = null;
+  private lastSavedToken: string | null = null;
   public static readonly AUTO_RENEW_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   public static readonly RENEW_THRESHOLD_SEC = 4 * 3600; // 4 hours before expiry
 
@@ -62,9 +64,21 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly dhanService: DhanService,
     @Optional() private readonly telegramService?: TelegramService,
+    @Optional() private readonly firestoreService?: FirestoreService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
+    await this.syncTokenFromDatabase().catch((err) => {
+      this.logger.warn(`Could not sync token from database at startup: ${err.message}`);
+    });
+
+    // Listen for any in-memory or env config changes to keep Firestore continuously updated
+    this.config.onChange(async (cfg) => {
+      if (cfg.accessToken && cfg.accessToken !== this.lastSavedToken) {
+        await this.persistTokenToDatabase(cfg.accessToken, cfg.clientId, 'config_change');
+      }
+    });
+
     this.startAutoRenewTimer();
   }
 
@@ -134,10 +148,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     const res = await this.renewToken();
     if (res.success) {
-      this.logger.log(`Dhan token renewed and synced to .env! New expiry: ${res.inspection?.expiresAtIST}`);
+      this.logger.log(`Dhan token renewed and synced to Firestore database! New expiry: ${res.inspection?.expiresAtIST}`);
       if (this.telegramService?.isConfigured()) {
         const msg = `<b>🔐 Dhan Access Token Auto-Renewed</b>\n` +
-          `Your Dhan API access token was automatically renewed for 24 hours and persisted to .env.\n` +
+          `Your Dhan API access token was automatically renewed for 24 hours and saved to Firestore database.\n` +
           `<b>New Expiry:</b> <code>${res.inspection?.expiresAtIST}</code>`;
         this.telegramService.sendMessage(msg).catch(() => {});
       }
@@ -259,6 +273,15 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
       if (errorMsg === 'Invalid Token' || apiResult.data?.errorCode === 'DH-906') {
         errorMsg = 'Dhan rejected token (DH-906: Invalid Token). The token was revoked or superseded by Dhan (e.g. newer token generated, logged out, or expired on server). Please generate a fresh token from Dhan HQ web console.';
+
+        if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+          this.firestoreService.saveDhanToken({
+            accessToken: this.config.accessToken,
+            clientId: this.config.clientId,
+            status: 'INVALID',
+            source: 'dhan_verify_invalid',
+          }).catch(() => {});
+        }
       }
 
       return {
@@ -272,6 +295,15 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      this.firestoreService.saveDhanToken({
+        accessToken: this.config.accessToken,
+        clientId: this.config.clientId,
+        status: 'ACTIVE',
+        source: 'dhan_verify_success',
+      }).catch(() => {});
+    }
+
     return {
       valid: true,
       verified: true,
@@ -282,17 +314,104 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * Loads token from Firestore database into memory cache.
+   * If Firestore is not populated yet but memory has initial token, seeds it to Firestore.
+   */
+  async syncTokenFromDatabase(force = false): Promise<boolean> {
+    if (!this.firestoreService || typeof this.firestoreService.isReady !== 'function' || !this.firestoreService.isReady()) {
+      return false;
+    }
+
+    try {
+      const stored = await this.firestoreService.getDhanToken();
+      if (stored?.accessToken) {
+        this.config.updateCredentials(
+          {
+            accessToken: stored.accessToken,
+            clientId: stored.clientId || this.config.clientId,
+          },
+          false,
+        );
+        if (typeof (this.dhanService as any)?.setCachedToken === 'function') {
+          this.dhanService.setCachedToken(stored.accessToken, stored.clientId);
+        }
+        this.lastSavedToken = stored.accessToken;
+        this.logger.log(
+          `🔑 Dhan access token synced from Firestore database (Database: ${this.config.firestoreDatabaseId}, ClientId: ${stored.clientId})`,
+        );
+        return true;
+      } else if (this.config.accessToken) {
+        this.logger.log('Seeding initial Dhan access token to Firestore database (dhan/token)...');
+        await this.persistTokenToDatabase(this.config.accessToken, this.config.clientId, 'seed_initial');
+        return true;
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to sync Dhan token from Firestore: ${err.message}`);
+    }
+    return false;
+  }
+
+  /**
+   * Persists the token and calculated metadata to Firestore database.
+   */
+  async persistTokenToDatabase(token: string, clientId?: string, source = 'dhan'): Promise<boolean> {
+    if (!this.firestoreService || typeof this.firestoreService.isReady !== 'function' || !this.firestoreService.isReady()) {
+      return false;
+    }
+
+    try {
+      const payload = decodeJwtPayload(token);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const expSec = payload?.exp;
+      const iatSec = payload?.iat || (expSec ? expSec - 86400 : nowSec);
+      const derivedClientId = clientId || payload?.clientId || payload?.sub || this.config.clientId;
+
+      await this.firestoreService.saveDhanToken({
+        accessToken: token,
+        clientId: derivedClientId,
+        updatedAt: new Date().toISOString(),
+        expiresAt: expSec ? new Date(expSec * 1000).toISOString() : undefined,
+        expiresAtIST: expSec ? formatIST(new Date(expSec * 1000)) : undefined,
+        issuedAtIST: expSec ? formatIST(new Date(iatSec * 1000)) : undefined,
+        userName: payload?.userName || payload?.name,
+        status: expSec && expSec < nowSec ? 'EXPIRED' : 'ACTIVE',
+        source,
+      });
+      this.lastSavedToken = token;
+      this.logger.log(`✅ Dhan JWT token successfully persisted to Firestore (dhan/token) [Source: ${source}]`);
+      return true;
+    } catch (err: any) {
+      this.logger.error(`Failed to save Dhan token to Firestore: ${err.message}`);
+      return false;
+    }
+  }
+
   async renewToken() {
     const apiResult = await this.dhanService.renewToken();
 
     if (apiResult.ok && apiResult.data) {
-      const newToken = apiResult.data.token || apiResult.data.accessToken || apiResult.data;
-      if (typeof newToken === 'string') {
-        this.config.updateCredentials({ accessToken: newToken });
+      const d = apiResult.data;
+      const newToken = typeof d === 'string'
+        ? d
+        : (d?.token || d?.accessToken || d?.data?.token || d?.data?.accessToken || (typeof d?.data === 'string' ? d.data : null));
+
+      if (typeof newToken === 'string' && newToken.trim()) {
+        const cleanToken = newToken.trim();
+
+        // Cache token in memory and notify listeners (persistEnv = false)
+        this.config.updateCredentials({ accessToken: cleanToken }, false);
+        if (typeof (this.dhanService as any)?.setCachedToken === 'function') {
+          this.dhanService.setCachedToken(cleanToken);
+        }
+
+        // Update token in Firestore database
+        await this.persistTokenToDatabase(cleanToken, this.config.clientId, 'dhan_renew');
+
         return {
           success: true,
           source: 'dhan_api',
-          message: 'Dhan Access Token renewed successfully via Dhan API',
+          message: 'Dhan Access Token renewed successfully and saved to Firestore database',
           inspection: this.getTokenInspection(),
         };
       }
@@ -311,7 +430,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  updateToken(newToken: string, newClientId?: string) {
+  async updateToken(newToken: string, newClientId?: string) {
     if (!newToken || typeof newToken !== 'string' || !newToken.trim()) {
       throw new Error('Access token cannot be empty');
     }
@@ -319,14 +438,24 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const payload = decodeJwtPayload(newToken.trim());
     const derivedClientId = newClientId || payload?.clientId || payload?.sub || this.config.clientId;
 
-    this.config.updateCredentials({
-      accessToken: newToken.trim(),
-      clientId: derivedClientId,
-    });
+    // Cache token in memory immediately for fast access
+    this.config.updateCredentials(
+      {
+        accessToken: newToken.trim(),
+        clientId: derivedClientId,
+      },
+      false,
+    );
+    if (typeof (this.dhanService as any)?.setCachedToken === 'function') {
+      this.dhanService.setCachedToken(newToken.trim(), derivedClientId);
+    }
+
+    // Persist to Firestore database and wait for write completion
+    await this.persistTokenToDatabase(newToken.trim(), derivedClientId, 'manual_update');
 
     return {
       success: true,
-      message: 'Access Token updated and synced to .env successfully',
+      message: 'Access Token updated and saved to Firestore database successfully',
       inspection: this.getTokenInspection(),
     };
   }

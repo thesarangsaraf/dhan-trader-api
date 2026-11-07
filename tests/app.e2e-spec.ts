@@ -7,6 +7,7 @@ import { INestApplication } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { DhanService } from '../src/dhan/dhan.service';
 import { TelegramService } from '../src/telegram/telegram.service';
+import { FirestoreService } from '../src/firestore/firestore.service';
 
 test('AppController & Routers E2E (NestJS)', async (t) => {
   let app: INestApplication;
@@ -121,6 +122,28 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     sendTestNotification: async () => ({ success: true, test: true }),
   };
 
+  const mockFirestoreService = {
+    isReady: () => true,
+    getDhanToken: async () => null,
+    saveDhanToken: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    getStatus: () => ({
+      configured: true,
+      projectId: 'dhan-trader-514002',
+      databaseId: 'dhan-trader-firebase-db',
+      keyFile: 'google-service-account-key.json',
+      keyFileFound: true,
+      clientEmail: 'dhan-trader-sv-account@dhan-trader-514002.iam.gserviceaccount.com',
+    }),
+    testConnection: async () => ({
+      success: true,
+      message: 'Successfully connected to Firestore database [dhan-trader-firebase-db] in project [dhan-trader-514002]',
+      projectId: 'dhan-trader-514002',
+      databaseId: 'dhan-trader-firebase-db',
+      latencyMs: 15,
+      collections: ['orders'],
+    }),
+  };
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   })
@@ -128,6 +151,8 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     .useValue(mockDhanService)
     .overrideProvider(TelegramService)
     .useValue(mockTelegramService)
+    .overrideProvider(FirestoreService)
+    .useValue(mockFirestoreService)
     .compile();
 
   app = moduleFixture.createNestApplication();
@@ -385,6 +410,21 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.success, true);
     assert.strictEqual(res.body.order.orderId, 'E2E-WS-ORDER-101');
+  });
+
+  await t.test('GET /api/firestore/status returns firestore configuration state', async () => {
+    const res = await makeMockRequest('GET', '/api/firestore/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.configured, true);
+    assert.strictEqual(res.body.projectId, 'dhan-trader-514002');
+    assert.strictEqual(res.body.databaseId, 'dhan-trader-firebase-db');
+  });
+
+  await t.test('POST /api/firestore/test triggers connectivity test', async () => {
+    const res = await makeMockRequest('POST', '/api/firestore/test');
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.projectId, 'dhan-trader-514002');
   });
 
   await app.close();

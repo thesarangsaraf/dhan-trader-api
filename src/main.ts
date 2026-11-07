@@ -29,6 +29,7 @@ async function bootstrap() {
     .addTag('Orders', 'Order placement, book inspection, and cancellation')
     .addTag('Instruments', 'NSE scrip master search and indices lookup')
     .addTag('Telegram', 'Telegram bot alerts and live connection configuration')
+    .addTag('Firestore', 'Google Cloud Firestore database connection and operations')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

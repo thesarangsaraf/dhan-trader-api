@@ -12,6 +12,8 @@
 .env
 .env.*
 !.env.example
+*service-account*.json
+*serviceaccount*.json
 
 # Logs and debug files
 logs

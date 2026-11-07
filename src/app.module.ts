@@ -8,10 +8,12 @@ import { AuthModule } from './auth/auth.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { OrdersModule } from './orders/orders.module';
 import { InstrumentsModule } from './instruments/instruments.module';
+import { FirestoreModule } from './firestore/firestore.module';
 
 @Module({
   imports: [
     ConfigModule,
+    FirestoreModule,
     DhanModule,
     YahooModule,
     TelegramModule,

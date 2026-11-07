@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
+import { FirestoreService } from '../firestore/firestore.service';
 
 export interface DhanApiResponse<T = any> {
   status: number;
@@ -11,7 +12,50 @@ export interface DhanApiResponse<T = any> {
 
 @Injectable()
 export class DhanService {
-  constructor(private readonly config: ConfigService) {}
+  private isTokenLoadedFromDb = false;
+
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly firestoreService?: FirestoreService,
+  ) {}
+
+  /**
+   * Ensures the Dhan access token is cached in memory.
+   * If already cached, returns immediately without any Firestore database calls.
+   */
+  async ensureTokenCached(): Promise<void> {
+    if (this.isTokenLoadedFromDb && this.config.accessToken) {
+      return;
+    }
+
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      return;
+    }
+
+    try {
+      const stored = await this.firestoreService.getDhanToken();
+      if (stored?.accessToken) {
+        this.config.accessToken = stored.accessToken;
+        if (stored.clientId) {
+          this.config.clientId = stored.clientId;
+        }
+        this.isTokenLoadedFromDb = true;
+      }
+    } catch {
+      // Graceful fallback to existing in-memory configuration
+    }
+  }
+
+  /**
+   * Update the cached in-memory token (e.g. after renewal or manual update).
+   */
+  public setCachedToken(token: string, clientId?: string) {
+    this.config.accessToken = token;
+    if (clientId) {
+      this.config.clientId = clientId;
+    }
+    this.isTokenLoadedFromDb = true;
+  }
 
   getHeaders(): Record<string, string> {
     return {
@@ -28,6 +72,8 @@ export class DhanService {
     body?: any;
     timeoutMs?: number;
   } = {}): Promise<DhanApiResponse<T>> {
+    await this.ensureTokenCached();
+
     const url = `${this.config.dhanApiBase}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
     const fetchOptions: RequestInit = {
       method: options.method || 'GET',

@@ -35,6 +35,9 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
   public host: string;
   public pollIntervalMs: number;
   public dhanApiBase: string;
+  public firestoreProjectId: string;
+  public firestoreDatabaseId: string;
+  public firestoreKeyFile: string;
 
   private env: Record<string, string>;
   private listeners: Set<(config: ConfigService) => void> = new Set();
@@ -49,6 +52,9 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     this.host = process.env.HOST || this.env.HOST || '127.0.0.1';
     this.pollIntervalMs = parseInt(process.env.POLL_INTERVAL_MS || this.env.POLL_INTERVAL_MS || '4000', 10);
     this.dhanApiBase = (process.env.DHAN_API_BASE || 'https://api.dhan.co/v2').trim();
+    this.firestoreProjectId = (process.env.FIRESTORE_PROJECT_ID || this.env.FIRESTORE_PROJECT_ID || 'dhan-trader-514002').trim();
+    this.firestoreDatabaseId = (process.env.FIRESTORE_DATABASE_ID || this.env.FIRESTORE_DATABASE_ID || 'dhan-trader-firebase-db').trim();
+    this.firestoreKeyFile = (process.env.FIRESTORE_KEY_FILE || this.env.FIRESTORE_KEY_FILE || 'google-service-account-key.json').trim();
   }
 
   onModuleInit() {
@@ -78,6 +84,9 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     const envAccessToken = (this.env.DHAN_ACCESS_TOKEN || '').trim();
     const envTgToken = (this.env.TELEGRAM_BOT_TOKEN || '').trim();
     const envTgChat = (this.env.TELEGRAM_CHAT_ID || '').trim();
+    const envFsProject = (this.env.FIRESTORE_PROJECT_ID || '').trim();
+    const envFsDb = (this.env.FIRESTORE_DATABASE_ID || '').trim();
+    const envFsKey = (this.env.FIRESTORE_KEY_FILE || '').trim();
 
     if (envClientId && envClientId !== this.clientId) {
       this.clientId = envClientId;
@@ -93,6 +102,18 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     }
     if (envTgChat && envTgChat !== this.telegramChatId) {
       this.telegramChatId = envTgChat;
+      changed = true;
+    }
+    if (envFsProject && envFsProject !== this.firestoreProjectId) {
+      this.firestoreProjectId = envFsProject;
+      changed = true;
+    }
+    if (envFsDb && envFsDb !== this.firestoreDatabaseId) {
+      this.firestoreDatabaseId = envFsDb;
+      changed = true;
+    }
+    if (envFsKey && envFsKey !== this.firestoreKeyFile) {
+      this.firestoreKeyFile = envFsKey;
       changed = true;
     }
     if (changed) {
@@ -115,12 +136,15 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  updateCredentials(creds: {
-    clientId?: string;
-    accessToken?: string;
-    telegramBotToken?: string;
-    telegramChatId?: string;
-  }) {
+  updateCredentials(
+    creds: {
+      clientId?: string;
+      accessToken?: string;
+      telegramBotToken?: string;
+      telegramChatId?: string;
+    },
+    persistEnv = false,
+  ) {
     let changed = false;
     if (creds.clientId && creds.clientId !== this.clientId) {
       this.clientId = creds.clientId.trim();
@@ -140,7 +164,9 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (changed) {
-      this.persistToEnv();
+      if (persistEnv) {
+        this.persistToEnv();
+      }
       this.notifyChange();
     }
 
@@ -163,12 +189,14 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
 
     const keysToUpdate: Record<string, string> = {
       DHAN_CLIENT_ID: `'${this.clientId}'`,
-      DHAN_ACCESS_TOKEN: `'${this.accessToken}'`,
       TELEGRAM_BOT_TOKEN: `'${this.telegramBotToken}'`,
       TELEGRAM_CHAT_ID: `'${this.telegramChatId}'`,
       PORT: String(this.port),
       HOST: this.host,
       POLL_INTERVAL_MS: String(this.pollIntervalMs),
+      FIRESTORE_PROJECT_ID: `'${this.firestoreProjectId}'`,
+      FIRESTORE_DATABASE_ID: `'${this.firestoreDatabaseId}'`,
+      FIRESTORE_KEY_FILE: `'${this.firestoreKeyFile}'`,
     };
 
     const updatedKeys = new Set<string>();

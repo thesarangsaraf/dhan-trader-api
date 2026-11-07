@@ -50,7 +50,7 @@ test('AuthService (NestJS)', async (t) => {
     assert.ok(['ACTIVE', 'EXPIRING_SOON', 'EXPIRED'].includes(inspection.status));
   });
 
-  await t.test('updates token and updates in-memory config', () => {
+  await t.test('updates token and updates in-memory config', async () => {
     const now = Math.floor(Date.now() / 1000);
     const exp = now + 86400;
     const payload = { sub: '1106885516', clientId: '1106885516', iat: now, exp };
@@ -58,7 +58,7 @@ test('AuthService (NestJS)', async (t) => {
     const pB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const sampleJwt = `${hB64}.${pB64}.test_signature`;
 
-    const res = service.updateToken(sampleJwt, '1106885516');
+    const res = await service.updateToken(sampleJwt, '1106885516');
     assert.strictEqual(res.success, true);
     assert.strictEqual(config.clientId, '1106885516');
     assert.strictEqual(config.accessToken, sampleJwt);
@@ -82,6 +82,38 @@ test('AuthService (NestJS)', async (t) => {
     assert.strictEqual(typeof res.inspection.expiresAtIST, 'string');
   });
 
+  await t.test('syncs token from Firestore database into in-memory cache', async () => {
+    let savedInDb: any = null;
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + 86400;
+    const payload = { sub: '9999999999', clientId: '9999999999', iat: now, exp };
+    const hB64 = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const pB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const validSyncedJwt = `${hB64}.${pB64}.sig`;
+
+    const mockFsService: any = {
+      isReady: () => true,
+      getDhanToken: async () => ({
+        accessToken: validSyncedJwt,
+        clientId: '9999999999',
+      }),
+      saveDhanToken: async (data: any) => {
+        savedInDb = data;
+        return { success: true, writeTime: new Date().toISOString() };
+      },
+    };
+
+    const authWithDb = new AuthService(config, mockDhanService as any, undefined, mockFsService);
+    const synced = await authWithDb.syncTokenFromDatabase();
+    assert.strictEqual(synced, true);
+    assert.strictEqual(config.accessToken, validSyncedJwt);
+    assert.strictEqual(config.clientId, '9999999999');
+
+    await authWithDb.persistTokenToDatabase(validSyncedJwt, '9999999999');
+    assert.strictEqual(savedInDb.accessToken, validSyncedJwt);
+    assert.strictEqual(savedInDb.clientId, '9999999999');
+  });
+
   await t.test('checkAndAutoRenew skips when token has > 4 hours remaining', async () => {
     // Current token has ~24h remaining
     const outcome = await service.checkAndAutoRenew();
@@ -98,7 +130,7 @@ test('AuthService (NestJS)', async (t) => {
     const pB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const expiringSoonJwt = `${hB64}.${pB64}.test_sig`;
 
-    service.updateToken(expiringSoonJwt, '1106885516');
+    await service.updateToken(expiringSoonJwt, '1106885516');
     const outcome = await service.checkAndAutoRenew();
     assert.strictEqual(outcome.renewed, true);
     assert.ok(outcome.res?.success);
