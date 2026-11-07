@@ -25,7 +25,7 @@ async function bootstrap() {
     .setVersion('2.0.0')
     .addTag('System', 'Service status & health')
     .addTag('Auth', 'Dhan access token inspection, validation and renewal')
-    .addTag('Alerts', 'Price alerts monitoring on NSE Indices (No static IP needed)')
+    .addTag('Alerts', 'Price alerts monitoring on NSE Indices')
     .addTag('Orders', 'Order placement, book inspection, and cancellation')
     .addTag('Trades', 'Historical trade book, financial year reporting, and turnover analytics')
     .addTag('Instruments', 'NSE scrip master search and indices lookup')
@@ -53,7 +53,6 @@ async function bootstrap() {
   console.log(`====================================================`);
   console.log(`🚀 Dhan Trader Backend API active on http://${host}:${port}`);
   console.log(`🛠️ Framework: NestJS (TypeScript)`);
-  console.log(`⚡ Static IP: Not required for Alerts & Trading`);
   console.log(`📖 Swagger API Docs: http://${host}:${port}/docs`);
   console.log(`📄 OpenAPI Spec: http://${host}:${port}/api/docs/openapi.json`);
   console.log(`====================================================`);

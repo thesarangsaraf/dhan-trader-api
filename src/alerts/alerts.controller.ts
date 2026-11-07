@@ -52,7 +52,7 @@ export class AlertsController {
 
   @Post()
   @HttpCode(201)
-  @ApiOperation({ summary: 'Create new price alert (No static IP needed)' })
+  @ApiOperation({ summary: 'Create new price alert' })
   @ApiResponse({ status: 201, description: 'Alert created successfully' })
   @ApiResponse({ status: 400, description: 'Validation failed' })
   createAlert(@Body() dto: CreateAlertDto) {

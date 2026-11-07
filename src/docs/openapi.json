@@ -206,7 +206,7 @@
             "description": "Validation failed"
           }
         },
-        "summary": "Create new price alert (No static IP needed)",
+        "summary": "Create new price alert",
         "tags": [
           "Alerts"
         ]
@@ -641,7 +641,7 @@
     },
     {
       "name": "Alerts",
-      "description": "Price alerts monitoring on NSE Indices (No static IP needed)"
+      "description": "Price alerts monitoring on NSE Indices"
     },
     {
       "name": "Orders",
@@ -894,7 +894,7 @@
           },
           "autoExecuteOnTrigger": {
             "type": "boolean",
-            "description": "Auto-execute the order via in-memory marketfeed engine upon trigger (No static IP required)",
+            "description": "Auto-execute the order via in-memory marketfeed engine upon trigger",
             "default": true
           },
           "frequency": {

@@ -657,7 +657,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       triggeredAt: null,
       hasConditionalOrder: false,
       dhanMetadata: {
-        noStaticIpRequired: true,
         monitoringMode: 'Live Dhan Marketfeed & In-Memory Check Engine',
         exchangeSegment: exSegment,
         securityId: String(secId),
@@ -693,7 +692,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Place a Dhan alert with an attached conditional order.
-   * Registers directly with Dhan HQ v2 (/alerts/orders) and runs locally in memory without static IP requirement.
+   * Registers directly with Dhan HQ v2 (/alerts/orders) and runs locally in memory.
    */
   async createConditionalAlert(dto: CreateConditionalAlertDto) {
     if (dto.attachedOrder && !dto.conditionalOrder) {
@@ -1064,7 +1063,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       parentAlertId: (dto as any).parentAlertId || null,
       dhanAlertId: alertId,
       dhanMetadata: {
-        noStaticIpRequired: true,
         monitoringMode: 'Live Dhan Marketfeed & In-Memory Check Engine',
         dhanApiAlertCreated: true,
         dhanApiError: null,

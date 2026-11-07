@@ -7,7 +7,7 @@ This document provides definitive instructions, architecture patterns, constrain
 ## 🎯 Repository Overview & Purpose
 
 **Dhan Trader** is a pure, headless backend microservice and algorithmic trading engine built with **NestJS** and **TypeScript**, integrated with the **Dhan HQ API v2**.
-- **Role**: Manage orders and positions, provide real-time price alert monitoring on NSE indices without static IP restrictions, decode/renew JWT authentication tokens, and dispatch live notifications to Telegram.
+- **Role**: Manage orders and positions, provide real-time price alert monitoring on NSE indices decode/renew JWT authentication tokens, and dispatch live notifications to Telegram.
 - **Form Factor**: 100% headless REST API backend. It contains zero UI, HTML, or static frontend bundles. Clients consume this service via REST or generated OpenAPI SDKs.
 
 ---

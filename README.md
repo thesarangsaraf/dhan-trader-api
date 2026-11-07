@@ -1,6 +1,6 @@
 # ⚡ Dhan Trader — NestJS (TypeScript) Pure Backend Trading Engine & Alert Service
 
-A high-performance, enterprise-grade backend algorithmic trading engine and price alert microservice built on **NestJS** and **TypeScript** with the **Dhan HQ API v2**. Features full architectural TypeScript decorators (`@Controller`, `@Injectable`, `@Module`, `@Body`, `@Query`, `@Param`), interactive **Swagger UI documentation (`/docs`)**, native support for NSE Indices alerts without requiring a static IP, live order and position management, and live Telegram alert dispatch.
+A high-performance, enterprise-grade backend algorithmic trading engine and price alert microservice built on **NestJS** and **TypeScript** with the **Dhan HQ API v2**. Features full architectural TypeScript decorators (`@Controller`, `@Injectable`, `@Module`, `@Body`, `@Query`, `@Param`), interactive **Swagger UI documentation (`/docs`)**, native support for NSE Indices alerts, live order and position management, and live Telegram alert dispatch.
 
 ---
 
@@ -19,8 +19,8 @@ A high-performance, enterprise-grade backend algorithmic trading engine and pric
 - **Pure Headless Backend**:
   - Zero UI or static HTML/frontend dependencies.
   - Easily consumes or integrates with custom React, Vue, Next.js dashboards, mobile apps, or headless trading bots.
-- **Zero Static IP Barrier**:
-  - Monitors and triggers price alerts on benchmark NSE indices and F&O instruments using tick monitoring without requiring static IP allocation.
+- **Index & F&O Alert Monitoring**:
+  - Monitors and triggers price alerts on benchmark NSE indices and F&O instruments using tick monitoring.
 - **Telegram Bot Notifications**:
   - Automated dispatches for triggered alerts and orders (placed, executed, cancelled).
 - **Dhan Token Expiry & Refresh Service**:
@@ -67,7 +67,6 @@ The service will output:
 ====================================================
 🚀 Dhan Trader Backend API active on http://127.0.0.1:8000
 🛠️ Framework: NestJS (TypeScript)
-⚡ Static IP: Not required for Alerts & Trading
 📖 Swagger API Docs: http://127.0.0.1:8000/docs
 📄 OpenAPI Spec: http://127.0.0.1:8000/api/docs/openapi.json
 ====================================================
@@ -105,7 +104,6 @@ Tests live connection to Dhan HQ API v2 for profile, margin fund limits, demat h
   "timestamp": "2026-11-05T12:00:00.000Z",
   "dhanStatus": {
     "clientId": "1106885516",
-    "staticIpRequired": false
   },
   "documentation": {
     "swaggerUi": "/docs",

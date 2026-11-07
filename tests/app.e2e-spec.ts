@@ -312,7 +312,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(!res.body.some((i: any) => i.name.includes('VIX')));
   });
 
-  await t.test('POST /api/alerts creates new alert without static IP requirement', async () => {
+  await t.test('POST /api/alerts creates new alert', async () => {
     const res = await makeMockRequest('POST', '/api/alerts', {
       instrument: 'NIFTY BANK',
       targetPrice: 53200.0,

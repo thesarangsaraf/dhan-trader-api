@@ -99,7 +99,7 @@ test('AlertsService (NestJS)', async (t) => {
 
   service = moduleRef.get<AlertsService>(AlertsService);
 
-  await t.test('returns predefined popular NSE indices without static IP requirement', () => {
+  await t.test('returns predefined popular NSE indices', () => {
     const indices = service.getIndices();
     assert.ok(Array.isArray(indices));
     assert.strictEqual(indices.length, 4);
@@ -141,7 +141,6 @@ test('AlertsService (NestJS)', async (t) => {
     assert.strictEqual(result.alert.instrument, 'NIFTY 50');
     assert.strictEqual(result.alert.targetPrice, 24950.0);
     assert.strictEqual(result.alert.status, 'ACTIVE');
-    assert.strictEqual(result.alert.dhanMetadata.noStaticIpRequired, true);
 
     const grouped = service.getGroupedAlerts();
     assert.ok(Array.isArray(grouped));

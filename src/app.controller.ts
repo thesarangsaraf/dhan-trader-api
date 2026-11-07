@@ -20,7 +20,6 @@ export class AppController {
       timestamp: new Date().toISOString(),
       dhanStatus: {
         clientId: this.config.clientId,
-        staticIpRequired: false,
       },
       documentation: {
         swaggerUi: '/docs',

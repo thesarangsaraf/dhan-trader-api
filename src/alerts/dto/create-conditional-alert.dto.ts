@@ -93,7 +93,7 @@ export class CreateConditionalAlertDto {
   executeViaDhanApi?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Auto-execute the order via in-memory marketfeed engine upon trigger (No static IP required)',
+    description: 'Auto-execute the order via in-memory marketfeed engine upon trigger',
     default: true,
   })
   @IsOptional()
