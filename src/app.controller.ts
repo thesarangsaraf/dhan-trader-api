@@ -40,7 +40,6 @@ export class AppController {
         alertDelete: 'DELETE /api/alerts/:id',
         orders: 'GET, POST /api/orders',
         orderCancel: 'DELETE /api/orders/:id',
-        orderWebSocket: 'GET /api/orders/websocket/status',
         positions: 'GET /api/positions',
         instruments: 'GET /api/instruments?q=<query>&limit=<n>',
         telegramStatus: 'GET /api/telegram/status',

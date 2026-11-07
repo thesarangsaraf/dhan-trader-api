@@ -97,9 +97,8 @@ dhan-trader/
 │   │       └── update-alert.dto.ts    # DTO for partial alert updates
 │   ├── orders/
 │   │   ├── orders.module.ts           # Orders feature module
-│   │   ├── orders.controller.ts       # /api/orders, /api/positions, /api/orders/websocket/status
+│   │   ├── orders.controller.ts       # /api/orders, /api/positions
 │   │   ├── orders.service.ts          # Live order dispatcher and positions service
-│   │   ├── dhan-order-websocket.service.ts # Dhan Order WebSocket client (wss://api-order-update.dhan.co -> Telegram)
 │   │   └── dto/
 │   │       └── place-order.dto.ts     # DTO for manual orders
 │   ├── instruments/
@@ -156,7 +155,7 @@ When interacting with or extending `src/dhan/dhan.service.ts`, keep these behavi
 
 2. **Data APIs / Marketfeed**:
    - Free or standard Dhan accounts may have the Data API inactive (`401 Data APIs not Subscribed`).
-   - Alerts and order dispatchers must not crash if live websocket or marketfeed data is unavailable; fallback pricing or index cache must be supported.
+   - Alerts and order dispatchers must not crash if live marketfeed data is unavailable; fallback pricing or index cache must be supported.
 
 3. **Token Hot-Reloading**:
    - The Dhan JWT access token expires after 24 hours.

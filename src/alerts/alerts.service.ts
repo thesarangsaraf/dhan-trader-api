@@ -166,7 +166,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             : undefined;
 
           const userNote = d.condition?.userNote || d.remarks || '';
-          const exitMatch = userNote.match(/Exit (?:order )?for (?:parent )?(?:alert )?#(\d+|DHAN-[\w-]+)/i);
+          const exitMatch = userNote.match(/Exit (?:order )?for (?:parent )?(?:alert )?#([\w-]+)/i);
           const isStopLossAlert = Boolean(
             localMatch?.isStopLossAlert || userNote.includes('[STOP LOSS]') || exitMatch
           );
@@ -526,7 +526,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     // Link parent and child stop loss alerts
     for (const a of alerts) {
       if (!a.parentAlertId && a.remarks) {
-        const m = a.remarks.match(/Exit (?:order )?for (?:parent )?(?:alert )?#(\d+|DHAN-[\w-]+)/i);
+        const m = a.remarks.match(/Exit (?:order )?for (?:parent )?(?:alert )?#([\w-]+)/i);
         if (m) {
           a.parentAlertId = m[1];
           a.isStopLossAlert = true;

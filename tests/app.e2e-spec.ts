@@ -499,28 +499,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.configured);
   });
 
-  await t.test('GET /api/orders/websocket/status returns websocket connection state', async () => {
-    const res = await makeMockRequest('GET', '/api/orders/websocket/status');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(typeof res.body.connected, 'boolean');
-    assert.ok(res.body.url.includes('dhan.co'));
-  });
-
-  await t.test('POST /api/orders/websocket/simulate processes simulated order event and dispatches notification', async () => {
-    const res = await makeMockRequest('POST', '/api/orders/websocket/simulate', {
-      orderId: 'E2E-WS-ORDER-101',
-      orderStatus: 'TRADED',
-      tradingSymbol: 'NIFTY 24500 CE',
-      transactionType: 'BUY',
-      quantity: 50,
-      tradedQuantity: 50,
-      averagePrice: 145.2,
-    });
-    assert.strictEqual(res.status, 201);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.order.orderId, 'E2E-WS-ORDER-101');
-  });
-
   await t.test('GET /api/firestore/status returns firestore configuration state', async () => {
     const res = await makeMockRequest('GET', '/api/firestore/status');
     assert.strictEqual(res.status, 200);

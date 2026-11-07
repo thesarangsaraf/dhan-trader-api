@@ -562,21 +562,6 @@
         ]
       }
     },
-    "/api/orders/websocket/status": {
-      "get": {
-        "operationId": "OrdersController_getWebSocketStatus",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Live connection state, client ID and last event timestamp"
-          }
-        },
-        "summary": "Get Dhan Order WebSocket live stream status",
-        "tags": [
-          "Orders"
-        ]
-      }
-    },
     "/api/orders/{id}": {
       "delete": {
         "operationId": "OrdersController_cancelOrder",
