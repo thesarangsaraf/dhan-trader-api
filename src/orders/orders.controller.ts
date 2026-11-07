@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { DhanOrderWebSocketService } from './dhan-order-websocket.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
+import { GetTradeHistoryDto } from './dto/get-trade-history.dto';
 
-@ApiTags('Orders')
+@ApiTags('Orders', 'Trades')
 @Controller('api')
 export class OrdersController {
   constructor(
@@ -44,6 +45,40 @@ export class OrdersController {
   @ApiResponse({ status: 502, description: 'Dhan API failure' })
   async getPositions() {
     return this.ordersService.getPositions();
+  }
+
+  @Get('funds')
+  @ApiOperation({ summary: 'Get live Dhan account funds and available balance' })
+  @ApiResponse({ status: 200, description: 'Account funds and available margin balance' })
+  @ApiResponse({ status: 502, description: 'Dhan API failure' })
+  async getFunds() {
+    return this.ordersService.getFunds();
+  }
+
+  @Get('trades/history')
+  @ApiOperation({ summary: 'Get historical trade book by financial year or custom dates with invested values' })
+  @ApiResponse({ status: 200, description: 'Historical trades list and turnover/investment summary' })
+  @ApiResponse({ status: 502, description: 'Dhan API failure' })
+  async getTradeHistory(@Query() query: GetTradeHistoryDto) {
+    return this.ordersService.getTradeHistory(query);
+  }
+
+  @Get('trades/financial-years')
+  @ApiOperation({ summary: 'Get list of selectable financial years (current + previous historical FYs)' })
+  @ApiResponse({ status: 200, description: 'Available financial years list' })
+  getFinancialYears() {
+    return this.ordersService.getFinancialYears();
+  }
+
+  @Get('trades')
+  @ApiOperation({ summary: 'Get executed trades (active session or historical if query params provided)' })
+  @ApiResponse({ status: 200, description: 'List of trades' })
+  @ApiResponse({ status: 502, description: 'Dhan API failure' })
+  async getTrades(@Query() query: GetTradeHistoryDto) {
+    if (query && (query.financialYear || query.fromDate || query.toDate)) {
+      return this.ordersService.getTradeHistory(query);
+    }
+    return this.ordersService.getTrades();
   }
 
   @Get('orders/websocket/status')

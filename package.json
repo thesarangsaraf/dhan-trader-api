@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
-    "start:dev": "ts-node src/main.ts",
+    "start:dev": "node --watch -r ts-node/register/transpile-only src/main.ts",
     "start:debug": "ts-node --inspect src/main.ts",
     "dev": "ts-node src/main.ts",
     "test": "node -r ts-node/register/transpile-only --test tests/*.spec.ts tests/*.e2e-spec.ts",

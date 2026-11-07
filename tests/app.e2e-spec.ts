@@ -59,6 +59,10 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       ok: true,
       data: { availMargin: 150000.0, utilizedMargin: 25000.0, collateralAmount: 0 },
     }),
+    getHoldings: async () => ({
+      ok: true,
+      data: [{ tradingSymbol: 'RELIANCE', totalQty: 100, currentValue: 250000.0 }],
+    }),
     placeOrder: async (orderPayload: any) => ({
       ok: true,
       data: {
@@ -70,6 +74,56 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     cancelOrder: async (orderId: string) => ({
       ok: true,
       data: { orderId, orderStatus: 'CANCELLED' },
+    }),
+    getTrades: async () => ({
+      ok: true,
+      data: [
+        {
+          tradeId: 'TR-E2E-1',
+          orderId: 'DHAN-ORD-201',
+          tradingSymbol: 'NIFTY 24500 CE',
+          securityId: '45021',
+          exchangeSegment: 'NSE_FNO',
+          transactionType: 'BUY',
+          productType: 'INTRADAY',
+          tradedQuantity: 50,
+          tradedPrice: 130.0,
+          tradeValue: 6500.0,
+        },
+      ],
+    }),
+    getTradeHistory: async (fromDate: string, toDate: string, page = 0) => ({
+      ok: true,
+      data: [
+        {
+          tradeId: 'TR-E2E-1',
+          orderId: 'DHAN-ORD-201',
+          tradingSymbol: 'NIFTY 24500 CE',
+          securityId: '45021',
+          exchangeSegment: 'NSE_FNO',
+          transactionType: 'BUY',
+          productType: 'INTRADAY',
+          tradedQuantity: 50,
+          tradedPrice: 130.0,
+          tradeValue: 6500.0,
+          tradeDate: '2026-05-15',
+          createTime: '2026-05-15 09:30:00',
+        },
+        {
+          tradeId: 'TR-E2E-2',
+          orderId: 'DHAN-ORD-202',
+          tradingSymbol: 'NIFTY 24500 CE',
+          securityId: '45021',
+          exchangeSegment: 'NSE_FNO',
+          transactionType: 'SELL',
+          productType: 'INTRADAY',
+          tradedQuantity: 50,
+          tradedPrice: 145.0,
+          tradeValue: 7250.0,
+          tradeDate: '2026-05-15',
+          createTime: '2026-05-15 10:15:00',
+        },
+      ],
     }),
     getLtp: async () => ({
       ok: true,
@@ -218,8 +272,8 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.status, 'ONLINE');
   });
 
-  await t.test('GET /health returns health check status', async () => {
-    const res = await makeMockRequest('GET', '/health');
+  await t.test('GET /api returns NestJS framework root metadata', async () => {
+    const res = await makeMockRequest('GET', '/api');
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.status, 'ONLINE');
   });
@@ -375,6 +429,44 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body.positions));
     assert.strictEqual(typeof res.body.summary.netPnL, 'number');
+  });
+
+  await t.test('GET /api/funds returns available balance and funds from Dhan API', async () => {
+    const res = await makeMockRequest('GET', '/api/funds');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.availableBalance, 150000.0);
+    assert.strictEqual(res.body.utilizedMargin, 25000.0);
+  });
+
+  await t.test('GET /api/trades/history returns trade history with consolidated paired trades', async () => {
+    const res = await makeMockRequest('GET', '/api/trades/history?financialYear=2026-2027');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.financialYear, '2026-2027');
+    assert.strictEqual(res.body.summary.totalTrades, 1);
+    assert.strictEqual(res.body.summary.closedTradesCount, 1);
+    assert.strictEqual(res.body.summary.totalRealizedPnL, 750.0);
+    assert.strictEqual(res.body.trades.length, 1);
+    assert.strictEqual(res.body.trades[0].buyPrice, 130.0);
+    assert.strictEqual(res.body.trades[0].sellPrice, 145.0);
+    assert.strictEqual(res.body.trades[0].pnl, 750.0);
+    assert.strictEqual(res.body.trades[0].status, 'CLOSED');
+    assert.ok(res.body.trades[0].executionTime);
+  });
+
+  await t.test('GET /api/trades/financial-years returns selectable FYs list', async () => {
+    const res = await makeMockRequest('GET', '/api/trades/financial-years');
+    assert.strictEqual(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+    assert.ok(res.body.length >= 5);
+    assert.strictEqual(res.body[0].isCurrent, true);
+  });
+
+  await t.test('GET /api/trades returns active session trades', async () => {
+    const res = await makeMockRequest('GET', '/api/trades');
+    assert.strictEqual(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+    assert.strictEqual(res.body.length, 1);
+    assert.strictEqual(res.body[0].symbol, 'NIFTY 24500 CE');
   });
 
   await t.test('GET /api/instruments returns security lookup results', async () => {

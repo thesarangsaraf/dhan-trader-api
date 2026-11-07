@@ -7,9 +7,9 @@ import { ConfigService } from './config/config.service';
 export class AppController {
   constructor(private readonly config: ConfigService) {}
 
-  @Get(['', 'health', 'api'])
+  @Get(['', 'api'])
   @ApiOperation({ summary: 'Backend status & service discovery index' })
-  @ApiResponse({ status: 200, description: 'Service health and endpoint index' })
+  @ApiResponse({ status: 200, description: 'Service endpoint index' })
   getRoot() {
     return {
       name: 'Dhan Trader Backend API',

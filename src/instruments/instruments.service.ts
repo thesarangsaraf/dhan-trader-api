@@ -97,6 +97,7 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
 @Injectable()
 export class InstrumentsService {
   private indexOptions: CachedIndexOption[] = [];
+  private securityIdMap = new Map<string, string>();
 
   constructor(
     private readonly dhanService: DhanService,

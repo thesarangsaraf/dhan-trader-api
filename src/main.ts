@@ -27,6 +27,7 @@ async function bootstrap() {
     .addTag('Auth', 'Dhan access token inspection, validation and renewal')
     .addTag('Alerts', 'Price alerts monitoring on NSE Indices (No static IP needed)')
     .addTag('Orders', 'Order placement, book inspection, and cancellation')
+    .addTag('Trades', 'Historical trade book, financial year reporting, and turnover analytics')
     .addTag('Instruments', 'NSE scrip master search and indices lookup')
     .addTag('Telegram', 'Telegram bot alerts and live connection configuration')
     .addTag('Firestore', 'Google Cloud Firestore database connection and operations')

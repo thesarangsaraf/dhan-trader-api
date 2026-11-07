@@ -172,6 +172,16 @@ export class DhanService {
     return this.request('/trades');
   }
 
+  // Historical Trade History by Date Range (Paginated)
+  async getTradeHistory(fromDate: string, toDate: string, page = 0): Promise<DhanApiResponse> {
+    return this.request(`/trades/${fromDate}/${toDate}/${page}`);
+  }
+
+  // Trades for a specific Dhan Order ID
+  async getTradesByOrderId(orderId: string): Promise<DhanApiResponse> {
+    return this.request(`/trades/${orderId}`);
+  }
+
   // Marketfeed LTP lookup
   async getLtp(instruments: Record<string, number[]>): Promise<DhanApiResponse> {
     return this.request('/marketfeed/ltp', {
