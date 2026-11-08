@@ -1,7 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsOptional } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class SyncInstrumentsDto {
+  @ApiPropertyOptional({
+    description: 'Sync target: "equities" (cash equities & indices), "options" (traded index options), or "all"',
+    enum: ['all', 'equities', 'options'],
+    default: 'all',
+  })
+  @IsOptional()
+  @IsIn(['all', 'equities', 'options'])
+  target?: 'all' | 'equities' | 'options';
+
   @ApiPropertyOptional({
     description: 'Optional array of index options to sync. If omitted, uses existing options cache or Firestore index_options.',
   })

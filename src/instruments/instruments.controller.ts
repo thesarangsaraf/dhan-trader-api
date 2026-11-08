@@ -4,6 +4,8 @@ import { InstrumentsService } from './instruments.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
 import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
+import { QueryEquitiesDto } from './dto/query-equities.dto';
+import { QueryOptionsDto } from './dto/query-options.dto';
 
 @ApiTags('Instruments')
 @Controller('api/instruments')
@@ -54,8 +56,8 @@ export class InstrumentsController {
   @Post('sync')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Sync NSE security master & index options into Firestore collection (sec_id_to_name_mapping)',
-    description: 'Divides scrip master and options into dedicated documents by instrument (NIFTY 50, BANK NIFTY, Indices, Equities) in collection sec_id_to_name_mapping and refreshes the in-memory cache.',
+    summary: 'Sync NSE security master & index options into Firestore collections',
+    description: 'Syncs cash equities to sec_id_to_name_mapping and traded index options to index_options.',
   })
   @ApiResponse({ status: 200, description: 'Master data successfully synced to Firestore' })
   async syncMaster(@Body() dto?: SyncInstrumentsDto) {
@@ -65,11 +67,33 @@ export class InstrumentsController {
     return this.instrumentsService.syncMaster(dto);
   }
 
+  @Post('sync/equities')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Sync NSE cash equities & benchmark indices into Firestore collection (sec_id_to_name_mapping)',
+    description: 'Uploads and organizes all NSE equities into balanced chunks and indices into sec_id_to_name_mapping. Guarantees zero option contracts are saved in this collection.',
+  })
+  @ApiResponse({ status: 200, description: 'Equities and indices successfully synced to sec_id_to_name_mapping' })
+  async syncEquities(@Body() dto?: SyncInstrumentsDto) {
+    return this.instrumentsService.syncEquities(dto);
+  }
+
+  @Post('sync/options')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Sync traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) into Firestore collection (index_options)',
+    description: 'Uploads option contracts strictly for the 4 traded indices into collection index_options in chunks of 500. Excludes stock options and non-traded indices.',
+  })
+  @ApiResponse({ status: 200, description: 'Traded index options successfully synced to index_options' })
+  async syncOptions(@Body() dto?: SyncInstrumentsDto) {
+    return this.instrumentsService.syncOptions(dto);
+  }
+
   @Post('sync/csv')
   @HttpCode(200)
   @ApiOperation({
     summary: 'Upload and sync NSE security master from raw CSV content into Firestore',
-    description: 'Parses raw Dhan api-scrip-master.csv text, filters strictly to NSE contracts, and writes divided documents to sec_id_to_name_mapping.',
+    description: 'Parses raw Dhan api-scrip-master.csv text, filters strictly to NSE contracts, and writes divided documents.',
   })
   @ApiResponse({ status: 200, description: 'CSV data parsed and synced to Firestore' })
   async syncCsvPost(@Body('csvContent') csvContent: string) {
@@ -81,6 +105,33 @@ export class InstrumentsController {
   @ApiResponse({ status: 200, description: 'Firestore sec_id_to_name_mapping metadata and in-memory counts' })
   async getSyncStatus() {
     return this.instrumentsService.getSyncStatus();
+  }
+
+  @Get('sync/options/status')
+  @ApiOperation({ summary: 'Get current sync status and metadata of index_options collection from Firestore' })
+  @ApiResponse({ status: 200, description: 'Firestore index_options metadata and in-memory counts' })
+  async getOptionsSyncStatus() {
+    return this.instrumentsService.getOptionsSyncStatus();
+  }
+
+  @Get('equities')
+  @ApiOperation({
+    summary: 'Browse and query cash equities & benchmark indices from sec_id_to_name_mapping',
+    description: 'Returns paginated list of equities and indices with search filter and segment filter.',
+  })
+  @ApiResponse({ status: 200, description: 'Paginated list of equities and indices' })
+  async getEquities(@Query() dto: QueryEquitiesDto) {
+    return this.instrumentsService.getEquities(dto);
+  }
+
+  @Get('options')
+  @ApiOperation({
+    summary: 'Browse and query traded index options from index_options collection',
+    description: 'Returns paginated list of traded index options with filters for index, expiry, strike, and option type.',
+  })
+  @ApiResponse({ status: 200, description: 'Paginated list of index options' })
+  async getOptions(@Query() dto: QueryOptionsDto) {
+    return this.instrumentsService.getOptions(dto);
   }
 
   @Get('option-contracts')

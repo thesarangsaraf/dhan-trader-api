@@ -280,6 +280,18 @@ test('FirestoreService (NestJS)', async (t) => {
     assert.strictEqual(meta?.totalItems, 3);
     assert.strictEqual(meta?.totalChunks, 2);
 
+    const niftyDoc = await service.getIndexOptionDocument('NIFTY');
+    assert.strictEqual(niftyDoc?.symbol, 'NIFTY');
+    assert.strictEqual(niftyDoc?.name, 'NIFTY 50');
+    assert.strictEqual(niftyDoc?.currentExpiry, '2026-11-12');
+    assert.strictEqual(niftyDoc?.totalContracts, 2);
+
+    const bankDoc = await service.getIndexOptionDocument('BANKNIFTY');
+    assert.strictEqual(bankDoc?.symbol, 'BANKNIFTY');
+    assert.strictEqual(bankDoc?.name, 'NIFTY BANK');
+    assert.strictEqual(bankDoc?.currentExpiry, '2026-11-12');
+    assert.strictEqual(bankDoc?.totalContracts, 1);
+
     const fetched = await service.getIndexOptions();
     assert.strictEqual(fetched.length, 3);
     assert.strictEqual(fetched[0].securityId, '45001');

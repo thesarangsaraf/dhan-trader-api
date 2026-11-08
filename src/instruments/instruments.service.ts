@@ -1,6 +1,4 @@
-import { Injectable, BadRequestException, Optional, Logger, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable, BadRequestException, NotFoundException, Optional, Logger, OnModuleInit } from '@nestjs/common';
 import { DhanService } from '../dhan/dhan.service';
 import { YahooFinanceService } from '../yahoo/yahoo.service';
 import {
@@ -15,6 +13,8 @@ import {
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
 import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
+import { QueryEquitiesDto } from './dto/query-equities.dto';
+import { QueryOptionsDto } from './dto/query-options.dto';
 
 export { CachedIndexOption, SecIdMappingMetadata, IndexLotSizesConfig, IndexConfigItem, DEFAULT_LOT_SIZES, DEFAULT_INDICES };
 
@@ -74,14 +74,6 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
   { symbol: 'SENSEX', name: 'BSE Sensex Index', securityId: '51', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 20 },
   { symbol: 'MIDCAP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
 
-  // FNO Options
-  { symbol: 'NIFTY 24500 CE', name: 'Nifty 24500 Call', securityId: '45021', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 50 },
-  { symbol: 'NIFTY 24500 PE', name: 'Nifty 24500 Put', securityId: '45022', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 50 },
-  { symbol: 'NIFTY 24600 CE', name: 'Nifty 24600 Call', securityId: '45023', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 50 },
-  { symbol: 'NIFTY 24600 PE', name: 'Nifty 24600 Put', securityId: '45024', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 50 },
-  { symbol: 'BANKNIFTY 52000 CE', name: 'Bank Nifty 52000 Call', securityId: '52010', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 30 },
-  { symbol: 'BANKNIFTY 52000 PE', name: 'Bank Nifty 52000 Put', securityId: '52011', exchangeSegment: 'NSE_FNO', instrumentType: 'OPTIDX', lotSize: 30 },
-
   // Equities
   { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', securityId: '2885', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
   { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', securityId: '1333', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
@@ -98,6 +90,13 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
 @Injectable()
 export class InstrumentsService implements OnModuleInit {
   private readonly logger = new Logger(InstrumentsService.name);
+
+  /**
+   * Traded index symbols strictly tracked and stored in collection 'index_options'.
+   * All other options (stock options, non-traded indices) are strictly excluded.
+   */
+  public static readonly TRADED_INDEX_SYMBOLS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+
   private indexOptions: CachedIndexOption[] = [];
   private indexOptionsBySecId = new Map<string, CachedIndexOption>();
   private indexOptionsLoadingPromise: Promise<number> | null = null;
@@ -112,8 +111,7 @@ export class InstrumentsService implements OnModuleInit {
     @Optional() private readonly yahooService?: YahooFinanceService,
     @Optional() private readonly firestoreService?: FirestoreService,
   ) {
-    this.loadScripMaster();
-    // Eagerly trigger mapping fetch from Firestore in background
+    // Eagerly trigger mapping fetch strictly from Firestore database in background
     this.loadFromFirestore().catch((err) => {
       this.logger.warn(`Initial Firestore sec_id_to_name_mapping load deferred: ${err.message}`);
     });
@@ -165,27 +163,22 @@ export class InstrumentsService implements OnModuleInit {
           this.logger.warn(`Could not load lot sizes from Firestore: ${err.message}`);
         }
 
-        // 2. Try to load from sec_id_to_name_mapping collection
+        // 2. Load NSE equities & indices from collection 'sec_id_to_name_mapping'
         const secMapping = await this.firestoreService.getSecIdMapping();
-        if (secMapping.options.length > 0 || secMapping.scripMaster.length > 0) {
-          if (secMapping.options.length > 0) {
-            this.setIndexOptions(secMapping.options);
-          }
-          if (secMapping.scripMaster.length > 0) {
-            this.setScripMaster(secMapping.scripMaster);
-          }
-          this.logger.log(
-            `⚡ Loaded ${this.indexOptions.length} options & ${this.scripMaster.length} scrip items strictly from Firestore [sec_id_to_name_mapping]`,
-          );
-          return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
-        }
+        this.setScripMaster(secMapping.scripMaster);
 
-        // 3. Fallback to index_options collection if sec_id_to_name_mapping is not yet populated
-        const legacyOptions = await this.firestoreService.getIndexOptions();
-        if (legacyOptions && legacyOptions.length > 0) {
-          this.setIndexOptions(legacyOptions);
-          this.logger.log(`⚡ Loaded ${this.indexOptions.length} NSE index options from Firestore [index_options]`);
+        // 3. Load NSE index options strictly from dedicated collection 'index_options'
+        // (falling back to secMapping.options if legacy collection holds them)
+        let options = await this.firestoreService.getIndexOptions();
+        if (options.length === 0 && secMapping.options.length > 0) {
+          options = secMapping.options;
         }
+        this.setIndexOptions(options);
+
+        this.logger.log(
+          `⚡ Loaded ${this.indexOptions.length} index options [index_options] & ${this.scripMaster.length} scrip items [sec_id_to_name_mapping] strictly from Firestore`,
+        );
+        return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
       } catch (err: any) {
         this.logger.error(`Failed to fetch mapping from Firestore: ${err.message}`);
       }
@@ -232,60 +225,342 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
-   * On-demand synchronization of NSE instruments and index options to Firestore collection 'sec_id_to_name_mapping'.
+   * Download official Dhan scrip master CSV with timeout and error handling.
    */
-  public async syncMaster(dto?: SyncInstrumentsDto) {
+  private async downloadDhanCsv(csvUrl?: string): Promise<string> {
+    const url = csvUrl || 'https://images.dhan.co/api-data/api-scrip-master.csv';
+    this.logger.log(`Downloading latest official Dhan scrip master from ${url}...`);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(45000) });
+    if (!resp.ok) {
+      throw new BadRequestException(`Dhan scrip master download returned HTTP ${resp.status}`);
+    }
+    const csvText = await resp.text();
+    this.logger.log(`Successfully downloaded Dhan scrip master (${(csvText.length / 1024 / 1024).toFixed(1)} MB)`);
+    return csvText;
+  }
+
+  /**
+   * Parse Dhan CSV content, strictly extracting NSE cash equities & indices,
+   * and traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY).
+   */
+  public parseCsv(csvContent: string): {
+    parsedScrip: Omit<InstrumentItem, 'ltp'>[];
+    parsedOptions: CachedIndexOption[];
+  } {
+    if (!csvContent || typeof csvContent !== 'string') {
+      throw new BadRequestException('CSV content string is required');
+    }
+
+    const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) {
+      throw new BadRequestException('CSV content is empty or contains no header row');
+    }
+
+    const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+    const exchIdx = headers.findIndex((h) => /^SEM_EXM_EXCH_ID$|^EXCH_ID$|^EXCHANGE$/i.test(h));
+    const segmentIdx = headers.findIndex((h) => /^SEM_SEGMENT$|^EXCHANGE_SEGMENT$|^SEGMENT$/i.test(h));
+    const secIdIdx = headers.findIndex((h) => /^SEM_SMST_SECURITY_ID$|^SECURITY_ID$|^SECURITYID$|^SEM_SECURITY_ID$/i.test(h));
+    const instNameIdx = headers.findIndex((h) => /^SEM_INSTRUMENT_NAME$|^INSTRUMENT_TYPE$|^TYPE$/i.test(h));
+    const symbolIdx = headers.findIndex((h) => /^SEM_TRADING_SYMBOL$|^SYMBOL$|^TRADING_SYMBOL$/i.test(h));
+    const nameIdx = headers.findIndex((h) => /^SEM_CUSTOM_SYMBOL$|^COMPANY_NAME$|^NAME$/i.test(h));
+    const lotSizeIdx = headers.findIndex((h) => /^SEM_LOT_UNITS$|^LOT_SIZE$|^LOTSIZE$/i.test(h));
+    const expiryIdx = headers.findIndex((h) => /^SEM_EXPIRY_DATE$|^EXPIRY_DATE$/i.test(h));
+    const strikeIdx = headers.findIndex((h) => /^SEM_STRIKE_PRICE$|^STRIKE_PRICE$|^STRIKE$/i.test(h));
+    const optTypeIdx = headers.findIndex((h) => /^SEM_OPTION_TYPE$|^OPTION_TYPE$|^OPT_TYPE$/i.test(h));
+    const symNameIdx = headers.findIndex((h) => /^SM_SYMBOL_NAME$|^UNDERLYING_SYMBOL$/i.test(h));
+
+    const parsedOptions: CachedIndexOption[] = [];
+    const parsedScrip: Omit<InstrumentItem, 'ltp'>[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',').map((p) => p.trim().replace(/^"|"$/g, ''));
+      const exch = exchIdx >= 0 ? parts[exchIdx] : '';
+      const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
+      if (!secId) continue;
+
+      // Strictly NSE instruments only - never BSE, MCX, or others
+      if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE')) {
+        continue;
+      }
+
+      const instName = instNameIdx >= 0 ? parts[instNameIdx] : '';
+      const rawSegment = segmentIdx >= 0 ? parts[segmentIdx] : '';
+      const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
+      const customSym = nameIdx >= 0 && parts[nameIdx] ? parts[nameIdx] : sym;
+      const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
+
+      // 1. Index Options (OPTIDX on NSE)
+      if (instName === 'OPTIDX') {
+        const rawExpiry = expiryIdx >= 0 ? parts[expiryIdx] : '';
+        const expiryDate = rawExpiry ? rawExpiry.split(' ')[0].trim() : '';
+        const strikePrice = strikeIdx >= 0 ? parseFloat(parts[strikeIdx]) || 0 : 0;
+        const optType = optTypeIdx >= 0 && parts[optTypeIdx] === 'PE' ? 'PE' : 'CE';
+        const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
+        let root = (rawSymName || sym.split('-')[0].trim()).toUpperCase();
+        if (root === 'BANKNIFTY' || root.includes('BANK')) root = 'BANKNIFTY';
+        else if (root === 'MIDCPNIFTY' || root.includes('MIDCP') || root.includes('MIDCAP')) root = 'MIDCPNIFTY';
+        else if (root === 'FINNIFTY' || root.includes('FIN NIFTY')) root = 'FINNIFTY';
+        else if (root === 'NIFTY' || root === 'NIFTY 50') root = 'NIFTY';
+        else root = '';
+
+        // Filter strictly to user's traded indices: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY
+        if (root && InstrumentsService.TRADED_INDEX_SYMBOLS.has(root)) {
+          parsedOptions.push({
+            symbolName: root,
+            exchange: 'NSE_FNO',
+            securityId: secId,
+            tradingSymbol: sym,
+            customSymbol: customSym,
+            expiryDate,
+            strikePrice,
+            optionType: optType as 'CE' | 'PE',
+            lotSize: lot,
+          });
+        }
+        continue;
+      }
+
+      // 2. Benchmark Indices
+      const isIndex = instName === 'INDEX' || rawSegment === 'I' || exch === 'IDX_I';
+      if (isIndex) {
+        parsedScrip.push({
+          securityId: secId,
+          symbol: sym,
+          name: customSym,
+          exchangeSegment: 'IDX_I',
+          instrumentType: 'INDEX',
+          lotSize: lot,
+        });
+        continue;
+      }
+
+      // 3. NSE Equities
+      if (instName === 'EQUITY' || rawSegment === 'E') {
+        parsedScrip.push({
+          securityId: secId,
+          symbol: sym,
+          name: customSym,
+          exchangeSegment: 'NSE_EQ',
+          instrumentType: 'EQUITY',
+          lotSize: lot,
+        });
+      }
+    }
+
+    return { parsedScrip, parsedOptions };
+  }
+
+  /**
+   * Synchronize cash equities and benchmark indices into Firestore collection 'sec_id_to_name_mapping'.
+   * Purely stores equities & indices; guarantees zero option contracts in this collection.
+   */
+  public async syncEquities(dto?: SyncInstrumentsDto) {
     if (!this.firestoreService || !this.firestoreService.isReady()) {
       throw new BadRequestException('Firestore database is not connected or initialized');
     }
 
-    // If raw CSV content is passed directly, parse and sync it
+    let scripToSync: any[] = [];
+
     if (dto?.csvContent) {
-      return this.syncCsv(dto.csvContent);
+      const { parsedScrip } = this.parseCsv(dto.csvContent);
+      scripToSync = parsedScrip;
+    } else if (dto?.scripMaster && dto.scripMaster.length > 0) {
+      scripToSync = dto.scripMaster;
+    } else if (process.env.NODE_ENV !== 'test') {
+      try {
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const { parsedScrip } = this.parseCsv(csvText);
+        scripToSync = parsedScrip;
+      } catch (err: any) {
+        this.logger.warn(`Failed downloading live CSV: ${err.message}. Using in-memory scripMaster.`);
+        scripToSync = this.scripMaster;
+      }
+    } else {
+      scripToSync = this.scripMaster;
     }
 
-    // When requested via sync button (no manual scrip master passed) and not in test suite,
-    // automatically download the latest official Dhan api-scrip-master.csv directly from Dhan
-    if (!dto?.scripMaster && process.env.NODE_ENV !== 'test') {
+    if (scripToSync.length === 0 && this.firestoreService.isReady()) {
+      const existing = await this.firestoreService.getSecIdMapping();
+      scripToSync = existing.scripMaster;
+    }
+
+    if (scripToSync.length === 0) {
+      throw new BadRequestException('No equity or index instruments found to sync');
+    }
+
+    // Save strictly to sec_id_to_name_mapping with EMPTY options (removes any stale options docs)
+    const res = await this.firestoreService.saveSecIdMapping([], scripToSync);
+
+    // Update in-memory cache
+    this.setScripMaster(scripToSync);
+
+    return {
+      success: true,
+      collection: 'sec_id_to_name_mapping',
+      totalInstruments: res.totalInstruments,
+      totalEquities: res.totalEquities,
+      totalIndices: res.totalIndices,
+      documents: res.documents,
+      syncedAt: res.syncedAt,
+      message: `Successfully synced ${res.totalInstruments} NSE instruments (${res.totalIndices} indices, ${res.totalEquities} equities) to Firestore collection [sec_id_to_name_mapping]`,
+    };
+  }
+
+  /**
+   * Synchronize traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) into Firestore collection 'index_options'.
+   * Purely stores options contracts for the traded indices in chunks of 500.
+   */
+  public async syncOptions(dto?: SyncInstrumentsDto) {
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    let optionsToSync: CachedIndexOption[] = [];
+
+    if (dto?.csvContent) {
+      const { parsedOptions } = this.parseCsv(dto.csvContent);
+      optionsToSync = parsedOptions;
+    } else if (dto?.options && dto.options.length > 0) {
+      optionsToSync = dto.options.filter((o) => {
+        let sym = (o.symbolName || '').toUpperCase();
+        if (sym.includes('BANK')) sym = 'BANKNIFTY';
+        else if (sym.includes('MIDCP') || sym.includes('MIDCAP')) sym = 'MIDCPNIFTY';
+        else if (sym.includes('FINNIFTY') || sym.includes('FIN NIFTY')) sym = 'FINNIFTY';
+        else if (sym.includes('NIFTY')) sym = 'NIFTY';
+        return InstrumentsService.TRADED_INDEX_SYMBOLS.has(sym);
+      });
+    } else if (process.env.NODE_ENV !== 'test') {
       try {
-        const csvUrl = dto?.csvUrl || 'https://images.dhan.co/api-data/api-scrip-master.csv';
-        this.logger.log(`Downloading latest official Dhan scrip master from ${csvUrl}...`);
-        const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(35000) });
-        if (resp.ok) {
-          const csvText = await resp.text();
-          this.logger.log(`Successfully downloaded Dhan scrip master (${(csvText.length / 1024 / 1024).toFixed(1)} MB). Parsing and saving to Firestore...`);
-          return await this.syncCsv(csvText);
-        } else {
-          this.logger.warn(`Dhan scrip master download returned HTTP ${resp.status}. Falling back to cached data.`);
-        }
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const { parsedOptions } = this.parseCsv(csvText);
+        optionsToSync = parsedOptions;
+      } catch (err: any) {
+        this.logger.warn(`Failed downloading live CSV: ${err.message}. Using in-memory indexOptions.`);
+        optionsToSync = this.indexOptions;
+      }
+    } else {
+      optionsToSync = this.indexOptions;
+    }
+
+    if (optionsToSync.length === 0 && this.firestoreService.isReady()) {
+      optionsToSync = await this.firestoreService.getIndexOptions();
+    }
+
+    if (optionsToSync.length === 0) {
+      throw new BadRequestException('No traded index options found to sync');
+    }
+
+    // Save strictly to index_options collection in dedicated documents per index (max 2 expiries)
+    const res = await this.firestoreService.saveIndexOptions(optionsToSync, 2);
+
+    // Update in-memory cache strictly with filtered options
+    this.setIndexOptions(res.items && res.items.length > 0 ? res.items : optionsToSync);
+
+    return {
+      success: true,
+      collection: 'index_options',
+      totalItems: res.totalItems,
+      totalChunks: res.totalChunks,
+      documentsCount: res.documentsCount || res.totalChunks,
+      documentIds: res.documentIds,
+      writeTime: res.writeTime,
+      tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
+      message: `Successfully synced ${res.totalItems} traded index options across dedicated documents [${res.documentIds?.join(', ') || Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS).join(', ')}] (max 2 expiries) in Firestore collection [index_options]`,
+    };
+  }
+
+  /**
+   * On-demand synchronization of NSE instruments and index options to Firestore.
+   */
+  public async syncMaster(dto?: SyncInstrumentsDto) {
+    if (dto?.target === 'equities') {
+      return this.syncEquities(dto);
+    }
+    if (dto?.target === 'options') {
+      return this.syncOptions(dto);
+    }
+
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    // If raw CSV content is passed directly, parse and sync both
+    if (dto?.csvContent) {
+      const { parsedScrip, parsedOptions } = this.parseCsv(dto.csvContent);
+      const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
+      const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+      this.setScripMaster(parsedScrip);
+      this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
+      return {
+        success: true,
+        collection: 'sec_id_to_name_mapping',
+        totalInstruments: eqRes.totalInstruments + optRes.totalItems,
+        totalEquities: eqRes.totalEquities,
+        totalIndices: eqRes.totalIndices,
+        totalOptions: optRes.totalItems,
+        documents: eqRes.documents,
+        syncedAt: eqRes.syncedAt,
+        message: `Successfully synced ${eqRes.totalInstruments} NSE instruments to sec_id_to_name_mapping and ${optRes.totalItems} traded index options to index_options`,
+      };
+    }
+
+    // When requested via sync button and not in test suite, download official Dhan CSV
+    if (!dto?.scripMaster && !dto?.options && process.env.NODE_ENV !== 'test') {
+      try {
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const { parsedScrip, parsedOptions } = this.parseCsv(csvText);
+        const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
+        const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+        this.setScripMaster(parsedScrip);
+        this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
+        return {
+          success: true,
+          collection: 'sec_id_to_name_mapping',
+          totalInstruments: eqRes.totalInstruments + optRes.totalItems,
+          totalEquities: eqRes.totalEquities,
+          totalIndices: eqRes.totalIndices,
+          totalOptions: optRes.totalItems,
+          documents: eqRes.documents,
+          syncedAt: eqRes.syncedAt,
+          message: `Successfully synced ${eqRes.totalInstruments} NSE instruments to sec_id_to_name_mapping and ${optRes.totalItems} traded index options to index_options`,
+        };
       } catch (err: any) {
         this.logger.warn(`Failed to download live Dhan scrip master (${err.message}). Falling back to cached data.`);
       }
     }
 
-    // Determine options to sync
-    let optionsToSync: CachedIndexOption[] =
-      dto?.options && dto.options.length > 0 ? dto.options : this.indexOptions;
-    if (optionsToSync.length === 0) {
+    // Fallback: sync equities and options from provided or in-memory data
+    let scripToSync: any[] = dto?.scripMaster && dto.scripMaster.length > 0 ? dto.scripMaster : this.scripMaster;
+    let optionsToSync: CachedIndexOption[] = dto?.options && dto.options.length > 0 ? dto.options : this.indexOptions;
+
+    if (scripToSync.length === 0 && this.firestoreService.isReady()) {
+      const existing = await this.firestoreService.getSecIdMapping();
+      scripToSync = existing.scripMaster;
+    }
+    if (optionsToSync.length === 0 && this.firestoreService.isReady()) {
       optionsToSync = await this.firestoreService.getIndexOptions();
     }
 
-    // Determine scrip master to sync
-    let scripToSync: any[] =
-      dto?.scripMaster && dto.scripMaster.length > 0 ? dto.scripMaster : this.scripMaster;
-    if (scripToSync.length === 0) {
-      this.loadScripMaster();
-      scripToSync = this.scripMaster;
+    const eqRes = await this.firestoreService.saveSecIdMapping([], scripToSync);
+    let totalOptions = 0;
+    if (optionsToSync.length > 0) {
+      const optRes = await this.firestoreService.saveIndexOptions(optionsToSync, 2);
+      totalOptions = optRes.totalItems;
+      this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : optionsToSync);
     }
+    this.setScripMaster(scripToSync);
 
-    const res = await this.firestoreService.saveSecIdMapping(optionsToSync, scripToSync);
-
-    // Reload into memory
-    await this.loadFromFirestore();
-
+    const totalInstruments = eqRes.totalInstruments + totalOptions;
     return {
-      ...res,
-      message: `Successfully synced ${res.totalInstruments} NSE instruments to Firestore collection [sec_id_to_name_mapping]`,
+      success: true,
+      collection: 'sec_id_to_name_mapping',
+      totalInstruments,
+      totalEquities: eqRes.totalEquities,
+      totalIndices: eqRes.totalIndices,
+      totalOptions,
+      documents: eqRes.documents,
+      syncedAt: eqRes.syncedAt,
+      message: `Successfully synced ${eqRes.totalInstruments} NSE instruments to Firestore collection [sec_id_to_name_mapping]`,
     };
   }
 
@@ -357,6 +632,10 @@ export class InstrumentsService implements OnModuleInit {
     }
     if (clean.includes('BANK')) return this.lotSizes.bankNifty || 30;
     if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 120;
+    if (clean.includes('FINNIFTY') || clean.includes('FIN NIFTY') || clean.includes('FINANCIAL')) {
+      const match = this.lotSizes.indices?.find((i) => i.symbol.toUpperCase().includes('FIN'));
+      return match?.defaultQuantityInOneLot ?? match?.lotSize ?? 65;
+    }
     if (clean.includes('SENSEX')) return this.lotSizes.sensex || 20;
     if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 65;
     return 1;
@@ -405,55 +684,20 @@ export class InstrumentsService implements OnModuleInit {
    * Sync security master from raw Dhan api-scrip-master.csv text.
    */
   public async syncCsv(csvContent: string) {
-    if (!this.firestoreService || !this.firestoreService.isReady()) {
-      throw new BadRequestException('Firestore database is not connected or initialized');
-    }
-    if (!csvContent || typeof csvContent !== 'string') {
-      throw new BadRequestException('CSV content string is required');
-    }
+    return this.syncMaster({ csvContent });
+  }
 
-    const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) {
-      throw new BadRequestException('CSV content is empty or contains no header row');
-    }
-
-    const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
-    const secIdIdx = headers.findIndex((h) => /SEM_SMST_SECURITY_ID|SECURITY_ID|SECURITYID|SEM_SECURITY_ID/i.test(h));
-    const symbolIdx = headers.findIndex((h) => /SEM_TRADING_SYMBOL|SYMBOL|TRADING_SYMBOL/i.test(h));
-    const nameIdx = headers.findIndex((h) => /SEM_CUSTOM_SYMBOL|COMPANY_NAME|NAME|INSTRUMENT_NAME/i.test(h));
-    const segmentIdx = headers.findIndex((h) => /SEM_EXM_EXCH_ID|EXCHANGE_SEGMENT|SEGMENT/i.test(h));
-    const instTypeIdx = headers.findIndex((h) => /SEM_INSTRUMENT_NAME|INSTRUMENT_TYPE|TYPE/i.test(h));
-    const lotSizeIdx = headers.findIndex((h) => /SEM_LOT_UNITS|LOT_SIZE|LOTSIZE/i.test(h));
-
-    const parsedScrip: any[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(',').map((p) => p.trim().replace(/^"|"$/g, ''));
-      const segment = segmentIdx >= 0 ? parts[segmentIdx] : 'NSE_EQ';
-      // Strictly NSE contracts only
-      if (segment && !segment.startsWith('NSE') && segment !== 'IDX_I') {
-        continue;
-      }
-
-      const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
-      if (!secId) continue;
-
-      const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
-      const name = nameIdx >= 0 ? parts[nameIdx] : sym;
-      const instType = instTypeIdx >= 0 ? parts[instTypeIdx] : (segment === 'IDX_I' ? 'INDEX' : 'EQUITY');
-      const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
-
-      parsedScrip.push({
-        securityId: secId,
-        symbol: sym,
-        name: name,
-        exchangeSegment: segment,
-        instrumentType: instType,
-        lotSize: lot,
-      });
-    }
-
-    this.logger.log(`Parsed ${parsedScrip.length} NSE scrips from CSV content`);
-    return this.syncMaster({ scripMaster: parsedScrip });
+  /**
+   * Retrieve current sync status and metadata of dedicated collection 'index_options' from Firestore.
+   */
+  public async getOptionsSyncStatus() {
+    const meta = this.firestoreService ? await this.firestoreService.getIndexOptionsMetadata() : null;
+    return {
+      storedInFirestore: !!meta,
+      metadata: meta,
+      inMemoryCount: this.indexOptions.length,
+      tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
+    };
   }
 
   /**
@@ -479,38 +723,11 @@ export class InstrumentsService implements OnModuleInit {
     return this.indexOptions.length;
   }
 
-  private loadScripMaster() {
-    try {
-      const candidatePaths = [
-        path.resolve(__dirname, '..', '..', 'data', 'scrip-master.json'),
-        path.resolve(__dirname, '..', 'data', 'scrip-master.json'),
-        path.resolve(process.cwd(), 'data', 'scrip-master.json'),
-        path.resolve(process.cwd(), '..', 'dhan-trader-api', 'data', 'scrip-master.json'),
-      ];
-      for (const p of candidatePaths) {
-        if (fs.existsSync(p)) {
-          const raw = fs.readFileSync(p, 'utf8');
-          this.scripMaster = JSON.parse(raw);
-          for (const item of this.scripMaster) {
-            if (item.securityId) {
-              this.scripMasterBySecId.set(String(item.securityId).trim(), item);
-            }
-            if (item.symbol) {
-              this.scripMasterBySymbol.set(item.symbol.trim().toUpperCase(), item);
-            }
-          }
-          break;
-        }
-      }
-    } catch {
-      this.scripMaster = [];
-    }
-  }
-
   public findRealOption(symbolName: string, expiryDate: string, strikePrice: number, optionType: string): CachedIndexOption | undefined {
     let symKey = symbolName.toUpperCase();
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
     else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('FINNIFTY') || symKey.includes('FIN NIFTY') || symKey.includes('FINANCIAL')) symKey = 'FINNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -523,6 +740,9 @@ export class InstrumentsService implements OnModuleInit {
     );
   }
 
+  /**
+   * Search across cash equities, benchmark indices, and traded index option contracts.
+   */
   async search(query?: string, limit = 10): Promise<InstrumentItem[]> {
     let matched: Omit<InstrumentItem, 'ltp'>[];
     if (!query || typeof query !== 'string') {
@@ -536,23 +756,169 @@ export class InstrumentsService implements OnModuleInit {
       if (popMatches.length >= limit) {
         matched = popMatches.slice(0, limit);
       } else {
-        if (this.scripMasterBySecId.size === 0) {
-          this.loadScripMaster();
-        }
         const seenSecIds = new Set(popMatches.map((p) => p.securityId));
         const masterMatches: Omit<InstrumentItem, 'ltp'>[] = [];
+
+        // 1. Search cash equities & indices
         for (const item of this.scripMaster) {
           if (seenSecIds.has(item.securityId)) continue;
           if (item.symbol.includes(clean) || item.name.toUpperCase().includes(clean)) {
             masterMatches.push(item);
+            seenSecIds.add(item.securityId);
             if (popMatches.length + masterMatches.length >= limit) break;
           }
         }
+
+        // 2. If limit not reached, also search traded index options
+        if (popMatches.length + masterMatches.length < limit) {
+          for (const opt of this.indexOptions) {
+            if (seenSecIds.has(opt.securityId)) continue;
+            const customUpper = (opt.customSymbol || '').toUpperCase();
+            const strikeStr = String(opt.strikePrice);
+            if (
+              customUpper.includes(clean) ||
+              opt.symbolName.includes(clean) ||
+              (clean.includes(strikeStr) &&
+                (clean.includes(opt.optionType) ||
+                  clean.includes(opt.optionType === 'CE' ? 'CALL' : 'PUT')))
+            ) {
+              masterMatches.push({
+                symbol: opt.customSymbol || `${opt.symbolName} ${opt.strikePrice} ${opt.optionType}`,
+                name: `${opt.symbolName} ${opt.strikePrice} ${opt.optionType === 'CE' ? 'CALL' : 'PUT'} (${opt.expiryDate})`,
+                securityId: opt.securityId,
+                exchangeSegment: 'NSE_FNO',
+                instrumentType: 'OPTIDX',
+                lotSize: opt.lotSize,
+              });
+              seenSecIds.add(opt.securityId);
+              if (popMatches.length + masterMatches.length >= limit) break;
+            }
+          }
+        }
+
         matched = [...popMatches, ...masterMatches].slice(0, limit);
       }
     }
 
     return this.enrichWithLiveLtp(matched);
+  }
+
+  /**
+   * Browse / filter cash equities & indices stored in sec_id_to_name_mapping.
+   */
+  public getEquities(dto?: QueryEquitiesDto): {
+    total: number;
+    items: Omit<InstrumentItem, 'ltp'>[];
+    limit: number;
+    offset: number;
+  } {
+    const q = dto?.q ? dto.q.trim().toUpperCase() : '';
+    const segment = dto?.segment ? dto.segment.trim().toUpperCase() : '';
+    const limit = dto?.limit ? Math.min(Math.max(1, dto.limit), 200) : 50;
+    const offset = dto?.offset ? Math.max(0, dto.offset) : 0;
+
+    let filtered = this.scripMaster;
+
+    if (segment) {
+      filtered = filtered.filter((item) => item.exchangeSegment === segment);
+    }
+
+    if (q) {
+      filtered = filtered.filter(
+        (item) => item.symbol.includes(q) || item.name.toUpperCase().includes(q) || item.securityId === q,
+      );
+    }
+
+    const paginated = filtered.slice(offset, offset + limit);
+
+    return {
+      total: filtered.length,
+      items: paginated,
+      limit,
+      offset,
+    };
+  }
+
+  /**
+   * Browse / filter traded index options stored in index_options collection.
+   */
+  public getOptions(dto?: QueryOptionsDto): {
+    total: number;
+    items: CachedIndexOption[];
+    limit: number;
+    offset: number;
+    expiries: string[];
+    tradedIndices: string[];
+  } {
+    const indexFilter = dto?.index ? dto.index.trim().toUpperCase() : '';
+    const expiryFilter = dto?.expiry ? dto.expiry.trim() : '';
+    const strikeFilter = dto?.strike !== undefined && dto?.strike !== null ? Number(dto.strike) : null;
+    const optionTypeFilter = dto?.optionType ? dto.optionType.trim().toUpperCase() : '';
+    const q = dto?.q ? dto.q.trim().toUpperCase() : '';
+    const limit = dto?.limit ? Math.min(Math.max(1, dto.limit), 200) : 50;
+    const offset = dto?.offset ? Math.max(0, dto.offset) : 0;
+
+    let filtered = this.indexOptions;
+
+    if (indexFilter) {
+      let symKey = indexFilter;
+      if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
+      else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
+      else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+      else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
+
+      filtered = filtered.filter((o) => o.symbolName === symKey);
+    }
+
+    if (expiryFilter) {
+      filtered = filtered.filter((o) => o.expiryDate === expiryFilter);
+    }
+
+    if (strikeFilter !== null && !isNaN(strikeFilter)) {
+      filtered = filtered.filter((o) => Math.abs(o.strikePrice - strikeFilter) < 0.1);
+    }
+
+    if (optionTypeFilter) {
+      const optType = optionTypeFilter.startsWith('C') ? 'CE' : optionTypeFilter.startsWith('P') ? 'PE' : optionTypeFilter;
+      filtered = filtered.filter((o) => o.optionType === optType);
+    }
+
+    if (q) {
+      filtered = filtered.filter(
+        (o) =>
+          (o.customSymbol && o.customSymbol.toUpperCase().includes(q)) ||
+          o.symbolName.includes(q) ||
+          String(o.strikePrice).includes(q) ||
+          o.securityId === q,
+      );
+    }
+
+    // Collect distinct expiries
+    const expiriesSet = new Set<string>();
+    const expirySource = indexFilter ? this.indexOptions.filter((o) => {
+      let symKey = indexFilter;
+      if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
+      else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
+      else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+      else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
+      return o.symbolName === symKey;
+    }) : this.indexOptions;
+
+    for (const o of expirySource) {
+      if (o.expiryDate) expiriesSet.add(o.expiryDate);
+    }
+    const expiries = Array.from(expiriesSet).sort();
+
+    const paginated = filtered.slice(offset, offset + limit);
+
+    return {
+      total: filtered.length,
+      items: paginated,
+      limit,
+      offset,
+      expiries,
+      tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
+    };
   }
 
   async getAll(): Promise<InstrumentItem[]> {
@@ -582,10 +948,27 @@ export class InstrumentsService implements OnModuleInit {
     const popMatch = POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
     if (popMatch) return popMatch;
 
-    if (this.scripMasterBySymbol.size === 0) {
-      this.loadScripMaster();
+    const scripMatch = this.scripMasterBySymbol.get(clean);
+    if (scripMatch) return scripMatch;
+
+    // Search in real options loaded from Firestore
+    const optMatch = this.indexOptions.find(
+      (o) =>
+        (o.customSymbol && o.customSymbol.toUpperCase() === clean) ||
+        (o.tradingSymbol && o.tradingSymbol.toUpperCase() === clean),
+    );
+    if (optMatch) {
+      return {
+        symbol: optMatch.customSymbol || optMatch.tradingSymbol,
+        name: optMatch.customSymbol || optMatch.tradingSymbol,
+        securityId: String(optMatch.securityId),
+        exchangeSegment: optMatch.exchange || 'NSE_FNO',
+        instrumentType: 'OPTIDX',
+        lotSize: optMatch.lotSize,
+      };
     }
-    return this.scripMasterBySymbol.get(clean);
+
+    return undefined;
   }
 
   findBySecurityId(securityId: string): {
@@ -601,10 +984,6 @@ export class InstrumentsService implements OnModuleInit {
   } | undefined {
     if (!securityId) return undefined;
     const cleanId = String(securityId).trim();
-
-    if (this.scripMasterBySecId.size === 0) {
-      this.loadScripMaster();
-    }
 
     // 1. Search indexOptions (loaded from Firestore database)
     const matchedOpt =
@@ -678,6 +1057,7 @@ export class InstrumentsService implements OnModuleInit {
     let symKey = raw;
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
     else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
+    else if (symKey.includes('FINNIFTY') || symKey.includes('FIN NIFTY') || symKey.includes('FINANCIAL')) symKey = 'FINNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -712,6 +1092,9 @@ export class InstrumentsService implements OnModuleInit {
     } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
       securityId = '442';
       targetWeekday = 1;
+    } else if (raw.includes('FINNIFTY') || raw.includes('FIN NIFTY')) {
+      securityId = '27';
+      targetWeekday = 2;
     } else if (raw.includes('SENSEX')) {
       securityId = '51';
       exchangeSegment = 'BSE_FNO';
@@ -744,31 +1127,11 @@ export class InstrumentsService implements OnModuleInit {
         }
       }
     } catch {
-      // offline fallback
+      // live api check error
     }
 
-    const results: { expiryDate: string; displayExpiry: string; shortExpiry: string }[] = [];
-    const ist = this.getIstDate();
-    const currentDay = ist.getDay();
-    let daysUntil = (targetWeekday - currentDay + 7) % 7;
-    if (daysUntil === 0 && (ist.getHours() > 15 || (ist.getHours() === 15 && ist.getMinutes() >= 30))) {
-      daysUntil = 7;
-    }
-    const firstDate = new Date(ist);
-    firstDate.setDate(ist.getDate() + daysUntil);
-
-    for (let i = 0; i < 5; i++) {
-      const d = new Date(firstDate);
-      d.setDate(firstDate.getDate() + i * 7);
-      const fmt = this.formatExpiryDate(d);
-      results.push({
-        expiryDate: fmt.expiryDate,
-        displayExpiry: fmt.displayExpiry,
-        shortExpiry: fmt.shortExpiry,
-      });
-    }
-
-    return results;
+    // Strictly real data only: if not found in Firestore or Dhan, return empty array. NEVER generate mock calendar dates.
+    return [];
   }
 
   async getOptionContracts(dto: GetOptionContractsDto): Promise<OptionContractsResult> {
@@ -784,7 +1147,6 @@ export class InstrumentsService implements OnModuleInit {
     let exchangeSegment = 'NSE_FNO';
     let lotSize = this.lotSizes.nifty50;
     let defaultStep = 50;
-    let targetWeekday = 4; // Thursday
 
     if (raw.includes('BANK')) {
       normalizedName = 'NIFTY BANK';
@@ -792,14 +1154,19 @@ export class InstrumentsService implements OnModuleInit {
       securityId = '25';
       lotSize = this.lotSizes.bankNifty;
       defaultStep = 100;
-      targetWeekday = 3;
     } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
       normalizedName = 'MIDCAP NIFTY';
       baseSymbol = 'MIDCPNIFTY';
       securityId = '442';
       lotSize = this.lotSizes.midcapNifty;
       defaultStep = 25;
-      targetWeekday = 1;
+    } else if (raw.includes('FINNIFTY') || raw.includes('FIN NIFTY') || raw.includes('FINANCIAL')) {
+      normalizedName = 'NIFTY FINANCIAL SERVICES';
+      baseSymbol = 'FINNIFTY';
+      securityId = '27';
+      const finConfig = this.lotSizes.indices?.find((i) => i.symbol.toUpperCase().includes('FIN'));
+      lotSize = finConfig?.defaultQuantityInOneLot ?? finConfig?.lotSize ?? 65;
+      defaultStep = 50;
     } else if (raw.includes('SENSEX')) {
       normalizedName = 'SENSEX';
       baseSymbol = 'SENSEX';
@@ -807,14 +1174,12 @@ export class InstrumentsService implements OnModuleInit {
       exchangeSegment = 'BSE_FNO';
       lotSize = this.lotSizes.sensex;
       defaultStep = 100;
-      targetWeekday = 5;
     } else if (raw.includes('NIFTY')) {
       normalizedName = 'NIFTY 50';
       baseSymbol = 'NIFTY';
       securityId = '13';
       lotSize = this.lotSizes.nifty50;
       defaultStep = 50;
-      targetWeekday = 4;
     } else {
       const match = POPULAR_INSTRUMENTS.find(
         (it) => it.symbol.toUpperCase() === raw || it.name.toUpperCase() === raw,
@@ -828,7 +1193,60 @@ export class InstrumentsService implements OnModuleInit {
       }
     }
 
-    // Reference spot price
+    // 1. Strictly verify options exist in Firestore
+    const symbolOptions = this.indexOptions.filter((o) => o.symbolName === baseSymbol);
+    if (symbolOptions.length === 0) {
+      throw new NotFoundException(
+        `Option contracts for ${normalizedName} not found in database. Please sync master data from Settings.`,
+      );
+    }
+
+    // 2. Determine real available expiries from Firestore options
+    const availableExpiries = await this.getExpiries(baseSymbol);
+    if (availableExpiries.length === 0) {
+      throw new NotFoundException(
+        `No option expiry dates found in database for ${normalizedName}. Please sync master data from Settings.`,
+      );
+    }
+
+    let targetExpiry: string;
+    let nextExpiryStr: string | null = null;
+
+    if (dto.expiry) {
+      const match = availableExpiries.find((e) => e.expiryDate === dto.expiry);
+      if (!match) {
+        throw new NotFoundException(
+          `Expiry ${dto.expiry} not found in database for ${normalizedName}. Available: ${availableExpiries.map((e) => e.expiryDate).join(', ')}`,
+        );
+      }
+      targetExpiry = match.expiryDate;
+      const matchIdx = availableExpiries.findIndex((e) => e.expiryDate === targetExpiry);
+      if (matchIdx + 1 < availableExpiries.length) {
+        nextExpiryStr = availableExpiries[matchIdx + 1].expiryDate;
+      }
+    } else {
+      targetExpiry = availableExpiries[0].expiryDate;
+      if (availableExpiries.length > 1) {
+        nextExpiryStr = availableExpiries[1].expiryDate;
+      }
+    }
+
+    // 3. Find all real strikes available in Firestore for targetExpiry
+    const expiryOpts = symbolOptions.filter((o) => o.expiryDate === targetExpiry);
+    if (expiryOpts.length === 0) {
+      throw new NotFoundException(
+        `No option contracts found in database for ${normalizedName} on expiry ${targetExpiry}.`,
+      );
+    }
+
+    const availableStrikes = Array.from(new Set(expiryOpts.map((o) => o.strikePrice))).sort((a, b) => a - b);
+    if (availableStrikes.length === 0) {
+      throw new NotFoundException(
+        `No strike prices found in database for ${normalizedName} on expiry ${targetExpiry}.`,
+      );
+    }
+
+    // 4. Determine reference spot price to pick the 3 strikes around spot
     let spotPrice = typeof dto.price === 'string' ? parseFloat(dto.price) : dto.price;
     if (!spotPrice || isNaN(spotPrice) || spotPrice <= 0) {
       const ltpObj = await this.getLtp(normalizedName);
@@ -838,178 +1256,115 @@ export class InstrumentsService implements OnModuleInit {
     }
 
     let step = defaultStep;
-    if (!step || isNaN(step) || step <= 0) {
-      if (spotPrice >= 5000) {
-        step = 100;
-      } else if (spotPrice >= 2000) {
-        step = 50;
-      } else if (spotPrice >= 1000) {
-        step = 20;
-      } else if (spotPrice >= 500) {
-        step = 10;
-      } else {
-        step = 5;
+    if (availableStrikes.length >= 2) {
+      step = availableStrikes[1] - availableStrikes[0];
+    }
+
+    // Find closest strike in real database strikes
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < availableStrikes.length; i++) {
+      const diff = Math.abs(availableStrikes[i] - spotPrice);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
       }
     }
 
-    const atmStrike = Math.round(spotPrice / step) * step;
-    const strikes = [atmStrike - step, atmStrike, atmStrike + step];
-
-    // Determine current and next expiry
-    let currentExpiryDate: Date;
-    let nextExpiryDate: Date;
-
-    const availableExpiries = await this.getExpiries(normalizedName);
-    if (dto.expiry) {
-      currentExpiryDate = this.parseDateString(dto.expiry);
-      const curFmtStr = this.formatExpiryDate(currentExpiryDate).expiryDate;
-      const matchIdx = availableExpiries.findIndex((e) => e.expiryDate === curFmtStr);
-      if (matchIdx >= 0 && matchIdx + 1 < availableExpiries.length) {
-        nextExpiryDate = this.parseDateString(availableExpiries[matchIdx + 1].expiryDate);
-      } else {
-        nextExpiryDate = new Date(currentExpiryDate);
-        nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
-      }
-    } else if (availableExpiries.length >= 2) {
-      currentExpiryDate = this.parseDateString(availableExpiries[0].expiryDate);
-      nextExpiryDate = this.parseDateString(availableExpiries[1].expiryDate);
-    } else if (availableExpiries.length === 1) {
-      currentExpiryDate = this.parseDateString(availableExpiries[0].expiryDate);
-      nextExpiryDate = new Date(currentExpiryDate);
-      nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
+    let selectedStrikes: number[] = [];
+    if (availableStrikes.length <= 3) {
+      selectedStrikes = availableStrikes;
     } else {
-      const ist = this.getIstDate();
-      const currentDay = ist.getDay();
-      let daysUntil = (targetWeekday - currentDay + 7) % 7;
-      if (daysUntil === 0 && (ist.getHours() > 15 || (ist.getHours() === 15 && ist.getMinutes() >= 30))) {
-        daysUntil = 7;
-      }
-      currentExpiryDate = new Date(ist);
-      currentExpiryDate.setDate(ist.getDate() + daysUntil);
-      nextExpiryDate = new Date(currentExpiryDate);
-      nextExpiryDate.setDate(currentExpiryDate.getDate() + 7);
+      const startIdx = Math.max(0, Math.min(closestIdx - 1, availableStrikes.length - 3));
+      selectedStrikes = availableStrikes.slice(startIdx, startIdx + 3);
     }
 
-    const curFmt = this.formatExpiryDate(currentExpiryDate);
-    const nxtFmt = this.formatExpiryDate(nextExpiryDate);
-
+    const atmStrike = availableStrikes[closestIdx];
     const contracts: OptionContractDetails[] = [];
 
-    const buildChainForExpiry = (
-      fmt: ReturnType<typeof this.formatExpiryDate>,
+    const buildChainForExpiryDate = (
+      expiryDateStr: string,
       expiryType: 'CURRENT' | 'NEXT',
     ): ExpiryOptionChain => {
+      const chainOpts = symbolOptions.filter((o) => o.expiryDate === expiryDateStr);
       const strikePairs: StrikeOptionPair[] = [];
+      const d = this.parseDateString(expiryDateStr);
+      const fmt = this.formatExpiryDate(d);
 
-      for (const strike of strikes) {
-        const callLtp = this.yahooService
-          ? this.yahooService.calculateOptionLtp(strike, 'CE', spotPrice)
-          : Math.max(5, Math.round((Math.max(0, spotPrice - strike) + 50) * 10) / 10);
+      for (const strike of selectedStrikes) {
+        const realCall = chainOpts.find((o) => Math.abs(o.strikePrice - strike) < 0.1 && o.optionType === 'CE');
+        const realPut = chainOpts.find((o) => Math.abs(o.strikePrice - strike) < 0.1 && o.optionType === 'PE');
 
-        const putLtp = this.yahooService
-          ? this.yahooService.calculateOptionLtp(strike, 'PE', spotPrice)
-          : Math.max(5, Math.round((Math.max(0, strike - spotPrice) + 50) * 10) / 10);
-
-        // Real Dhan security IDs from scrip master cache
-        const realCall = this.findRealOption(baseSymbol, fmt.expiryDate, strike, 'CE');
-        const realPut = this.findRealOption(baseSymbol, fmt.expiryDate, strike, 'PE');
-
-        const callSecId = realCall ? realCall.securityId : `${securityId}${strike}CE`;
-        const putSecId = realPut ? realPut.securityId : `${securityId}${strike}PE`;
-        const callSym = realCall?.customSymbol || `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} CE`;
-        const putSym = realPut?.customSymbol || `${baseSymbol} ${fmt.tradingSymbolDate} ${strike} PE`;
-        const callTradingSym = realCall?.tradingSymbol || `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-CE`;
-        const putTradingSym = realPut?.tradingSymbol || `${baseSymbol}-${fmt.tradingSymbolDate}-${strike}-PE`;
-        const callLot = realCall ? realCall.lotSize : lotSize;
-        const putLot = realPut ? realPut.lotSize : lotSize;
-
-        const callMoneyness: 'ITM' | 'ATM' | 'OTM' =
-          strike < atmStrike ? 'ITM' : strike === atmStrike ? 'ATM' : 'OTM';
-        const putMoneyness: 'ITM' | 'ATM' | 'OTM' =
-          strike < atmStrike ? 'OTM' : strike === atmStrike ? 'ATM' : 'ITM';
-
-        const callContract: OptionContractDetails = {
-          symbol: callSym,
-          tradingSymbol: callTradingSym,
-          instrumentName: normalizedName,
-          strikePrice: strike,
-          optionType: 'CE',
-          expiryDate: fmt.expiryDate,
-          expiryType,
-          securityId: callSecId,
-          exchangeSegment: exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'NSE_FNO',
-          lotSize: callLot,
-          ltp: callLtp,
-          moneyness: callMoneyness,
-        };
-
-        const putContract: OptionContractDetails = {
-          symbol: putSym,
-          tradingSymbol: putTradingSym,
-          instrumentName: normalizedName,
-          strikePrice: strike,
-          optionType: 'PE',
-          expiryDate: fmt.expiryDate,
-          expiryType,
-          securityId: putSecId,
-          exchangeSegment: exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'NSE_FNO',
-          lotSize: putLot,
-          ltp: putLtp,
-          moneyness: putMoneyness,
-        };
-
-        // Cache in POPULAR_INSTRUMENTS so findBySymbol can resolve
-        if (!POPULAR_INSTRUMENTS.some((p) => p.symbol === callSym)) {
-          POPULAR_INSTRUMENTS.push({
-            symbol: callSym,
-            name: callSym,
-            securityId: callSecId,
-            exchangeSegment: callContract.exchangeSegment,
-            instrumentType: 'OPTIDX',
-            lotSize: callLot,
-          });
-        }
-        if (!POPULAR_INSTRUMENTS.some((p) => p.symbol === putSym)) {
-          POPULAR_INSTRUMENTS.push({
-            symbol: putSym,
-            name: putSym,
-            securityId: putSecId,
-            exchangeSegment: putContract.exchangeSegment,
-            instrumentType: 'OPTIDX',
-            lotSize: putLot,
-          });
+        if (!realCall && !realPut) {
+          continue;
         }
 
-        contracts.push(callContract);
-        contracts.push(putContract);
+        const callContract: OptionContractDetails | null = realCall
+          ? {
+              symbol: realCall.customSymbol || realCall.tradingSymbol,
+              tradingSymbol: realCall.tradingSymbol,
+              instrumentName: normalizedName,
+              strikePrice: realCall.strikePrice,
+              optionType: 'CE',
+              expiryDate: realCall.expiryDate,
+              expiryType,
+              securityId: String(realCall.securityId), // REAL DHAN SECURITY ID FROM DATABASE
+              exchangeSegment: realCall.exchange || 'NSE_FNO',
+              lotSize: realCall.lotSize || lotSize,
+              ltp: 0,
+              moneyness: strike < atmStrike ? 'ITM' : strike === atmStrike ? 'ATM' : 'OTM',
+            }
+          : null;
 
-        const relativeStrike: 'ATM-1' | 'ATM' | 'ATM+1' =
-          strike < atmStrike ? 'ATM-1' : strike === atmStrike ? 'ATM' : 'ATM+1';
+        const putContract: OptionContractDetails | null = realPut
+          ? {
+              symbol: realPut.customSymbol || realPut.tradingSymbol,
+              tradingSymbol: realPut.tradingSymbol,
+              instrumentName: normalizedName,
+              strikePrice: realPut.strikePrice,
+              optionType: 'PE',
+              expiryDate: realPut.expiryDate,
+              expiryType,
+              securityId: String(realPut.securityId), // REAL DHAN SECURITY ID FROM DATABASE
+              exchangeSegment: realPut.exchange || 'NSE_FNO',
+              lotSize: realPut.lotSize || lotSize,
+              ltp: 0,
+              moneyness: strike < atmStrike ? 'OTM' : strike === atmStrike ? 'ATM' : 'ITM',
+            }
+          : null;
+
+        if (callContract) contracts.push(callContract);
+        if (putContract) contracts.push(putContract);
 
         strikePairs.push({
           strikePrice: strike,
-          relativeStrike,
-          call: callContract,
-          put: putContract,
+          relativeStrike: strike < atmStrike ? 'ATM-1' : strike === atmStrike ? 'ATM' : 'ATM+1',
+          call: callContract as any,
+          put: putContract as any,
         });
       }
 
       return {
-        expiryDate: fmt.expiryDate,
+        expiryDate: expiryDateStr,
         displayExpiry: fmt.displayExpiry,
         shortExpiry: fmt.shortExpiry,
         strikes: strikePairs,
       };
     };
 
-    const currentExpiry = buildChainForExpiry(curFmt, 'CURRENT');
-    const nextExpiry = buildChainForExpiry(nxtFmt, 'NEXT');
+    const currentExpiry = buildChainForExpiryDate(targetExpiry, 'CURRENT');
+    const nextExpiry = nextExpiryStr ? buildChainForExpiryDate(nextExpiryStr, 'NEXT') : null;
+
+    // Enrich real contracts with live LTP from Dhan
+    if (contracts.length > 0) {
+      await this.enrichWithLiveLtp(contracts);
+    }
 
     return {
       instrument: normalizedName,
       spotPrice,
       strikeStep: step,
-      strikes,
+      strikes: selectedStrikes,
       currentExpiry,
       nextExpiry,
       contracts,
@@ -1046,7 +1401,9 @@ export class InstrumentsService implements OnModuleInit {
     return new Date(dateStr);
   }
 
-  private async enrichWithLiveLtp(items: Omit<InstrumentItem, 'ltp'>[]): Promise<InstrumentItem[]> {
+  private async enrichWithLiveLtp<T extends { securityId: string; exchangeSegment: string; symbol: string; ltp?: number }>(
+    items: T[],
+  ): Promise<Array<T & { ltp?: number }>> {
     if (items.length === 0) return [];
 
     const segmentsMap: Record<string, number[]> = {};
@@ -1104,6 +1461,7 @@ export class InstrumentsService implements OnModuleInit {
     return items.map((it) => {
       const livePrice = priceMap.get(`${it.exchangeSegment}:${it.securityId}`);
       if (livePrice !== undefined) {
+        (it as any).ltp = livePrice;
         return { ...it, ltp: livePrice };
       }
       return { ...it };

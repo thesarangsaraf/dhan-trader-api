@@ -202,6 +202,29 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       collections: ['orders'],
     }),
     getIndexOptions: async () => [
+      // NIFTY 2026-11-12
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45019',
+        tradingSymbol: 'NIFTY-Nov2026-25450-CE',
+        customSymbol: 'NIFTY 12 NOV 25450 CALL',
+        expiryDate: '2026-11-12',
+        strikePrice: 25450,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45020',
+        tradingSymbol: 'NIFTY-Nov2026-25450-PE',
+        customSymbol: 'NIFTY 12 NOV 25450 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 25450,
+        optionType: 'PE',
+        lotSize: 50,
+      },
       {
         symbolName: 'NIFTY',
         exchange: 'NSE_FNO',
@@ -225,6 +248,118 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         lotSize: 50,
       },
       {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45023',
+        tradingSymbol: 'NIFTY-Nov2026-25550-CE',
+        customSymbol: 'NIFTY 12 NOV 25550 CALL',
+        expiryDate: '2026-11-12',
+        strikePrice: 25550,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45024',
+        tradingSymbol: 'NIFTY-Nov2026-25550-PE',
+        customSymbol: 'NIFTY 12 NOV 25550 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 25550,
+        optionType: 'PE',
+        lotSize: 50,
+      },
+      // NIFTY 2026-11-19
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45025',
+        tradingSymbol: 'NIFTY-Nov2026-25450-CE',
+        customSymbol: 'NIFTY 19 NOV 25450 CALL',
+        expiryDate: '2026-11-19',
+        strikePrice: 25450,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45026',
+        tradingSymbol: 'NIFTY-Nov2026-25450-PE',
+        customSymbol: 'NIFTY 19 NOV 25450 PUT',
+        expiryDate: '2026-11-19',
+        strikePrice: 25450,
+        optionType: 'PE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45027',
+        tradingSymbol: 'NIFTY-Nov2026-25500-CE',
+        customSymbol: 'NIFTY 19 NOV 25500 CALL',
+        expiryDate: '2026-11-19',
+        strikePrice: 25500,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45028',
+        tradingSymbol: 'NIFTY-Nov2026-25500-PE',
+        customSymbol: 'NIFTY 19 NOV 25500 PUT',
+        expiryDate: '2026-11-19',
+        strikePrice: 25500,
+        optionType: 'PE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45029',
+        tradingSymbol: 'NIFTY-Nov2026-25550-CE',
+        customSymbol: 'NIFTY 19 NOV 25550 CALL',
+        expiryDate: '2026-11-19',
+        strikePrice: 25550,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45030',
+        tradingSymbol: 'NIFTY-Nov2026-25550-PE',
+        customSymbol: 'NIFTY 19 NOV 25550 PUT',
+        expiryDate: '2026-11-19',
+        strikePrice: 25550,
+        optionType: 'PE',
+        lotSize: 50,
+      },
+      // BANKNIFTY 2026-11-12
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52008',
+        tradingSymbol: 'BANKNIFTY-Nov2026-51900-CE',
+        customSymbol: 'BANKNIFTY 12 NOV 51900 CALL',
+        expiryDate: '2026-11-12',
+        strikePrice: 51900,
+        optionType: 'CE',
+        lotSize: 30,
+      },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52009',
+        tradingSymbol: 'BANKNIFTY-Nov2026-51900-PE',
+        customSymbol: 'BANKNIFTY 12 NOV 51900 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 51900,
+        optionType: 'PE',
+        lotSize: 30,
+      },
+      {
         symbolName: 'BANKNIFTY',
         exchange: 'NSE_FNO',
         securityId: '52010',
@@ -246,15 +381,60 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         optionType: 'PE',
         lotSize: 30,
       },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52012',
+        tradingSymbol: 'BANKNIFTY-Nov2026-52100-CE',
+        customSymbol: 'BANKNIFTY 12 NOV 52100 CALL',
+        expiryDate: '2026-11-12',
+        strikePrice: 52100,
+        optionType: 'CE',
+        lotSize: 30,
+      },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52013',
+        tradingSymbol: 'BANKNIFTY-Nov2026-52100-PE',
+        customSymbol: 'BANKNIFTY 12 NOV 52100 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 52100,
+        optionType: 'PE',
+        lotSize: 30,
+      },
     ],
     getIndexOptionsMetadata: async () => ({
-      totalItems: 4,
+      totalItems: 18,
       totalChunks: 1,
       chunkSize: 500,
       updatedAt: '2026-11-08T03:00:00.000Z',
     }),
     getSecIdMapping: async () => ({
       options: [
+        // NIFTY 2026-11-12
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45019',
+          tradingSymbol: 'NIFTY-Nov2026-25450-CE',
+          customSymbol: 'NIFTY 12 NOV 25450 CALL',
+          expiryDate: '2026-11-12',
+          strikePrice: 25450,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45020',
+          tradingSymbol: 'NIFTY-Nov2026-25450-PE',
+          customSymbol: 'NIFTY 12 NOV 25450 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 25450,
+          optionType: 'PE',
+          lotSize: 50,
+        },
         {
           symbolName: 'NIFTY',
           exchange: 'NSE_FNO',
@@ -276,6 +456,162 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           strikePrice: 25500,
           optionType: 'PE',
           lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45023',
+          tradingSymbol: 'NIFTY-Nov2026-25550-CE',
+          customSymbol: 'NIFTY 12 NOV 25550 CALL',
+          expiryDate: '2026-11-12',
+          strikePrice: 25550,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45024',
+          tradingSymbol: 'NIFTY-Nov2026-25550-PE',
+          customSymbol: 'NIFTY 12 NOV 25550 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 25550,
+          optionType: 'PE',
+          lotSize: 50,
+        },
+        // NIFTY 2026-11-19
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45025',
+          tradingSymbol: 'NIFTY-Nov2026-25450-CE',
+          customSymbol: 'NIFTY 19 NOV 25450 CALL',
+          expiryDate: '2026-11-19',
+          strikePrice: 25450,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45026',
+          tradingSymbol: 'NIFTY-Nov2026-25450-PE',
+          customSymbol: 'NIFTY 19 NOV 25450 PUT',
+          expiryDate: '2026-11-19',
+          strikePrice: 25450,
+          optionType: 'PE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45027',
+          tradingSymbol: 'NIFTY-Nov2026-25500-CE',
+          customSymbol: 'NIFTY 19 NOV 25500 CALL',
+          expiryDate: '2026-11-19',
+          strikePrice: 25500,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45028',
+          tradingSymbol: 'NIFTY-Nov2026-25500-PE',
+          customSymbol: 'NIFTY 19 NOV 25500 PUT',
+          expiryDate: '2026-11-19',
+          strikePrice: 25500,
+          optionType: 'PE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45029',
+          tradingSymbol: 'NIFTY-Nov2026-25550-CE',
+          customSymbol: 'NIFTY 19 NOV 25550 CALL',
+          expiryDate: '2026-11-19',
+          strikePrice: 25550,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45030',
+          tradingSymbol: 'NIFTY-Nov2026-25550-PE',
+          customSymbol: 'NIFTY 19 NOV 25550 PUT',
+          expiryDate: '2026-11-19',
+          strikePrice: 25550,
+          optionType: 'PE',
+          lotSize: 50,
+        },
+        // BANKNIFTY 2026-11-12
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52008',
+          tradingSymbol: 'BANKNIFTY-Nov2026-51900-CE',
+          customSymbol: 'BANKNIFTY 12 NOV 51900 CALL',
+          expiryDate: '2026-11-12',
+          strikePrice: 51900,
+          optionType: 'CE',
+          lotSize: 30,
+        },
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52009',
+          tradingSymbol: 'BANKNIFTY-Nov2026-51900-PE',
+          customSymbol: 'BANKNIFTY 12 NOV 51900 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 51900,
+          optionType: 'PE',
+          lotSize: 30,
+        },
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52010',
+          tradingSymbol: 'BANKNIFTY-Nov2026-52000-CE',
+          customSymbol: 'BANKNIFTY 12 NOV 52000 CALL',
+          expiryDate: '2026-11-12',
+          strikePrice: 52000,
+          optionType: 'CE',
+          lotSize: 30,
+        },
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52011',
+          tradingSymbol: 'BANKNIFTY-Nov2026-52000-PE',
+          customSymbol: 'BANKNIFTY 12 NOV 52000 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 52000,
+          optionType: 'PE',
+          lotSize: 30,
+        },
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52012',
+          tradingSymbol: 'BANKNIFTY-Nov2026-52100-CE',
+          customSymbol: 'BANKNIFTY 12 NOV 52100 CALL',
+          expiryDate: '2026-11-12',
+          strikePrice: 52100,
+          optionType: 'CE',
+          lotSize: 30,
+        },
+        {
+          symbolName: 'BANKNIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '52013',
+          tradingSymbol: 'BANKNIFTY-Nov2026-52100-PE',
+          customSymbol: 'BANKNIFTY 12 NOV 52100 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 52100,
+          optionType: 'PE',
+          lotSize: 30,
         },
       ],
       scripMaster: [
@@ -307,10 +643,16 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       documents: ['nifty_50_options', 'indices', 'equities_chunk_01'],
       syncedAt: new Date().toISOString(),
     }),
+    saveIndexOptions: async (items: any[], chunkSize = 500) => ({
+      success: true,
+      totalItems: items.length,
+      totalChunks: Math.ceil((items.length || 1) / chunkSize),
+      writeTime: new Date().toISOString(),
+    }),
     getSecIdMappingMetadata: async () => ({
       collection: 'sec_id_to_name_mapping',
-      totalInstruments: 4,
-      totalOptions: 2,
+      totalInstruments: 20,
+      totalOptions: 18,
       totalIndices: 1,
       totalEquities: 1,
       documentsCount: 3,
@@ -584,6 +926,12 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.deepStrictEqual(res.body.strikes, [51900, 52000, 52100]);
   });
 
+  await t.test('GET /api/instruments/option-contracts returns 404 when instrument options are not found in database', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=MIDCPNIFTY&price=12000');
+    assert.strictEqual(res.status, 404);
+    assert.ok(res.body.message.includes('not found in database'));
+  });
+
   await t.test('GET /api/orders returns orders book from Dhan API', async () => {
     const res = await makeMockRequest('GET', '/api/orders');
     assert.strictEqual(res.status, 200);
@@ -643,6 +991,24 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.length > 0);
   });
 
+  await t.test('GET /api/instruments/equities returns paginated equities & indices', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/equities?limit=10');
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.total >= 0);
+    assert.ok(Array.isArray(res.body.items));
+    assert.strictEqual(res.body.limit, 10);
+    assert.strictEqual(res.body.offset, 0);
+  });
+
+  await t.test('GET /api/instruments/options returns paginated traded index options', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/options?limit=10');
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.total >= 0);
+    assert.ok(Array.isArray(res.body.items));
+    assert.ok(Array.isArray(res.body.tradedIndices));
+    assert.ok(res.body.tradedIndices.includes('NIFTY'));
+  });
+
   await t.test('GET /api/telegram/status returns telegram connection state', async () => {
     const res = await makeMockRequest('GET', '/api/telegram/status');
     assert.strictEqual(res.status, 200);
@@ -668,7 +1034,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     const res = await makeMockRequest('GET', '/api/firestore/index-options/status');
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.storedInFirestore, true);
-    assert.strictEqual(res.body.metadata.totalItems, 4);
+    assert.strictEqual(res.body.metadata.totalItems, 18);
     assert.strictEqual(res.body.metadata.totalChunks, 1);
   });
 
@@ -683,12 +1049,44 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(Array.isArray(res.body.documents));
   });
 
+  await t.test('POST /api/instruments/sync/equities syncs cash equities into Firestore sec_id_to_name_mapping', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/sync/equities', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.collection, 'sec_id_to_name_mapping');
+    assert.ok(res.body.totalInstruments >= 1);
+    assert.ok(Array.isArray(res.body.documents));
+  });
+
+  await t.test('POST /api/instruments/sync/options syncs traded index options into Firestore index_options', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/sync/options', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.collection, 'index_options');
+    assert.ok(res.body.totalItems >= 1);
+    assert.ok(Array.isArray(res.body.tradedIndices));
+    assert.ok(res.body.tradedIndices.includes('NIFTY'));
+  });
+
+  await t.test('GET /api/instruments/sync/options/status returns current Firestore index_options sync status', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/sync/options/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.storedInFirestore, true);
+    assert.strictEqual(res.body.metadata.totalItems, 18);
+    assert.ok(Array.isArray(res.body.tradedIndices));
+    assert.ok(res.body.tradedIndices.includes('BANKNIFTY'));
+  });
+
   await t.test('GET /api/instruments/sync/status returns current Firestore sec_id_to_name_mapping sync status', async () => {
     const res = await makeMockRequest('GET', '/api/instruments/sync/status');
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.storedInFirestore, true);
     assert.strictEqual(res.body.metadata.collection, 'sec_id_to_name_mapping');
-    assert.strictEqual(res.body.metadata.totalInstruments, 4);
+    assert.strictEqual(res.body.metadata.totalInstruments, 20);
   });
 
   await t.test('GET /api/firestore/sec-id-mapping/status returns metadata of sec_id_to_name_mapping stored in Firestore', async () => {

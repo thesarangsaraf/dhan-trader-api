@@ -40,10 +40,26 @@ export interface CachedIndexOption {
   lotSize: number;
 }
 
+export interface IndexOptionsDocument {
+  symbol: string;
+  name: string;
+  currentExpiry: string | null;
+  nextExpiry: string | null;
+  expiries: string[];
+  totalContracts: number;
+  contracts: CachedIndexOption[];
+  items?: CachedIndexOption[];
+  updatedAt: string;
+}
+
 export interface IndexOptionsMetadata {
   totalItems: number;
   totalChunks: number;
   chunkSize: number;
+  documentsCount?: number;
+  documentIds?: string[];
+  tradedIndices?: string[];
+  maxExpiriesPerIndex?: number;
   updatedAt: string;
 }
 
@@ -119,6 +135,20 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     order: 2,
   },
   {
+    symbol: 'FINNIFTY',
+    name: 'Nifty Financial Services',
+    securityId: '27',
+    exchangeSegment: 'IDX_I',
+    defaultLotSize: 5,
+    defaultQuantityInOneLot: 60,
+    lotSize: 60,
+    defaultLots: 5,
+    defaultQuantity: 300,
+    stopLossPoints: 15,
+    enabled: true,
+    order: 3,
+  },
+  {
     symbol: 'MIDCAP NIFTY',
     name: 'Nifty Midcap Select',
     securityId: '442',
@@ -130,7 +160,7 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultQuantity: 600,
     stopLossPoints: 15,
     enabled: true,
-    order: 3,
+    order: 4,
   },
   {
     symbol: 'SENSEX',
@@ -143,18 +173,20 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultLots: 5,
     defaultQuantity: 100,
     stopLossPoints: 30,
-    enabled: true,
-    order: 4,
+    enabled: false,
+    order: 5,
   },
 ];
 
 export interface IndexLotSizesConfig {
   nifty50: number;
   bankNifty: number;
+  finnifty?: number;
   midcapNifty: number;
   sensex: number;
   nifty50Lots?: number;
   bankNiftyLots?: number;
+  finniftyLots?: number;
   midcapNiftyLots?: number;
   sensexLots?: number;
   indices?: IndexConfigItem[];
@@ -164,10 +196,12 @@ export interface IndexLotSizesConfig {
 export const DEFAULT_LOT_SIZES: IndexLotSizesConfig = {
   nifty50: 65,
   bankNifty: 30,
+  finnifty: 60,
   midcapNifty: 120,
   sensex: 20,
   nifty50Lots: 5,
   bankNiftyLots: 5,
+  finniftyLots: 5,
   midcapNiftyLots: 5,
   sensexLots: 5,
   indices: [...DEFAULT_INDICES],
@@ -473,84 +507,171 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
-   * Helper: Save index options array into Firestore database in chunked documents.
-   * Stored in collection 'index_options' with document IDs 'chunk_000', 'chunk_001', etc.
-   * Plus a '_meta' document tracking total count and chunk structure.
+   * Helper: Normalize traded index symbol to canonical form ('NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY').
+   */
+  public normalizeIndexSymbol(symbol: string): string {
+    const sym = (symbol || '').toUpperCase().trim();
+    if (sym === 'BANKNIFTY' || sym.includes('BANK')) return 'BANKNIFTY';
+    if (sym === 'MIDCPNIFTY' || sym.includes('MIDCP') || sym.includes('MIDCAP')) return 'MIDCPNIFTY';
+    if (sym === 'FINNIFTY' || sym.includes('FIN NIFTY') || sym.includes('FINANCIAL')) return 'FINNIFTY';
+    if (sym === 'NIFTY' || sym === 'NIFTY 50') return 'NIFTY';
+    return '';
+  }
+
+  /**
+   * Helper: Get official full display name for a traded index symbol.
+   */
+  public getIndexFullName(symbol: string): string {
+    const sym = this.normalizeIndexSymbol(symbol);
+    switch (sym) {
+      case 'BANKNIFTY':
+        return 'NIFTY BANK';
+      case 'MIDCPNIFTY':
+        return 'MIDCAP NIFTY';
+      case 'FINNIFTY':
+        return 'NIFTY FINANCIAL SERVICES';
+      case 'NIFTY':
+      default:
+        return 'NIFTY 50';
+    }
+  }
+
+  /**
+   * Helper: Save index options into Firestore database in dedicated documents per traded index.
+   * Stored in collection 'index_options' with document IDs 'NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY',
+   * plus a '_meta' document tracking total count and document structure.
+   *
+   * Limits option contracts strictly to a maximum of 2 expiries per index (currentExpiry and nextExpiry).
    */
   public async saveIndexOptions(
     items: CachedIndexOption[],
-    chunkSize = 500,
-  ): Promise<{ success: boolean; totalItems: number; totalChunks: number; writeTime: string }> {
+    maxExpiriesPerIndex = 2,
+  ): Promise<{
+    success: boolean;
+    totalItems: number;
+    totalChunks: number;
+    documentsCount: number;
+    documentIds: string[];
+    writeTime: string;
+    items: CachedIndexOption[];
+  }> {
     if (!this.isReady()) {
       throw new Error(`Firestore is not initialized. Check credentials.`);
     }
 
-    const chunks: CachedIndexOption[][] = [];
-    for (let i = 0; i < items.length; i += chunkSize) {
-      chunks.push(items.slice(i, i + chunkSize));
+    const colRef = this.collection('index_options');
+    const now = new Date().toISOString();
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+    // 1. Clean up any obsolete/legacy chunk_* documents if they exist
+    try {
+      const existingSnap = await colRef.get();
+      const legacyDocs = existingSnap.docs.filter((d) => d.id.startsWith('chunk_'));
+      if (legacyDocs.length > 0) {
+        await Promise.all(legacyDocs.map((d) => d.ref.delete()));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not check for legacy chunk docs in index_options: ${err.message}`);
     }
 
-    const totalChunks = chunks.length;
-    const now = new Date().toISOString();
-    const colRef = this.collection('index_options');
+    // 2. Group incoming items by normalized traded index symbol
+    const grouped = new Map<string, CachedIndexOption[]>();
+    for (const item of items) {
+      const sym = this.normalizeIndexSymbol(item.symbolName);
+      if (!sym) continue;
+      if (!grouped.has(sym)) {
+        grouped.set(sym, []);
+      }
+      grouped.get(sym)!.push(item);
+    }
 
-    // 1. Write chunk documents in parallel
-    const writePromises = chunks.map((chunkItems, idx) => {
-      const docId = `chunk_${String(idx).padStart(3, '0')}`;
-      return colRef.doc(docId).set(
-        {
-          chunkIndex: idx,
-          totalChunks,
-          count: chunkItems.length,
-          items: chunkItems,
-          updatedAt: now,
-        },
-        { merge: false },
-      );
-    });
+    const ORDERED_TRADED_INDICES = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const activeSymbols = Array.from(grouped.keys());
+    const symbolsToProcess = activeSymbols.length > 0
+      ? ORDERED_TRADED_INDICES.filter((s) => grouped.has(s))
+      : ORDERED_TRADED_INDICES;
+
+    const allKeptContracts: CachedIndexOption[] = [];
+    const documentIds: string[] = [];
+    const writePromises: Promise<any>[] = [];
+
+    // 3. For each index, determine nearest 2 expiries and write dedicated document
+    for (const sym of symbolsToProcess) {
+      const contracts = grouped.get(sym) || [];
+      if (contracts.length === 0) continue;
+
+      // Extract all distinct valid expiry dates
+      const distinctExpiries = Array.from(
+        new Set(contracts.map((c) => c.expiryDate).filter((e) => typeof e === 'string' && e.trim().length > 0)),
+      ).sort();
+
+      // Find active expiries (starting today or future in IST)
+      let activeExpiries = distinctExpiries.filter((e) => e >= todayStr);
+      if (activeExpiries.length === 0) {
+        // Fallback for tests or weekend rollover before Dhan publishes new week
+        activeExpiries = distinctExpiries;
+      }
+
+      // Limit strictly to maximum 2 expiries: currentExpiry and nextExpiry
+      const targetExpiries = activeExpiries.slice(0, maxExpiriesPerIndex);
+      const currentExpiry = targetExpiries[0] || null;
+      const nextExpiry = targetExpiries[1] || null;
+
+      // Filter contracts strictly to those 2 expiries
+      const kept = contracts.filter((c) => targetExpiries.includes(c.expiryDate));
+      allKeptContracts.push(...kept);
+      documentIds.push(sym);
+
+      const docPayload: IndexOptionsDocument = {
+        symbol: sym,
+        name: this.getIndexFullName(sym),
+        currentExpiry,
+        nextExpiry,
+        expiries: targetExpiries,
+        totalContracts: kept.length,
+        contracts: kept,
+        items: kept,
+        updatedAt: now,
+      };
+
+      writePromises.push(colRef.doc(sym).set(docPayload, { merge: false }));
+    }
 
     await Promise.all(writePromises);
 
-    // 2. Clean up any obsolete stale chunks if previously there were more chunks
-    try {
-      const snapshot = await colRef.get();
-      const staleDocs = snapshot.docs.filter((d) => {
-        const data = d.data();
-        return typeof data.chunkIndex === 'number' && data.chunkIndex >= totalChunks;
-      });
-      if (staleDocs.length > 0) {
-        await Promise.all(staleDocs.map((d) => d.ref.delete()));
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not check for stale chunks in index_options: ${err.message}`);
-    }
+    // 4. Save metadata document (_meta)
+    const metaPayload: IndexOptionsMetadata = {
+      totalItems: allKeptContracts.length,
+      totalChunks: documentIds.length,
+      chunkSize: 500,
+      documentsCount: documentIds.length,
+      documentIds,
+      tradedIndices: ORDERED_TRADED_INDICES,
+      maxExpiriesPerIndex,
+      updatedAt: now,
+    };
 
-    // 3. Write metadata document
-    const metaRes = await colRef.doc('_meta').set(
-      {
-        totalItems: items.length,
-        totalChunks,
-        chunkSize,
-        updatedAt: now,
-      },
-      { merge: true },
-    );
+    const metaRes = await colRef.doc('_meta').set(metaPayload, { merge: true });
 
     this.logger.log(
-      `✅ Saved ${items.length} index options into Firestore database collection 'index_options' across ${totalChunks} chunks`,
+      `✅ Saved ${allKeptContracts.length} index options (max ${maxExpiriesPerIndex} expiries) into Firestore collection 'index_options' across ${documentIds.length} dedicated documents: [${documentIds.join(', ')}]`,
     );
 
     return {
       success: true,
-      totalItems: items.length,
-      totalChunks,
+      totalItems: allKeptContracts.length,
+      totalChunks: documentIds.length,
+      documentsCount: documentIds.length,
+      documentIds,
       writeTime: metaRes.writeTime.toDate().toISOString(),
+      items: allKeptContracts,
     };
   }
 
   /**
    * Helper: Retrieve all index options from Firestore collection 'index_options'.
-   * Re-assembles chunk documents in sequential order.
+   * Reads dedicated index documents ('NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY')
+   * or legacy chunks for backward compatibility.
    */
   public async getIndexOptions(): Promise<CachedIndexOption[]> {
     if (!this.isReady()) {
@@ -562,19 +683,59 @@ export class FirestoreService implements OnModuleInit {
       return [];
     }
 
-    const chunkDocs = snapshot.docs
-      .map((d) => d.data())
-      .filter((d) => Array.isArray(d.items) && typeof d.chunkIndex === 'number')
-      .sort((a, b) => (a.chunkIndex as number) - (b.chunkIndex as number));
-
     const allOptions: CachedIndexOption[] = [];
-    for (const chunk of chunkDocs) {
-      for (const item of chunk.items) {
-        allOptions.push(item);
+    const orderedIndexOrder = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const docsById = new Map<string, any>();
+    const legacyChunks: any[] = [];
+
+    for (const doc of snapshot.docs) {
+      if (doc.id === '_meta') continue;
+      const data = doc.data();
+      if (typeof data.chunkIndex === 'number' && Array.isArray(data.items)) {
+        legacyChunks.push(data);
+      } else {
+        docsById.set(doc.id, data);
       }
     }
 
+    // Support legacy chunk_* structure if present
+    if (legacyChunks.length > 0) {
+      legacyChunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
+      for (const ch of legacyChunks) {
+        allOptions.push(...ch.items);
+      }
+      return allOptions;
+    }
+
+    // Process dedicated index documents in deterministic order
+    for (const sym of orderedIndexOrder) {
+      if (docsById.has(sym)) {
+        const d = docsById.get(sym);
+        const list = Array.isArray(d.contracts) ? d.contracts : Array.isArray(d.items) ? d.items : [];
+        allOptions.push(...list);
+        docsById.delete(sym);
+      }
+    }
+
+    // Any remaining non-meta documents
+    for (const [_, d] of docsById.entries()) {
+      const list = Array.isArray(d.contracts) ? d.contracts : Array.isArray(d.items) ? d.items : [];
+      allOptions.push(...list);
+    }
+
     return allOptions;
+  }
+
+  /**
+   * Helper: Retrieve dedicated index options document for a specific index symbol.
+   */
+  public async getIndexOptionDocument(symbol: string): Promise<IndexOptionsDocument | null> {
+    if (!this.isReady()) {
+      return null;
+    }
+    const cleanSym = this.normalizeIndexSymbol(symbol);
+    if (!cleanSym) return null;
+    return this.getDoc<IndexOptionsDocument>('index_options', cleanSym);
   }
 
   /**
@@ -696,6 +857,19 @@ export class FirestoreService implements OnModuleInit {
       };
     }
 
+    const finOpts = nseOptions.filter((o) => o.symbolName === 'FINNIFTY');
+    if (finOpts.length > 0) {
+      docsToWrite['finnifty_options'] = {
+        documentId: 'finnifty_options',
+        symbol: 'FINNIFTY',
+        category: 'OPTIONS',
+        exchange: 'NSE_FNO',
+        count: finOpts.length,
+        items: finOpts,
+        updatedAt: now,
+      };
+    }
+
     const midOpts = nseOptions.filter((o) => o.symbolName === 'MIDCPNIFTY');
     if (midOpts.length > 0) {
       docsToWrite['midcap_nifty_options'] = {
@@ -709,10 +883,29 @@ export class FirestoreService implements OnModuleInit {
       };
     }
 
-    // Any other remaining option contracts
-    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY']);
+    // Any other remaining option contracts (e.g. NIFTYNXT50, NIFTYFPI, etc.)
+    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
     const otherOpts = nseOptions.filter((o) => !handledSymbols.has(o.symbolName));
-    if (otherOpts.length > 0) {
+    const optChunkSize = 2000;
+    if (otherOpts.length > optChunkSize) {
+      const totalOtherChunks = Math.ceil(otherOpts.length / optChunkSize);
+      for (let i = 0; i < otherOpts.length; i += optChunkSize) {
+        const chunkIdx = Math.floor(i / optChunkSize) + 1;
+        const docId = `other_options_part${chunkIdx}`;
+        const slice = otherOpts.slice(i, i + optChunkSize);
+        docsToWrite[docId] = {
+          documentId: docId,
+          symbol: 'OTHER_OPTIONS',
+          category: 'OPTIONS',
+          exchange: 'NSE_FNO',
+          part: chunkIdx,
+          totalParts: totalOtherChunks,
+          count: slice.length,
+          items: slice,
+          updatedAt: now,
+        };
+      }
+    } else if (otherOpts.length > 0) {
       docsToWrite['other_options'] = {
         documentId: 'other_options',
         symbol: 'OTHER_OPTIONS',
@@ -763,12 +956,26 @@ export class FirestoreService implements OnModuleInit {
 
     const docIds = Object.keys(docsToWrite);
 
-    // 5. Write all documents in parallel
+    // 5. Clean up any stale documents from previous syncs that are no longer needed
+    try {
+      if (typeof colRef.listDocuments === 'function') {
+        const existingDocs = await colRef.listDocuments();
+        const keepSet = new Set([...docIds, '_meta']);
+        const staleDocs = existingDocs.filter((d) => !keepSet.has(d.id));
+        if (staleDocs.length > 0) {
+          await Promise.all(staleDocs.map((d) => d.delete()));
+        }
+      }
+    } catch {
+      // ignore cleanup error if unmocked
+    }
+
+    // 6. Write all documents in parallel
     await Promise.all(
       docIds.map((docId) => colRef.doc(docId).set(docsToWrite[docId], { merge: false })),
     );
 
-    // 6. Write metadata document
+    // 7. Write metadata document
     const totalInstruments = nseOptions.length + nseScrip.length;
     await colRef.doc('_meta').set(
       {
@@ -907,28 +1114,54 @@ export class FirestoreService implements OnModuleInit {
       indices = DEFAULT_INDICES.map((i) => ({ ...i }));
     }
 
+    // Ensure FINNIFTY is present in traded indices
+    const hasFinnifty = indices.some((i) => i.symbol.toUpperCase().includes('FIN'));
+    if (!hasFinnifty) {
+      indices.push({
+        symbol: 'FINNIFTY',
+        name: 'Nifty Financial Services',
+        securityId: '27',
+        exchangeSegment: 'IDX_I',
+        defaultLotSize: 5,
+        defaultQuantityInOneLot: 60,
+        lotSize: 60,
+        defaultLots: 5,
+        defaultQuantity: 300,
+        stopLossPoints: 15,
+        enabled: true,
+        order: 3,
+      });
+      // Sort by order
+      indices.sort((a, b) => (a.order || 99) - (b.order || 99));
+    }
+
     const niftyItem = indices.find((i) => i.symbol.toUpperCase().includes('NIFTY 50')) || indices[0];
     const bankItem = indices.find((i) => i.symbol.toUpperCase().includes('BANK'));
+    const finItem = indices.find((i) => i.symbol.toUpperCase().includes('FIN'));
     const midcapItem = indices.find((i) => i.symbol.toUpperCase().includes('MIDCAP') || i.symbol.toUpperCase().includes('MIDCP'));
     const sensexItem = indices.find((i) => i.symbol.toUpperCase().includes('SENSEX'));
 
     const nifty50 = Number(niftyItem?.defaultQuantityInOneLot ?? niftyItem?.lotSize ?? 0);
     const bankNifty = Number(bankItem?.defaultQuantityInOneLot ?? bankItem?.lotSize ?? 0);
+    const finnifty = Number(finItem?.defaultQuantityInOneLot ?? finItem?.lotSize ?? 60);
     const midcapNifty = Number(midcapItem?.defaultQuantityInOneLot ?? midcapItem?.lotSize ?? 0);
     const sensex = Number(sensexItem?.defaultQuantityInOneLot ?? sensexItem?.lotSize ?? 0);
 
     const nifty50Lots = Number(niftyItem?.defaultLotSize ?? niftyItem?.defaultLots ?? 0);
     const bankNiftyLots = Number(bankItem?.defaultLotSize ?? bankItem?.defaultLots ?? 0);
+    const finniftyLots = Number(finItem?.defaultLotSize ?? finItem?.defaultLots ?? 5);
     const midcapNiftyLots = Number(midcapItem?.defaultLotSize ?? midcapItem?.defaultLots ?? 0);
     const sensexLots = Number(sensexItem?.defaultLotSize ?? sensexItem?.defaultLots ?? 0);
 
     return {
       nifty50,
       bankNifty,
+      finnifty,
       midcapNifty,
       sensex,
       nifty50Lots,
       bankNiftyLots,
+      finniftyLots,
       midcapNiftyLots,
       sensexLots,
       indices,
@@ -985,6 +1218,9 @@ export class FirestoreService implements OnModuleInit {
         } else if (sym.includes('SENSEX')) {
           if (config.sensex !== undefined) qtyInOneLot = Number(config.sensex);
           if (config.sensexLots !== undefined) preferredLots = Number(config.sensexLots);
+        } else if (sym.includes('FIN')) {
+          if (config.finnifty !== undefined) qtyInOneLot = Number(config.finnifty);
+          if (config.finniftyLots !== undefined) preferredLots = Number(config.finniftyLots);
         } else if (sym.includes('NIFTY')) {
           if (config.nifty50 !== undefined) qtyInOneLot = Number(config.nifty50);
           if (config.nifty50Lots !== undefined) preferredLots = Number(config.nifty50Lots);

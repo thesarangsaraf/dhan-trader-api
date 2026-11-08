@@ -46,20 +46,27 @@ This document provides definitive instructions, architecture patterns, constrain
    - Go there, check the frontend codebase, and make changes if needed (e.g. updating API models, service methods, endpoints, or UI components).
    - Always ensure both projects remain in sync, pass their test suites (`npm test`), and compile production builds (`npm run build`) without errors.
 
-7. **Strict NSE-Only Scope for Data Masters (`data/*.json`)**:
+7. **Strict NSE-Only Scope Stored Purely in Dedicated Firestore Collections (`sec_id_to_name_mapping` & `index_options`)**:
    - The user trades strictly on the **National Stock Exchange (NSE)**.
-   - All NSE Security ID to Name mappings (NSE Equities `NSE_EQ`, Benchmark Indices `IDX_I`, and Index Options `NSE_FNO`) are stored directly in **Google Cloud Firestore** (collection `sec_id_to_name_mapping`).
-   - The collection is divided into modular documents by instrument for high read/write efficiency:
-     - `nifty_50_options_part1`, `nifty_50_options_part2`: All NIFTY 50 options contracts
-     - `bank_nifty_options`: All BANK NIFTY options contracts
-     - `finnifty_options`: All FINNIFTY options contracts
-     - `midcap_nifty_options`: All MIDCAP NIFTY options contracts
-     - `indices`: All NSE benchmark and sectoral indices
-     - `equities_chunk_01` ... `equities_chunk_06`: All NSE equities in balanced chunks
-     - `_meta`: Summary metadata and document index
-   - At startup, the server dynamically fetches all instruments from `sec_id_to_name_mapping` into in-memory maps for sub-millisecond lookups.
-   - On-demand sync can be triggered anytime via `POST /api/instruments/sync` or CLI `npm run upload:sec-id-mapping`.
-   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed. This preserves a lightweight footprint and maximum query speed.
+   - All master data is stored purely and strictly in **Google Cloud Firestore**. Zero local static data JSON files are authored or committed to the repository.
+   - **Dedicated Separation of Collections**:
+     - **Cash Equities & Benchmark Indices** (Collection `sec_id_to_name_mapping`):
+       - `indices`: All NSE benchmark and sectoral indices (`IDX_I`)
+       - `equities_chunk_01` ... `equities_chunk_06`: All NSE equities (`NSE_EQ`) in balanced chunks
+       - `_meta`: Summary metadata for equities & indices
+       - Strictly zero option contracts stored in this collection.
+     - **Traded Index Options** (Collection `index_options`):
+       - Option contracts are saved **strictly for the indices that the user trades**: `NIFTY`, `BANKNIFTY`, `FINNIFTY`, and `MIDCPNIFTY`.
+       - All single stock options (`OPTSTK`) and non-traded index options (`NIFTYFPI`, `NIFTYNXT50`) are strictly excluded.
+       - **Maximum 2 Expiries**: Limited strictly to nearest 2 active expiries (`currentExpiry` and `nextExpiry`).
+       - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `FINNIFTY`, `MIDCPNIFTY`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `expiries`, and array of `contracts`.
+       - Stale/legacy chunk documents (`chunk_*`) are automatically purged.
+   - **Two Separate Sync Endpoints & UI Controls**:
+     - `POST /api/instruments/sync/equities` (CLI `npm run upload:sec-id-mapping`)
+     - `POST /api/instruments/sync/options` (CLI `npm run upload:index-options`)
+   - **Strict Zero Mock Policy**:
+     - If required data is not found in the database, return HTTP 404 and display a prominent warning banner on the UI that data is not found in database with a direct prompt to sync. Never generate synthetic, mock, or fake option contracts.
+   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed.
 
 8. **Dynamic Index Lot Sizes in Firestore (`config/lot_sizes`)**:
    - Index lot sizes (NIFTY 50, BANK NIFTY, FINNIFTY, MIDCAP NIFTY, SENSEX) are configuration-driven and persisted in Firestore document `config/lot_sizes`.
@@ -78,8 +85,6 @@ dhan-trader/
 ├── tsconfig.json                      # TypeScript configuration (ES2022, CommonJS, Decorators)
 ├── README.md                          # Human-facing documentation
 ├── AGENTS.md                          # Agent-facing operational guidelines (this file)
-├── data/
-│   └── scrip-master.json              # NSE equities & indices scrip master seed (NSE_EQ, IDX_I)
 ├── dist/                              # Output directory for tsc compiler
 ├── scripts/
 │   ├── verify-dhan.ts                 # Real live Dhan HQ API connectivity script

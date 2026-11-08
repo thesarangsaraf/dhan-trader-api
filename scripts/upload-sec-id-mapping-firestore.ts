@@ -1,5 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { ConfigService } from '../src/config/config.service';
 import { FirestoreService, CachedIndexOption } from '../src/firestore/firestore.service';
 
@@ -22,26 +20,82 @@ async function uploadSecIdMappingToFirestore() {
     process.exit(1);
   }
 
-  // 1. Fetch index options from Firestore or data/index-options.json
-  console.log('\n📥 Loading index options from Firestore database [index_options]...');
-  let indexOptions: CachedIndexOption[] = await firestoreService.getIndexOptions();
-  console.log(`   Found ${indexOptions.length} options contracts from Firestore`);
-
-  // 2. Fetch scrip-master from data/scrip-master.json
-  const scripPath = path.resolve(process.cwd(), 'data', 'scrip-master.json');
+  // 1. Fetch scrip master (equities and benchmark indices) by downloading official Dhan CSV
   let scripMaster: any[] = [];
-  if (fs.existsSync(scripPath)) {
-    console.log(`📂 Reading scrip master from: ${scripPath}`);
-    scripMaster = JSON.parse(fs.readFileSync(scripPath, 'utf8'));
-    console.log(`   Found ${scripMaster.length} total scrip master items`);
-  } else {
-    console.warn(`⚠️ Warning: data/scrip-master.json not found on disk.`);
+  const csvUrl = 'https://images.dhan.co/api-data/api-scrip-master.csv';
+  console.log(`\n📥 Downloading latest Dhan scrip master from ${csvUrl}...`);
+  try {
+    const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(45000) });
+    if (resp.ok) {
+      const csvText = await resp.text();
+      console.log(`   Downloaded ${(csvText.length / 1024 / 1024).toFixed(1)} MB CSV. Parsing NSE cash equities & indices...`);
+      const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+      const exchIdx = headers.findIndex((h) => /^SEM_EXM_EXCH_ID$|^EXCH_ID$|^EXCHANGE$/i.test(h));
+      const segmentIdx = headers.findIndex((h) => /^SEM_SEGMENT$|^EXCHANGE_SEGMENT$|^SEGMENT$/i.test(h));
+      const secIdIdx = headers.findIndex((h) => /^SEM_SMST_SECURITY_ID$|^SECURITY_ID$|^SECURITYID$/i.test(h));
+      const instTypeIdx = headers.findIndex((h) => /^SEM_INSTRUMENT_NAME$|^INSTRUMENT_TYPE$|^TYPE$/i.test(h));
+      const symbolIdx = headers.findIndex((h) => /^SEM_TRADING_SYMBOL$|^SYMBOL$|^TRADING_SYMBOL$/i.test(h));
+      const nameIdx = headers.findIndex((h) => /^SEM_CUSTOM_SYMBOL$|^COMPANY_NAME$|^NAME$/i.test(h));
+      const lotSizeIdx = headers.findIndex((h) => /^SEM_LOT_UNITS$|^LOT_SIZE$|^LOTSIZE$/i.test(h));
+
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map((p) => p.trim().replace(/^"|"$/g, ''));
+        const exch = exchIdx >= 0 ? parts[exchIdx] : '';
+        const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
+        if (!secId) continue;
+
+        // Strictly NSE instruments only - never BSE or MCX
+        if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE')) {
+          continue;
+        }
+
+        const instName = instTypeIdx >= 0 ? parts[instTypeIdx] : '';
+        const rawSegment = segmentIdx >= 0 ? parts[segmentIdx] : '';
+        const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
+        const name = nameIdx >= 0 && parts[nameIdx] ? parts[nameIdx] : sym;
+        const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
+
+        // 1. Benchmark Indices
+        const isIndex = instName === 'INDEX' || rawSegment === 'I' || exch === 'IDX_I';
+        if (isIndex) {
+          scripMaster.push({
+            securityId: secId,
+            symbol: sym,
+            name: name,
+            exchangeSegment: 'IDX_I',
+            instrumentType: 'INDEX',
+            lotSize: lot,
+          });
+          continue;
+        }
+
+        // 2. NSE Equities
+        if (instName === 'EQUITY' || rawSegment === 'E') {
+          scripMaster.push({
+            securityId: secId,
+            symbol: sym,
+            name: name,
+            exchangeSegment: 'NSE_EQ',
+            instrumentType: 'EQUITY',
+            lotSize: lot,
+          });
+        }
+      }
+      console.log(`   Found ${scripMaster.length} NSE equities & benchmark indices`);
+    } else {
+      console.warn(`⚠️ HTTP ${resp.status} downloading Dhan CSV.`);
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ Failed to download Dhan CSV: ${err.message}. Checking existing Firestore mapping...`);
+    const existing = await firestoreService.getSecIdMapping();
+    scripMaster = existing.scripMaster;
   }
 
-  // 3. Save into sec_id_to_name_mapping
+  // 2. Save strictly equities & indices into sec_id_to_name_mapping (empty options array cleans up any stale options docs)
   console.log('\n📤 Uploading and organizing into collection [sec_id_to_name_mapping]...');
   const startTime = Date.now();
-  const result = await firestoreService.saveSecIdMapping(indexOptions, scripMaster);
+  const result = await firestoreService.saveSecIdMapping([], scripMaster);
   const elapsed = Date.now() - startTime;
 
   console.log(`✅ Upload complete in ${elapsed}ms!`);
