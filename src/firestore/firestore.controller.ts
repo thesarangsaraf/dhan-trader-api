@@ -20,34 +20,61 @@ export class FirestoreController {
 
   @Post('test')
   @ApiOperation({
-    summary: 'Test live connectivity to Google Cloud Firestore database and sync Dhan token',
+    summary: 'Test live connectivity to Google Cloud Firestore database',
   })
-  @ApiResponse({ status: 200, description: 'Connection test results and token sync status' })
+  @ApiResponse({ status: 200, description: 'Connection test results and token inspection' })
   async testConnection() {
     const testResult = await this.firestoreService.testConnection();
 
-    let tokenSaved = false;
-    let tokenMessage = 'No active in-memory token to sync';
+    let storedTokenInfo: any = null;
+    let tokenMessage = 'No token stored in Firestore';
 
-    if (testResult.success && this.config.accessToken) {
+    if (testResult.success) {
       try {
-        await this.firestoreService.saveDhanToken({
-          accessToken: this.config.accessToken,
-          clientId: this.config.clientId,
-          source: 'firestore_test_sync',
-        });
-        tokenSaved = true;
-        tokenMessage = 'Dhan access token successfully saved to Firestore database (dhan/token)';
+        const stored = await this.firestoreService.getDhanToken();
+        if (stored?.accessToken) {
+          storedTokenInfo = {
+            hasToken: true,
+            status: stored.status,
+            expiresAtIST: stored.expiresAtIST,
+            clientId: stored.clientId,
+            source: stored.source,
+          };
+          tokenMessage = `Dhan access token verified in Firestore (Expires: ${stored.expiresAtIST || 'N/A'}, Status: ${stored.status || 'ACTIVE'})`;
+        }
       } catch (err: any) {
-        tokenMessage = `Error saving token to Firestore: ${err.message}`;
+        tokenMessage = `Error reading token from Firestore: ${err.message}`;
       }
     }
 
     return {
       ...testResult,
-      tokenSaved,
+      tokenSaved: false,
       tokenMessage,
-      tokenCollection: 'dhan/token',
+      storedToken: storedTokenInfo,
+      tokenCollection: 'config/dhan',
+    };
+  }
+
+  @Get('index-options/status')
+  @ApiOperation({ summary: 'Get metadata and status of NSE index options stored in Firestore' })
+  @ApiResponse({ status: 200, description: 'Index options metadata and chunking stats' })
+  async getIndexOptionsStatus() {
+    const meta = await this.firestoreService.getIndexOptionsMetadata();
+    return {
+      storedInFirestore: !!meta,
+      metadata: meta,
+    };
+  }
+
+  @Get('sec-id-mapping/status')
+  @ApiOperation({ summary: 'Get metadata and status of security ID to name mapping stored in Firestore' })
+  @ApiResponse({ status: 200, description: 'sec_id_to_name_mapping metadata, document count, and instrument totals' })
+  async getSecIdMappingStatus() {
+    const meta = await this.firestoreService.getSecIdMappingMetadata();
+    return {
+      storedInFirestore: !!meta,
+      metadata: meta,
     };
   }
 }

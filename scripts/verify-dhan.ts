@@ -1,11 +1,17 @@
 import { ConfigService } from '../src/config/config.service';
 import { DhanService } from '../src/dhan/dhan.service';
 import { AuthService } from '../src/auth/auth.service';
+import { FirestoreService } from '../src/firestore/firestore.service';
 
 async function verifyRealDhanConnection() {
   const config = new ConfigService();
-  const dhanService = new DhanService(config);
-  const authService = new AuthService(config, dhanService);
+  const firestoreService = new FirestoreService(config);
+  firestoreService.initialize();
+  await firestoreService.syncAllConfigFromFirestore();
+
+  const dhanService = new DhanService(config, firestoreService);
+  const authService = new AuthService(config, dhanService, undefined, firestoreService);
+  await authService.syncTokenFromDatabase();
 
   console.log('\n======================================================');
   console.log('⚡ DHAN HQ API v2 — NESTJS (TYPESCRIPT) REAL DATA CHECK');

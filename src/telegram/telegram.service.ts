@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
+import { FirestoreService } from '../firestore/firestore.service';
 
 function escapeHtml(text: any): string {
   if (text === null || text === undefined) return '';
@@ -15,8 +16,25 @@ function formatInr(val: number): string {
 }
 
 @Injectable()
-export class TelegramService {
-  constructor(private readonly config: ConfigService) {}
+export class TelegramService implements OnModuleInit {
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly firestoreService?: FirestoreService,
+  ) {}
+
+  async onModuleInit() {
+    if (!this.isConfigured() && this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      try {
+        const stored = await this.firestoreService.getTelegramConfig();
+        if (stored?.botToken && stored?.chatId) {
+          this.config.updateCredentials({
+            telegramBotToken: stored.botToken,
+            telegramChatId: stored.chatId,
+          });
+        }
+      } catch {}
+    }
+  }
 
   isConfigured(): boolean {
     return Boolean(this.config.telegramBotToken && this.config.telegramChatId);

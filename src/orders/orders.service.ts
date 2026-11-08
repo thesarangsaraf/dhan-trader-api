@@ -451,7 +451,7 @@ export class OrdersService {
       const val = parseFloat(t.tradeValue || (qty * price) || 0);
 
       const secId = String(t.securityId || '');
-      // Look up human-readable name from index-options.json or Dhan's direct customSymbol
+      // Look up human-readable name from Firestore index options or Dhan's direct customSymbol
       const matched = this.instrumentsService?.findBySecurityId(secId);
       const humanName = (typeof matched === 'string' ? matched : (matched?.customSymbol || matched?.symbol || matched?.name))
         || t.customSymbol

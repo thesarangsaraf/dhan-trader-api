@@ -854,6 +854,10 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           secId = optDetails.securityId || secId;
           if (optDetails.lotSize) contractLotSize = optDetails.lotSize;
         }
+        if (contractLotSize <= 1 && typeof this.instrumentsService.getLotSizeForInstrument === 'function') {
+          const matchedLot = this.instrumentsService.getLotSizeForInstrument(ord.symbol || '');
+          if (matchedLot > 1) contractLotSize = matchedLot;
+        }
       }
 
       // Convert lots to total shares if lots parameter is supplied or if qty is specified as lots

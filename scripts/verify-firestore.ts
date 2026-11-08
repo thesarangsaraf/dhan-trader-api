@@ -78,46 +78,49 @@ async function verifyRealFirestoreConnection() {
     console.log(`   ⚠️ Read/Write test encountered an issue: ${err.message}`);
   }
 
-  // 3. Saving and Caching Dhan JWT Token in Firestore Database
-  console.log('\n3️⃣ Saving Dhan Access Token to Firestore Database (dhan/token)...');
-  const currentToken = config.accessToken;
-  const currentClientId = config.clientId;
+  // 3. Inspecting Dhan Access Token in Firestore Database
+  console.log('\n3️⃣ Inspecting Dhan Access Token in Firestore Database (config/dhan)...');
+  const storedToken = await firestoreService.getDhanToken();
 
-  if (currentToken) {
-    const payload = decodeJwt(currentToken);
-    const expDate = payload?.exp ? new Date(payload.exp * 1000).toISOString() : undefined;
-
-    const saveRes = await firestoreService.saveDhanToken({
-      accessToken: currentToken,
-      clientId: currentClientId,
-      expiresAt: expDate,
-      source: 'verify_script',
-    });
-    console.log(`   ✅ Token successfully saved to Firestore: dhan/token (at ${saveRes.writeTime})`);
-
-    // Verify retrieval from Firestore
-    console.log('   Reading token back from database (dhan/token)...');
-    const storedToken = await firestoreService.getDhanToken();
-    if (storedToken?.accessToken) {
-      const masked = `${storedToken.accessToken.slice(0, 10)}...${storedToken.accessToken.slice(-8)}`;
-      console.log(`   ✅ Retrieved Token from Database: ${masked}`);
-      console.log(`   🆔 Client ID                     : ${storedToken.clientId}`);
-      console.log(`   ⏳ Expires At                    : ${storedToken.expiresAt || 'N/A'}`);
-    }
-
-    // 4. Test Live REST call to Dhan API using cached token from Firestore
-    console.log('\n4️⃣ Testing Dhan API REST call using cached token from Firestore...');
-    const profileRes = await dhanService.getProfile();
-    if (profileRes.ok) {
-      console.log('   ✅ Dhan HQ API v2 REST call succeeded with database-cached token:');
-      console.log(`   👤 Name     : ${profileRes.data.userName || profileRes.data.name || 'Trader'}`);
-      console.log(`   🆔 Client ID: ${profileRes.data.dhanClientId || profileRes.data.clientId}`);
-      console.log(`   📊 Segments : ${profileRes.data.activeSegment}`);
-    } else {
-      console.log(`   ⚠️ Dhan API response: HTTP ${profileRes.status}`, profileRes.data || profileRes.error);
-    }
+  if (storedToken?.accessToken) {
+    const masked = `${storedToken.accessToken.slice(0, 10)}...${storedToken.accessToken.slice(-8)}`;
+    console.log(`   ✅ Active Token found in Firestore: ${masked}`);
+    console.log(`   🆔 Client ID                     : ${storedToken.clientId}`);
+    console.log(`   ⏳ Expires At                    : ${storedToken.expiresAt || storedToken.expiresAtIST || 'N/A'}`);
+    console.log(`   📡 Status                        : ${storedToken.status || 'N/A'} (Source: ${storedToken.source || 'N/A'})`);
   } else {
-    console.log('   ℹ️ No local access token found to seed. Token can be saved via POST /api/auth/update');
+    console.log('   ⚠️ No token found in Firestore database.');
+    const currentToken = config.accessToken;
+    const currentClientId = config.clientId;
+    if (currentToken) {
+      const payload = decodeJwt(currentToken);
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (payload?.exp && payload.exp > nowSec) {
+        console.log('   🌱 Seeding valid token to Firestore (config/dhan)...');
+        const expDate = new Date(payload.exp * 1000).toISOString();
+        const saveRes = await firestoreService.saveDhanToken({
+          accessToken: currentToken,
+          clientId: currentClientId,
+          expiresAt: expDate,
+          source: 'verify_script_seed',
+        });
+        console.log(`   ✅ Seeded successfully at ${saveRes.writeTime}`);
+      } else {
+        console.log('   ℹ️ Local .env token is missing or expired, skipping seed.');
+      }
+    }
+  }
+
+  // 4. Test Live REST call to Dhan API using cached token from Firestore
+  console.log('\n4️⃣ Testing Dhan API REST call using cached token from Firestore...');
+  const profileRes = await dhanService.getProfile();
+  if (profileRes.ok) {
+    console.log('   ✅ Dhan HQ API v2 REST call succeeded with database-cached token:');
+    console.log(`   👤 Name     : ${profileRes.data.userName || profileRes.data.name || 'Trader'}`);
+    console.log(`   🆔 Client ID: ${profileRes.data.dhanClientId || profileRes.data.clientId}`);
+    console.log(`   📊 Segments : ${profileRes.data.activeSegment}`);
+  } else {
+    console.log(`   ⚠️ Dhan API response: HTTP ${profileRes.status}`, profileRes.data || profileRes.error);
   }
 
   console.log('\n======================================================');

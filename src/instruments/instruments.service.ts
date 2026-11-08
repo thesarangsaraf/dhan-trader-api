@@ -1,9 +1,22 @@
-import { Injectable, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, Optional, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DhanService } from '../dhan/dhan.service';
 import { YahooFinanceService } from '../yahoo/yahoo.service';
+import {
+  FirestoreService,
+  CachedIndexOption,
+  SecIdMappingMetadata,
+  IndexLotSizesConfig,
+  IndexConfigItem,
+  DEFAULT_LOT_SIZES,
+  DEFAULT_INDICES,
+} from '../firestore/firestore.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
+import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
+import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
+
+export { CachedIndexOption, SecIdMappingMetadata, IndexLotSizesConfig, IndexConfigItem, DEFAULT_LOT_SIZES, DEFAULT_INDICES };
 
 export interface InstrumentItem {
   symbol: string;
@@ -54,18 +67,6 @@ export interface OptionContractsResult {
   contracts: OptionContractDetails[];
 }
 
-export interface CachedIndexOption {
-  symbolName: string;
-  exchange: string;
-  securityId: string;
-  tradingSymbol: string;
-  customSymbol: string;
-  expiryDate: string;
-  strikePrice: number;
-  optionType: string;
-  lotSize: number;
-}
-
 const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
   // Indices
   { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
@@ -95,19 +96,366 @@ const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
 ];
 
 @Injectable()
-export class InstrumentsService {
+export class InstrumentsService implements OnModuleInit {
+  private readonly logger = new Logger(InstrumentsService.name);
   private indexOptions: CachedIndexOption[] = [];
+  private indexOptionsBySecId = new Map<string, CachedIndexOption>();
+  private indexOptionsLoadingPromise: Promise<number> | null = null;
   private scripMaster: Omit<InstrumentItem, 'ltp'>[] = [];
   private scripMasterBySecId = new Map<string, Omit<InstrumentItem, 'ltp'>>();
   private scripMasterBySymbol = new Map<string, Omit<InstrumentItem, 'ltp'>>();
   private securityIdMap = new Map<string, string>();
+  private lotSizes: IndexLotSizesConfig = { ...DEFAULT_LOT_SIZES };
 
   constructor(
     private readonly dhanService: DhanService,
     @Optional() private readonly yahooService?: YahooFinanceService,
+    @Optional() private readonly firestoreService?: FirestoreService,
   ) {
-    this.loadIndexOptions();
     this.loadScripMaster();
+    // Eagerly trigger mapping fetch from Firestore in background
+    this.loadFromFirestore().catch((err) => {
+      this.logger.warn(`Initial Firestore sec_id_to_name_mapping load deferred: ${err.message}`);
+    });
+  }
+
+  async onModuleInit() {
+    await this.ensureDataLoaded();
+  }
+
+  /**
+   * Ensure both options and scrip master data are loaded from Firestore.
+   */
+  public async ensureDataLoaded(): Promise<number> {
+    if (this.indexOptions.length > 0 && this.scripMaster.length > 0) {
+      return this.indexOptions.length;
+    }
+    if (this.indexOptionsLoadingPromise) {
+      return this.indexOptionsLoadingPromise;
+    }
+    this.indexOptionsLoadingPromise = this.loadFromFirestore().then((res) => res.optionsCount);
+    try {
+      return await this.indexOptionsLoadingPromise;
+    } finally {
+      this.indexOptionsLoadingPromise = null;
+    }
+  }
+
+  /**
+   * Alias for backward compatibility with ensureIndexOptionsLoaded.
+   */
+  public async ensureIndexOptionsLoaded(): Promise<number> {
+    return this.ensureDataLoaded();
+  }
+
+  /**
+   * Fetch NSE security master & index options strictly from Google Cloud Firestore database.
+   * Loads from collection 'sec_id_to_name_mapping', falling back to 'index_options' if needed.
+   */
+  public async loadFromFirestore(): Promise<{ optionsCount: number; scripCount: number }> {
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      try {
+        // 1. Load lot sizes configuration from Firestore (config/lot_sizes)
+        try {
+          const dbLotSizes = await this.firestoreService.getLotSizes();
+          if (dbLotSizes) {
+            this.lotSizes = dbLotSizes;
+          }
+        } catch (err: any) {
+          this.logger.warn(`Could not load lot sizes from Firestore: ${err.message}`);
+        }
+
+        // 2. Try to load from sec_id_to_name_mapping collection
+        const secMapping = await this.firestoreService.getSecIdMapping();
+        if (secMapping.options.length > 0 || secMapping.scripMaster.length > 0) {
+          if (secMapping.options.length > 0) {
+            this.setIndexOptions(secMapping.options);
+          }
+          if (secMapping.scripMaster.length > 0) {
+            this.setScripMaster(secMapping.scripMaster);
+          }
+          this.logger.log(
+            `⚡ Loaded ${this.indexOptions.length} options & ${this.scripMaster.length} scrip items strictly from Firestore [sec_id_to_name_mapping]`,
+          );
+          return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
+        }
+
+        // 3. Fallback to index_options collection if sec_id_to_name_mapping is not yet populated
+        const legacyOptions = await this.firestoreService.getIndexOptions();
+        if (legacyOptions && legacyOptions.length > 0) {
+          this.setIndexOptions(legacyOptions);
+          this.logger.log(`⚡ Loaded ${this.indexOptions.length} NSE index options from Firestore [index_options]`);
+        }
+      } catch (err: any) {
+        this.logger.error(`Failed to fetch mapping from Firestore: ${err.message}`);
+      }
+    }
+    return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
+  }
+
+  /**
+   * Legacy method signature for backward compatibility.
+   */
+  public async loadIndexOptions(): Promise<number> {
+    const res = await this.loadFromFirestore();
+    return res.optionsCount;
+  }
+
+  /**
+   * Set index options in memory and update fast lookup maps.
+   */
+  public setIndexOptions(options: CachedIndexOption[]) {
+    this.indexOptions = options;
+    this.indexOptionsBySecId.clear();
+    for (const opt of options) {
+      if (opt.securityId) {
+        this.indexOptionsBySecId.set(String(opt.securityId).trim(), opt);
+      }
+    }
+  }
+
+  /**
+   * Set scrip master items in memory and update fast lookup maps.
+   */
+  public setScripMaster(items: Omit<InstrumentItem, 'ltp'>[]) {
+    this.scripMaster = items;
+    this.scripMasterBySecId.clear();
+    this.scripMasterBySymbol.clear();
+    for (const item of items) {
+      if (item.securityId) {
+        this.scripMasterBySecId.set(String(item.securityId).trim(), item);
+      }
+      if (item.symbol) {
+        this.scripMasterBySymbol.set(item.symbol.trim().toUpperCase(), item);
+      }
+    }
+  }
+
+  /**
+   * On-demand synchronization of NSE instruments and index options to Firestore collection 'sec_id_to_name_mapping'.
+   */
+  public async syncMaster(dto?: SyncInstrumentsDto) {
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    // Determine options to sync
+    let optionsToSync: CachedIndexOption[] =
+      dto?.options && dto.options.length > 0 ? dto.options : this.indexOptions;
+    if (optionsToSync.length === 0) {
+      optionsToSync = await this.firestoreService.getIndexOptions();
+    }
+
+    // Determine scrip master to sync
+    let scripToSync: any[] =
+      dto?.scripMaster && dto.scripMaster.length > 0 ? dto.scripMaster : this.scripMaster;
+    if (scripToSync.length === 0) {
+      this.loadScripMaster();
+      scripToSync = this.scripMaster;
+    }
+
+    const res = await this.firestoreService.saveSecIdMapping(optionsToSync, scripToSync);
+
+    // Reload into memory
+    await this.loadFromFirestore();
+
+    return {
+      ...res,
+      message: `Successfully synced ${res.totalInstruments} NSE instruments to Firestore collection [sec_id_to_name_mapping]`,
+    };
+  }
+
+  /**
+   * Retrieve current index lot sizes configuration.
+   */
+  public getLotSizes(): IndexLotSizesConfig {
+    return { ...this.lotSizes };
+  }
+
+  /**
+   * Retrieve list of tradeable indices configured in Firestore for Conditional Alert Composer dropdown.
+   * Enriches each index with live LTP from Dhan / Yahoo Finance.
+   */
+  public async getConfiguredIndices(onlyEnabled = true): Promise<InstrumentItem[]> {
+    if (!this.lotSizes?.indices || this.lotSizes.indices.length === 0) {
+      if (this.firestoreService && this.firestoreService.isReady()) {
+        try {
+          this.lotSizes = await this.firestoreService.getLotSizes();
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const rawIndices = this.lotSizes?.indices && this.lotSizes.indices.length > 0
+      ? this.lotSizes.indices
+      : DEFAULT_INDICES;
+
+    const filtered = onlyEnabled
+      ? rawIndices.filter((idx) => idx.enabled !== false)
+      : rawIndices;
+
+    const items: (Omit<InstrumentItem, 'ltp'> & {
+      defaultLots?: number;
+      defaultQuantity?: number;
+      defaultLotSize?: number;
+      defaultQuantityInOneLot?: number;
+      stopLossPoints?: number;
+    })[] = filtered.map((idx) => {
+      const defaultLotSize = idx.defaultLotSize ?? idx.defaultLots ?? 5;
+      const defaultQuantityInOneLot = idx.defaultQuantityInOneLot ?? idx.lotSize ?? 1;
+      return {
+        symbol: idx.symbol,
+        name: idx.name,
+        securityId: idx.securityId,
+        exchangeSegment: idx.exchangeSegment,
+        instrumentType: 'INDEX',
+        lotSize: defaultQuantityInOneLot,
+        defaultLots: defaultLotSize,
+        defaultQuantity: defaultLotSize * defaultQuantityInOneLot,
+        defaultLotSize,
+        defaultQuantityInOneLot,
+        stopLossPoints: idx.stopLossPoints,
+      };
+    });
+
+    return this.enrichWithLiveLtp(items);
+  }
+
+  /**
+   * Resolve lot size for a specific index or symbol from database-driven config.
+   */
+  public getLotSizeForInstrument(instrument: string): number {
+    const clean = (instrument || '').toUpperCase();
+    if (this.lotSizes?.indices && this.lotSizes.indices.length > 0) {
+      const match = this.lotSizes.indices.find((i) => clean.includes(i.symbol.toUpperCase()));
+      if (match) return match.defaultQuantityInOneLot ?? match.lotSize ?? 1;
+    }
+    if (clean.includes('BANK')) return this.lotSizes.bankNifty || 30;
+    if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 120;
+    if (clean.includes('FIN')) return this.lotSizes.finNifty || 65;
+    if (clean.includes('SENSEX')) return this.lotSizes.sensex || 20;
+    if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 65;
+    return 1;
+  }
+
+  /**
+   * Update index lot sizes configuration in Firestore and memory.
+   */
+  public async updateLotSizes(dto: UpdateLotSizesDto) {
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      const res = await this.firestoreService.saveLotSizes(dto);
+      this.lotSizes = res.data;
+      return {
+        success: true,
+        data: this.lotSizes,
+        message: 'Index lot sizes successfully saved to Firestore database (config/lot_sizes)',
+      };
+    }
+    this.lotSizes = {
+      nifty50: dto.nifty50 !== undefined ? Number(dto.nifty50) : this.lotSizes.nifty50,
+      bankNifty: dto.bankNifty !== undefined ? Number(dto.bankNifty) : this.lotSizes.bankNifty,
+      finNifty: dto.finNifty !== undefined ? Number(dto.finNifty) : this.lotSizes.finNifty,
+      midcapNifty: dto.midcapNifty !== undefined ? Number(dto.midcapNifty) : this.lotSizes.midcapNifty,
+      sensex: dto.sensex !== undefined ? Number(dto.sensex) : this.lotSizes.sensex,
+      nifty50Lots: dto.nifty50Lots !== undefined ? Number(dto.nifty50Lots) : this.lotSizes.nifty50Lots,
+      bankNiftyLots: dto.bankNiftyLots !== undefined ? Number(dto.bankNiftyLots) : this.lotSizes.bankNiftyLots,
+      finNiftyLots: dto.finNiftyLots !== undefined ? Number(dto.finNiftyLots) : this.lotSizes.finNiftyLots,
+      midcapNiftyLots: dto.midcapNiftyLots !== undefined ? Number(dto.midcapNiftyLots) : this.lotSizes.midcapNiftyLots,
+      sensexLots: dto.sensexLots !== undefined ? Number(dto.sensexLots) : this.lotSizes.sensexLots,
+      indices: dto.indices && Array.isArray(dto.indices) ? dto.indices : this.lotSizes.indices,
+      updatedAt: new Date().toISOString(),
+    };
+    return {
+      success: true,
+      data: this.lotSizes,
+      message: 'Index lot sizes updated in memory (Firestore offline)',
+    };
+  }
+
+  /**
+   * Reset index lot sizes to default values.
+   */
+  public async resetLotSizes() {
+    return this.updateLotSizes(DEFAULT_LOT_SIZES);
+  }
+
+  /**
+   * Sync security master from raw Dhan api-scrip-master.csv text.
+   */
+  public async syncCsv(csvContent: string) {
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+    if (!csvContent || typeof csvContent !== 'string') {
+      throw new BadRequestException('CSV content string is required');
+    }
+
+    const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) {
+      throw new BadRequestException('CSV content is empty or contains no header row');
+    }
+
+    const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+    const secIdIdx = headers.findIndex((h) => /SEM_SMST_SECURITY_ID|SECURITY_ID|SECURITYID|SEM_SECURITY_ID/i.test(h));
+    const symbolIdx = headers.findIndex((h) => /SEM_TRADING_SYMBOL|SYMBOL|TRADING_SYMBOL/i.test(h));
+    const nameIdx = headers.findIndex((h) => /SEM_CUSTOM_SYMBOL|COMPANY_NAME|NAME|INSTRUMENT_NAME/i.test(h));
+    const segmentIdx = headers.findIndex((h) => /SEM_EXM_EXCH_ID|EXCHANGE_SEGMENT|SEGMENT/i.test(h));
+    const instTypeIdx = headers.findIndex((h) => /SEM_INSTRUMENT_NAME|INSTRUMENT_TYPE|TYPE/i.test(h));
+    const lotSizeIdx = headers.findIndex((h) => /SEM_LOT_UNITS|LOT_SIZE|LOTSIZE/i.test(h));
+
+    const parsedScrip: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',').map((p) => p.trim().replace(/^"|"$/g, ''));
+      const segment = segmentIdx >= 0 ? parts[segmentIdx] : 'NSE_EQ';
+      // Strictly NSE contracts only
+      if (segment && !segment.startsWith('NSE') && segment !== 'IDX_I') {
+        continue;
+      }
+
+      const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
+      if (!secId) continue;
+
+      const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
+      const name = nameIdx >= 0 ? parts[nameIdx] : sym;
+      const instType = instTypeIdx >= 0 ? parts[instTypeIdx] : (segment === 'IDX_I' ? 'INDEX' : 'EQUITY');
+      const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
+
+      parsedScrip.push({
+        securityId: secId,
+        symbol: sym,
+        name: name,
+        exchangeSegment: segment,
+        instrumentType: instType,
+        lotSize: lot,
+      });
+    }
+
+    this.logger.log(`Parsed ${parsedScrip.length} NSE scrips from CSV content`);
+    return this.syncMaster({ scripMaster: parsedScrip });
+  }
+
+  /**
+   * Retrieve current sync status and metadata of sec_id_to_name_mapping from Firestore.
+   */
+  public async getSyncStatus() {
+    const meta = this.firestoreService ? await this.firestoreService.getSecIdMappingMetadata() : null;
+    return {
+      storedInFirestore: !!meta,
+      metadata: meta,
+      inMemoryCounts: {
+        indexOptions: this.indexOptions.length,
+        scripMaster: this.scripMaster.length,
+        total: this.indexOptions.length + this.scripMaster.length,
+      },
+    };
+  }
+
+  /**
+   * Returns current count of cached index options.
+   */
+  public getIndexOptionsCount(): number {
+    return this.indexOptions.length;
   }
 
   private loadScripMaster() {
@@ -135,26 +483,6 @@ export class InstrumentsService {
       }
     } catch {
       this.scripMaster = [];
-    }
-  }
-
-  private loadIndexOptions() {
-    try {
-      const candidatePaths = [
-        path.resolve(__dirname, '..', '..', 'data', 'index-options.json'),
-        path.resolve(__dirname, '..', 'data', 'index-options.json'),
-        path.resolve(process.cwd(), 'data', 'index-options.json'),
-        path.resolve(process.cwd(), '..', 'dhan-trader-api', 'data', 'index-options.json'),
-      ];
-      for (const p of candidatePaths) {
-        if (fs.existsSync(p)) {
-          const raw = fs.readFileSync(p, 'utf8');
-          this.indexOptions = JSON.parse(raw);
-          break;
-        }
-      }
-    } catch {
-      this.indexOptions = [];
     }
   }
 
@@ -253,15 +581,14 @@ export class InstrumentsService {
     if (!securityId) return undefined;
     const cleanId = String(securityId).trim();
 
-    if (this.indexOptions.length === 0) {
-      this.loadIndexOptions();
-    }
     if (this.scripMasterBySecId.size === 0) {
       this.loadScripMaster();
     }
 
-    // 1. Search indexOptions first (12,900+ contracts with full strike, expiry, symbol details)
-    const matchedOpt = this.indexOptions.find((opt) => String(opt.securityId).trim() === cleanId);
+    // 1. Search indexOptions (loaded from Firestore database)
+    const matchedOpt =
+      this.indexOptionsBySecId.get(cleanId) ||
+      this.indexOptions.find((opt) => String(opt.securityId).trim() === cleanId);
     if (matchedOpt) {
       return {
         symbol: matchedOpt.customSymbol || matchedOpt.tradingSymbol,
@@ -325,6 +652,7 @@ export class InstrumentsService {
    * Get list of option expiries for an instrument
    */
   async getExpiries(instrument = 'NIFTY 50'): Promise<{ expiryDate: string; displayExpiry: string; shortExpiry: string }[]> {
+    await this.ensureIndexOptionsLoaded();
     const raw = (instrument || 'NIFTY 50').trim().toUpperCase();
     let symKey = raw;
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
@@ -423,6 +751,7 @@ export class InstrumentsService {
   }
 
   async getOptionContracts(dto: GetOptionContractsDto): Promise<OptionContractsResult> {
+    await this.ensureIndexOptionsLoaded();
     if (!dto || !dto.instrument) {
       throw new BadRequestException('Instrument name or symbol is required');
     }
@@ -432,7 +761,7 @@ export class InstrumentsService {
     let baseSymbol = 'NIFTY';
     let securityId = '13';
     let exchangeSegment = 'NSE_FNO';
-    let lotSize = 65;
+    let lotSize = this.lotSizes.nifty50;
     let defaultStep = 50;
     let targetWeekday = 4; // Thursday
 
@@ -440,29 +769,36 @@ export class InstrumentsService {
       normalizedName = 'NIFTY BANK';
       baseSymbol = 'BANKNIFTY';
       securityId = '25';
-      lotSize = 30;
+      lotSize = this.lotSizes.bankNifty;
       defaultStep = 100;
       targetWeekday = 3;
     } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
       normalizedName = 'MIDCAP NIFTY';
       baseSymbol = 'MIDCPNIFTY';
       securityId = '442';
-      lotSize = 120;
+      lotSize = this.lotSizes.midcapNifty;
       defaultStep = 25;
       targetWeekday = 1;
+    } else if (raw.includes('FIN')) {
+      normalizedName = 'FINNIFTY';
+      baseSymbol = 'FINNIFTY';
+      securityId = '27';
+      lotSize = this.lotSizes.finNifty;
+      defaultStep = 50;
+      targetWeekday = 2;
     } else if (raw.includes('SENSEX')) {
       normalizedName = 'SENSEX';
       baseSymbol = 'SENSEX';
       securityId = '51';
       exchangeSegment = 'BSE_FNO';
-      lotSize = 20;
+      lotSize = this.lotSizes.sensex;
       defaultStep = 100;
       targetWeekday = 5;
     } else if (raw.includes('NIFTY')) {
       normalizedName = 'NIFTY 50';
       baseSymbol = 'NIFTY';
       securityId = '13';
-      lotSize = 65;
+      lotSize = this.lotSizes.nifty50;
       defaultStep = 50;
       targetWeekday = 4;
     } else {

@@ -180,6 +180,11 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     isReady: () => true,
     getDhanToken: async () => null,
     saveDhanToken: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    getTelegramConfig: async () => ({ botToken: 'test_token', chatId: 'test_chat' }),
+    saveTelegramConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    getAppConfig: async () => ({ port: 8000, host: '127.0.0.1', pollIntervalMs: 4000, dhanApiBase: 'https://api.dhan.co/v2' }),
+    saveAppConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    syncAllConfigFromFirestore: async () => {},
     getStatus: () => ({
       configured: true,
       projectId: 'dhan-trader-514002',
@@ -195,6 +200,154 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       databaseId: 'dhan-trader-firebase-db',
       latencyMs: 15,
       collections: ['orders'],
+    }),
+    getIndexOptions: async () => [
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45021',
+        tradingSymbol: 'NIFTY 24500 CE',
+        customSymbol: 'NIFTY 24500 CE',
+        expiryDate: '2026-11-12',
+        strikePrice: 25500,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45022',
+        tradingSymbol: 'NIFTY-Nov2026-25500-PE',
+        customSymbol: 'NIFTY 12 NOV 25500 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 25500,
+        optionType: 'PE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52010',
+        tradingSymbol: 'BANKNIFTY-Nov2026-52000-CE',
+        customSymbol: 'BANKNIFTY 12 NOV 52000 CALL',
+        expiryDate: '2026-11-12',
+        strikePrice: 52000,
+        optionType: 'CE',
+        lotSize: 30,
+      },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52011',
+        tradingSymbol: 'BANKNIFTY-Nov2026-52000-PE',
+        customSymbol: 'BANKNIFTY 12 NOV 52000 PUT',
+        expiryDate: '2026-11-12',
+        strikePrice: 52000,
+        optionType: 'PE',
+        lotSize: 30,
+      },
+    ],
+    getIndexOptionsMetadata: async () => ({
+      totalItems: 4,
+      totalChunks: 1,
+      chunkSize: 500,
+      updatedAt: '2026-11-08T03:00:00.000Z',
+    }),
+    getSecIdMapping: async () => ({
+      options: [
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45021',
+          tradingSymbol: 'NIFTY 24500 CE',
+          customSymbol: 'NIFTY 24500 CE',
+          expiryDate: '2026-11-12',
+          strikePrice: 25500,
+          optionType: 'CE',
+          lotSize: 50,
+        },
+        {
+          symbolName: 'NIFTY',
+          exchange: 'NSE_FNO',
+          securityId: '45022',
+          tradingSymbol: 'NIFTY-Nov2026-25500-PE',
+          customSymbol: 'NIFTY 12 NOV 25500 PUT',
+          expiryDate: '2026-11-12',
+          strikePrice: 25500,
+          optionType: 'PE',
+          lotSize: 50,
+        },
+      ],
+      scripMaster: [
+        {
+          symbol: 'NIFTY 50',
+          name: 'Nifty 50 Index',
+          securityId: '13',
+          exchangeSegment: 'IDX_I',
+          instrumentType: 'INDEX',
+          lotSize: 65,
+        },
+        {
+          symbol: 'RELIANCE',
+          name: 'Reliance Industries Ltd',
+          securityId: '2885',
+          exchangeSegment: 'NSE_EQ',
+          instrumentType: 'EQUITY',
+          lotSize: 1,
+        },
+      ],
+    }),
+    saveSecIdMapping: async (options: any[], scripMaster: any[]) => ({
+      success: true,
+      collection: 'sec_id_to_name_mapping',
+      totalInstruments: options.length + scripMaster.length,
+      totalOptions: options.length,
+      totalIndices: scripMaster.filter((s: any) => s.instrumentType === 'INDEX').length,
+      totalEquities: scripMaster.filter((s: any) => s.instrumentType === 'EQUITY').length,
+      documents: ['nifty_50_options', 'indices', 'equities_chunk_01'],
+      syncedAt: new Date().toISOString(),
+    }),
+    getSecIdMappingMetadata: async () => ({
+      collection: 'sec_id_to_name_mapping',
+      totalInstruments: 4,
+      totalOptions: 2,
+      totalIndices: 1,
+      totalEquities: 1,
+      documentsCount: 3,
+      documentIds: ['nifty_50_options', 'indices', 'equities_chunk_01'],
+      updatedAt: '2026-11-08T03:00:00.000Z',
+    }),
+    getLotSizes: async () => ({
+      nifty50: 65,
+      bankNifty: 30,
+      finNifty: 65,
+      midcapNifty: 120,
+      sensex: 20,
+      nifty50Lots: 5,
+      bankNiftyLots: 5,
+      finNiftyLots: 5,
+      midcapNiftyLots: 5,
+      sensexLots: 5,
+      indices: [
+        { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, defaultLots: 5, defaultQuantity: 325, enabled: true },
+        { symbol: 'BANK NIFTY', name: 'Bank Nifty Index', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, defaultLots: 5, defaultQuantity: 150, enabled: true },
+      ],
+      updatedAt: '2026-11-08T03:00:00.000Z',
+    }),
+    saveLotSizes: async (cfg: any) => ({
+      success: true,
+      data: {
+        nifty50: cfg.nifty50 ?? 65,
+        bankNifty: cfg.bankNifty ?? 30,
+        finNifty: cfg.finNifty ?? 65,
+        midcapNifty: cfg.midcapNifty ?? 120,
+        sensex: cfg.sensex ?? 20,
+        nifty50Lots: cfg.nifty50Lots ?? 5,
+        bankNiftyLots: cfg.bankNiftyLots ?? 5,
+        indices: cfg.indices ?? [],
+        updatedAt: new Date().toISOString(),
+      },
+      writeTime: new Date().toISOString(),
     }),
   };
 
@@ -512,6 +665,77 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.success, true);
     assert.strictEqual(res.body.projectId, 'dhan-trader-514002');
+  });
+
+  await t.test('GET /api/firestore/index-options/status returns metadata of index options stored in Firestore', async () => {
+    const res = await makeMockRequest('GET', '/api/firestore/index-options/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.storedInFirestore, true);
+    assert.strictEqual(res.body.metadata.totalItems, 4);
+    assert.strictEqual(res.body.metadata.totalChunks, 1);
+  });
+
+  await t.test('POST /api/instruments/sync syncs security master and index options into Firestore', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/sync', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.collection, 'sec_id_to_name_mapping');
+    assert.ok(res.body.totalInstruments >= 4);
+    assert.ok(Array.isArray(res.body.documents));
+  });
+
+  await t.test('GET /api/instruments/sync/status returns current Firestore sec_id_to_name_mapping sync status', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/sync/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.storedInFirestore, true);
+    assert.strictEqual(res.body.metadata.collection, 'sec_id_to_name_mapping');
+    assert.strictEqual(res.body.metadata.totalInstruments, 4);
+  });
+
+  await t.test('GET /api/firestore/sec-id-mapping/status returns metadata of sec_id_to_name_mapping stored in Firestore', async () => {
+    const res = await makeMockRequest('GET', '/api/firestore/sec-id-mapping/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.storedInFirestore, true);
+    assert.strictEqual(res.body.metadata.collection, 'sec_id_to_name_mapping');
+  });
+
+  await t.test('GET /api/instruments/lot-sizes returns index lot sizes config', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/lot-sizes');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.data.nifty50, 65);
+    assert.strictEqual(res.body.data.bankNifty, 30);
+  });
+
+  await t.test('PUT /api/instruments/lot-sizes updates index lot sizes in Firestore', async () => {
+    const res = await makeMockRequest('PUT', '/api/instruments/lot-sizes', {
+      nifty50: 75,
+      bankNifty: 35,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.data.nifty50, 75);
+    assert.strictEqual(res.body.data.bankNifty, 35);
+  });
+
+  await t.test('POST /api/instruments/lot-sizes/reset restores default lot sizes', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/lot-sizes/reset');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.data.nifty50, 65);
+    assert.strictEqual(res.body.data.bankNifty, 30);
+  });
+
+  await t.test('GET /api/instruments/indices returns configurable indices with live prices from Firestore', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/indices');
+    assert.strictEqual(res.status, 200);
+    assert.ok(Array.isArray(res.body));
+    assert.ok(res.body.length >= 2);
+    assert.strictEqual(res.body[0].symbol, 'NIFTY 50');
+    assert.strictEqual(res.body[0].lotSize, 65);
+    assert.strictEqual(res.body[0].defaultLots, 5);
   });
 
   await app.close();

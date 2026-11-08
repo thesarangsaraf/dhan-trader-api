@@ -84,6 +84,18 @@ npm run check:dhan
 ```
 Tests live connection to Dhan HQ API v2 for profile, margin fund limits, demat holdings, and active positions.
 
+### 6. Verify Google Cloud Firestore & Seed Scrip Masters
+```bash
+# Test Firestore connectivity & token sync
+npm run check:firestore
+
+# Upload/seed NSE index options master into Firestore database
+npm run upload:index-options
+
+# Upload/sync modular sec_id_to_name_mapping (divided by instrument)
+npm run upload:sec-id-mapping
+```
+
 ---
 
 ## 📡 REST API Reference
@@ -211,10 +223,33 @@ Returns current positions, funds/margins, and net P&L summary from Dhan API.
 
 ---
 
-### 5. Instruments Lookup (`/api/instruments`)
+### 5. Instruments & Lot Sizes Management (`/api/instruments`)
 
 #### `GET /api/instruments?q=NIFTY&limit=10`
-Searches pre-loaded NSE indices, F&O option contracts, and top equities.
+Searches pre-loaded NSE indices, F&O option contracts, and top equities with live LTP.
+
+#### `GET /api/instruments/lot-sizes`
+Returns database-driven lot size configuration for NSE indices (NIFTY 50, BANK NIFTY, FINNIFTY, MIDCAP NIFTY, SENSEX) backed by Google Cloud Firestore.
+
+#### `PUT /api/instruments/lot-sizes`
+Updates and persists index lot sizes in Firestore collection `config/lot_sizes`.
+```bash
+curl -X PUT http://127.0.0.1:8000/api/instruments/lot-sizes \
+  -H "Content-Type: application/json" \
+  -d '{"nifty50": 65, "bankNifty": 30, "finNifty": 65, "midcapNifty": 120, "sensex": 20}'
+```
+
+#### `POST /api/instruments/lot-sizes/reset`
+Restores index lot sizes to standard NSE defaults.
+
+#### `GET /api/instruments/indices`
+Returns the tradeable indices configured in Firestore (`config/lot_sizes`), including exchange segment, lot size, default lots/quantity, and live LTP, used by the UI Alert Composer dropdown.
+
+#### `POST /api/instruments/sync`
+Synchronizes NSE security master & option contracts directly into Google Cloud Firestore (`sec_id_to_name_mapping`).
+
+#### `GET /api/instruments/sync/status`
+Returns metadata and document structure for the Firestore security master collection.
 
 ---
 

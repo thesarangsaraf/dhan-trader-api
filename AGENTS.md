@@ -48,10 +48,23 @@ This document provides definitive instructions, architecture patterns, constrain
 
 7. **Strict NSE-Only Scope for Data Masters (`data/*.json`)**:
    - The user trades strictly on the **National Stock Exchange (NSE)**.
-   - When generating, downloading, or updating data master files:
-     - `data/scrip-master.json`: Must include **only** NSE Equities (`NSE_EQ`) and NSE Benchmark Indices (`IDX_I`).
-     - `data/index-options.json`: Must include **only** NSE Derivatives / F&O contracts (`NSE_FNO`).
-   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed to `data/*.json`. This preserves a lightweight disk/memory footprint and maximum query speed.
+   - All NSE Security ID to Name mappings (NSE Equities `NSE_EQ`, Benchmark Indices `IDX_I`, and Index Options `NSE_FNO`) are stored directly in **Google Cloud Firestore** (collection `sec_id_to_name_mapping`).
+   - The collection is divided into modular documents by instrument for high read/write efficiency:
+     - `nifty_50_options_part1`, `nifty_50_options_part2`: All NIFTY 50 options contracts
+     - `bank_nifty_options`: All BANK NIFTY options contracts
+     - `finnifty_options`: All FINNIFTY options contracts
+     - `midcap_nifty_options`: All MIDCAP NIFTY options contracts
+     - `indices`: All NSE benchmark and sectoral indices
+     - `equities_chunk_01` ... `equities_chunk_06`: All NSE equities in balanced chunks
+     - `_meta`: Summary metadata and document index
+   - At startup, the server dynamically fetches all instruments from `sec_id_to_name_mapping` into in-memory maps for sub-millisecond lookups.
+   - On-demand sync can be triggered anytime via `POST /api/instruments/sync` or CLI `npm run upload:sec-id-mapping`.
+   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed. This preserves a lightweight footprint and maximum query speed.
+
+8. **Dynamic Index Lot Sizes in Firestore (`config/lot_sizes`)**:
+   - Index lot sizes (NIFTY 50, BANK NIFTY, FINNIFTY, MIDCAP NIFTY, SENSEX) are configuration-driven and persisted in Firestore document `config/lot_sizes`.
+   - Never hardcode static lot multipliers without consulting `FirestoreService.getLotSizes()` or `InstrumentsService.getLotSizes()`.
+   - Modifiable via REST API (`GET /api/instruments/lot-sizes`, `PUT /api/instruments/lot-sizes`, `POST /api/instruments/lot-sizes/reset`) and through the UI Settings Page (`/settings`).
 
 ---
 
@@ -66,11 +79,13 @@ dhan-trader/
 ├── README.md                          # Human-facing documentation
 ├── AGENTS.md                          # Agent-facing operational guidelines (this file)
 ├── data/
-│   ├── scrip-master.json              # NSE equities & indices scrip master (NSE_EQ, IDX_I)
-│   └── index-options.json             # NSE F&O index options master (NSE_FNO)
+│   └── scrip-master.json              # NSE equities & indices scrip master seed (NSE_EQ, IDX_I)
 ├── dist/                              # Output directory for tsc compiler
 ├── scripts/
-│   └── verify-dhan.ts                 # Real live Dhan HQ API connectivity script
+│   ├── verify-dhan.ts                 # Real live Dhan HQ API connectivity script
+│   ├── verify-firestore.ts            # Live Firestore database verification script
+│   ├── upload-index-options-firestore.ts # Script to seed/upload NSE index options to Firestore
+│   └── upload-sec-id-mapping-firestore.ts # Script to upload modular sec_id_to_name_mapping
 ├── src/
 │   ├── main.ts                        # Application entry point, Swagger init, ValidationPipe
 │   ├── app.module.ts                  # Root NestJS module registering all feature modules
@@ -103,8 +118,16 @@ dhan-trader/
 │   │       └── place-order.dto.ts     # DTO for manual orders
 │   ├── instruments/
 │   │   ├── instruments.module.ts      # Scrip search module
-│   │   ├── instruments.controller.ts  # /api/instruments search endpoint
-│   │   └── instruments.service.ts     # NSE security master cache and search index
+│   │   ├── instruments.controller.ts  # /api/instruments search & lot sizes endpoints
+│   │   ├── instruments.service.ts     # NSE security master cache, search index & lot sizes engine
+│   │   └── dto/
+│   │       ├── get-option-contracts.dto.ts # DTO for option contract queries
+│   │       ├── sync-instruments.dto.ts     # DTO for on-demand master and CSV sync
+│   │       └── update-lot-sizes.dto.ts     # DTO for database-driven lot size updates
+│   ├── firestore/
+│   │   ├── firestore.module.ts        # @Global() Google Cloud Firestore integration
+│   │   ├── firestore.controller.ts    # /api/firestore status, test & mapping endpoints
+│   │   └── firestore.service.ts       # Firestore document persistence (lot sizes, token, scrip)
 │   └── telegram/
 │       ├── telegram.module.ts         # Telegram integration module
 │       ├── telegram.controller.ts     # /api/telegram status and ping test endpoints
@@ -130,6 +153,9 @@ Always use the following npm scripts rather than manual invocation:
 | `npm start` | Run compiled production server from `dist/main.js` |
 | `npm test` | Run all TypeScript unit and E2E specs via `ts-node/register/transpile-only` |
 | `npm run check:dhan` | Execute live API verification against Dhan HQ v2 |
+| `npm run check:firestore` | Test live Google Cloud Firestore connectivity & Dhan token persistence |
+| `npm run upload:index-options` | Upload/seed NSE index options master into Firestore database |
+| `npm run upload:sec-id-mapping` | Upload modular security ID to name mapping to Firestore database |
 
 ---
 

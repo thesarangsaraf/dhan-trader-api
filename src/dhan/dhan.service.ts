@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { FirestoreService } from '../firestore/firestore.service';
+import { decodeJwtPayload } from '../auth/jwt.util';
 
 export interface DhanApiResponse<T = any> {
   status: number;
@@ -101,6 +102,35 @@ export class DhanService {
         data = await response.json();
       } else {
         data = await response.text();
+      }
+
+      // If token unauthorized or invalid, check if a newer active token exists in Firestore and retry once
+      if (
+        (response.status === 401 || data?.errorCode === 'DH-901' || data?.errorCode === 'DH-906') &&
+        !options.headers?.['x-retry'] &&
+        this.firestoreService &&
+        typeof this.firestoreService.isReady === 'function' &&
+        this.firestoreService.isReady()
+      ) {
+        try {
+          const stored = await this.firestoreService.getDhanToken();
+          if (stored?.accessToken && stored.accessToken !== this.config.accessToken) {
+            const storedPayload = decodeJwtPayload(stored.accessToken);
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (storedPayload?.exp && storedPayload.exp > nowSec) {
+              this.setCachedToken(stored.accessToken, stored.clientId);
+              return this.request<T>(endpoint, {
+                ...options,
+                headers: {
+                  ...(options.headers || {}),
+                  'x-retry': '1',
+                },
+              });
+            }
+          }
+        } catch {
+          // Fall through to original response
+        }
       }
 
       return {

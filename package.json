@@ -12,7 +12,9 @@
     "dev": "ts-node src/main.ts",
     "test": "node -r ts-node/register/transpile-only --test tests/*.spec.ts tests/*.e2e-spec.ts",
     "check:dhan": "ts-node scripts/verify-dhan.ts",
-    "check:firestore": "ts-node scripts/verify-firestore.ts"
+    "check:firestore": "ts-node scripts/verify-firestore.ts",
+    "upload:index-options": "ts-node scripts/upload-index-options-firestore.ts",
+    "upload:sec-id-mapping": "ts-node scripts/upload-sec-id-mapping-firestore.ts"
   },
   "keywords": [
     "dhan",
