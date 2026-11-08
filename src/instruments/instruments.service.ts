@@ -239,6 +239,30 @@ export class InstrumentsService implements OnModuleInit {
       throw new BadRequestException('Firestore database is not connected or initialized');
     }
 
+    // If raw CSV content is passed directly, parse and sync it
+    if (dto?.csvContent) {
+      return this.syncCsv(dto.csvContent);
+    }
+
+    // When requested via sync button (no manual scrip master passed) and not in test suite,
+    // automatically download the latest official Dhan api-scrip-master.csv directly from Dhan
+    if (!dto?.scripMaster && process.env.NODE_ENV !== 'test') {
+      try {
+        const csvUrl = dto?.csvUrl || 'https://images.dhan.co/api-data/api-scrip-master.csv';
+        this.logger.log(`Downloading latest official Dhan scrip master from ${csvUrl}...`);
+        const resp = await fetch(csvUrl, { signal: AbortSignal.timeout(35000) });
+        if (resp.ok) {
+          const csvText = await resp.text();
+          this.logger.log(`Successfully downloaded Dhan scrip master (${(csvText.length / 1024 / 1024).toFixed(1)} MB). Parsing and saving to Firestore...`);
+          return await this.syncCsv(csvText);
+        } else {
+          this.logger.warn(`Dhan scrip master download returned HTTP ${resp.status}. Falling back to cached data.`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to download live Dhan scrip master (${err.message}). Falling back to cached data.`);
+      }
+    }
+
     // Determine options to sync
     let optionsToSync: CachedIndexOption[] =
       dto?.options && dto.options.length > 0 ? dto.options : this.indexOptions;
@@ -333,7 +357,6 @@ export class InstrumentsService implements OnModuleInit {
     }
     if (clean.includes('BANK')) return this.lotSizes.bankNifty || 30;
     if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 120;
-    if (clean.includes('FIN')) return this.lotSizes.finNifty || 65;
     if (clean.includes('SENSEX')) return this.lotSizes.sensex || 20;
     if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 65;
     return 1;
@@ -355,12 +378,10 @@ export class InstrumentsService implements OnModuleInit {
     this.lotSizes = {
       nifty50: dto.nifty50 !== undefined ? Number(dto.nifty50) : this.lotSizes.nifty50,
       bankNifty: dto.bankNifty !== undefined ? Number(dto.bankNifty) : this.lotSizes.bankNifty,
-      finNifty: dto.finNifty !== undefined ? Number(dto.finNifty) : this.lotSizes.finNifty,
       midcapNifty: dto.midcapNifty !== undefined ? Number(dto.midcapNifty) : this.lotSizes.midcapNifty,
       sensex: dto.sensex !== undefined ? Number(dto.sensex) : this.lotSizes.sensex,
       nifty50Lots: dto.nifty50Lots !== undefined ? Number(dto.nifty50Lots) : this.lotSizes.nifty50Lots,
       bankNiftyLots: dto.bankNiftyLots !== undefined ? Number(dto.bankNiftyLots) : this.lotSizes.bankNiftyLots,
-      finNiftyLots: dto.finNiftyLots !== undefined ? Number(dto.finNiftyLots) : this.lotSizes.finNiftyLots,
       midcapNiftyLots: dto.midcapNiftyLots !== undefined ? Number(dto.midcapNiftyLots) : this.lotSizes.midcapNiftyLots,
       sensexLots: dto.sensexLots !== undefined ? Number(dto.sensexLots) : this.lotSizes.sensexLots,
       indices: dto.indices && Array.isArray(dto.indices) ? dto.indices : this.lotSizes.indices,
@@ -779,13 +800,6 @@ export class InstrumentsService implements OnModuleInit {
       lotSize = this.lotSizes.midcapNifty;
       defaultStep = 25;
       targetWeekday = 1;
-    } else if (raw.includes('FIN')) {
-      normalizedName = 'FINNIFTY';
-      baseSymbol = 'FINNIFTY';
-      securityId = '27';
-      lotSize = this.lotSizes.finNifty;
-      defaultStep = 50;
-      targetWeekday = 2;
     } else if (raw.includes('SENSEX')) {
       normalizedName = 'SENSEX';
       baseSymbol = 'SENSEX';

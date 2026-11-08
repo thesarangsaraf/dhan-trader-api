@@ -414,7 +414,6 @@ test('FirestoreService (NestJS)', async (t) => {
     const lotSizes = await service.getLotSizes();
     assert.strictEqual(lotSizes.nifty50, 65);
     assert.strictEqual(lotSizes.bankNifty, 30);
-    assert.strictEqual(lotSizes.finNifty, 65);
     assert.strictEqual(lotSizes.midcapNifty, 120);
     assert.strictEqual(lotSizes.sensex, 20);
 
@@ -430,7 +429,6 @@ test('FirestoreService (NestJS)', async (t) => {
     assert.strictEqual(saveRes.data.bankNifty, 35);
     assert.strictEqual(saveRes.data.nifty50Lots, 10);
     assert.strictEqual(saveRes.data.bankNiftyLots, 15);
-    assert.strictEqual(saveRes.data.finNifty, 65); // Preserved
     assert.ok(Array.isArray(saveRes.data.indices));
     assert.ok(saveRes.data.updatedAt);
   });

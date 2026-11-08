@@ -320,12 +320,10 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     getLotSizes: async () => ({
       nifty50: 65,
       bankNifty: 30,
-      finNifty: 65,
       midcapNifty: 120,
       sensex: 20,
       nifty50Lots: 5,
       bankNiftyLots: 5,
-      finNiftyLots: 5,
       midcapNiftyLots: 5,
       sensexLots: 5,
       indices: [
@@ -339,7 +337,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       data: {
         nifty50: cfg.nifty50 ?? 65,
         bankNifty: cfg.bankNifty ?? 30,
-        finNifty: cfg.finNifty ?? 65,
         midcapNifty: cfg.midcapNifty ?? 120,
         sensex: cfg.sensex ?? 20,
         nifty50Lots: cfg.nifty50Lots ?? 5,

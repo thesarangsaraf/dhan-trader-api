@@ -13,7 +13,7 @@ export class InstrumentsController {
   @Get('lot-sizes')
   @ApiOperation({
     summary: 'Get database-driven index lot sizes configuration',
-    description: 'Retrieves current lot sizes for NIFTY 50, BANK NIFTY, FINNIFTY, MIDCAP NIFTY, and SENSEX backed by Firestore.',
+    description: 'Retrieves current lot sizes for NIFTY 50, BANK NIFTY, MIDCAP NIFTY, and SENSEX backed by Firestore.',
   })
   @ApiResponse({ status: 200, description: 'Index lot sizes configuration' })
   getLotSizes() {
@@ -55,7 +55,7 @@ export class InstrumentsController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Sync NSE security master & index options into Firestore collection (sec_id_to_name_mapping)',
-    description: 'Divides scrip master and options into dedicated documents by instrument (NIFTY 50, BANK NIFTY, FINNIFTY, Indices, Equities) in collection sec_id_to_name_mapping and refreshes the in-memory cache.',
+    description: 'Divides scrip master and options into dedicated documents by instrument (NIFTY 50, BANK NIFTY, Indices, Equities) in collection sec_id_to_name_mapping and refreshes the in-memory cache.',
   })
   @ApiResponse({ status: 200, description: 'Master data successfully synced to Firestore' })
   async syncMaster(@Body() dto?: SyncInstrumentsDto) {

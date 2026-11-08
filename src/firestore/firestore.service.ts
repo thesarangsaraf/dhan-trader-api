@@ -119,20 +119,6 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     order: 2,
   },
   {
-    symbol: 'FINNIFTY',
-    name: 'Nifty Financial Services',
-    securityId: '27',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 65,
-    lotSize: 65,
-    defaultLots: 5,
-    defaultQuantity: 325,
-    stopLossPoints: 15,
-    enabled: true,
-    order: 3,
-  },
-  {
     symbol: 'MIDCAP NIFTY',
     name: 'Nifty Midcap Select',
     securityId: '442',
@@ -144,7 +130,7 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultQuantity: 600,
     stopLossPoints: 15,
     enabled: true,
-    order: 4,
+    order: 3,
   },
   {
     symbol: 'SENSEX',
@@ -158,19 +144,17 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultQuantity: 100,
     stopLossPoints: 30,
     enabled: true,
-    order: 5,
+    order: 4,
   },
 ];
 
 export interface IndexLotSizesConfig {
   nifty50: number;
   bankNifty: number;
-  finNifty: number;
   midcapNifty: number;
   sensex: number;
   nifty50Lots?: number;
   bankNiftyLots?: number;
-  finNiftyLots?: number;
   midcapNiftyLots?: number;
   sensexLots?: number;
   indices?: IndexConfigItem[];
@@ -180,12 +164,10 @@ export interface IndexLotSizesConfig {
 export const DEFAULT_LOT_SIZES: IndexLotSizesConfig = {
   nifty50: 65,
   bankNifty: 30,
-  finNifty: 65,
   midcapNifty: 120,
   sensex: 20,
   nifty50Lots: 5,
   bankNiftyLots: 5,
-  finNiftyLots: 5,
   midcapNiftyLots: 5,
   sensexLots: 5,
   indices: [...DEFAULT_INDICES],
@@ -714,19 +696,6 @@ export class FirestoreService implements OnModuleInit {
       };
     }
 
-    const finOpts = nseOptions.filter((o) => o.symbolName === 'FINNIFTY');
-    if (finOpts.length > 0) {
-      docsToWrite['finnifty_options'] = {
-        documentId: 'finnifty_options',
-        symbol: 'FINNIFTY',
-        category: 'OPTIONS',
-        exchange: 'NSE_FNO',
-        count: finOpts.length,
-        items: finOpts,
-        updatedAt: now,
-      };
-    }
-
     const midOpts = nseOptions.filter((o) => o.symbolName === 'MIDCPNIFTY');
     if (midOpts.length > 0) {
       docsToWrite['midcap_nifty_options'] = {
@@ -741,7 +710,7 @@ export class FirestoreService implements OnModuleInit {
     }
 
     // Any other remaining option contracts
-    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY']);
     const otherOpts = nseOptions.filter((o) => !handledSymbols.has(o.symbolName));
     if (otherOpts.length > 0) {
       docsToWrite['other_options'] = {
@@ -911,17 +880,12 @@ export class FirestoreService implements OnModuleInit {
     let indices: IndexConfigItem[] = [];
     if (Array.isArray(doc.indices) && doc.indices.length > 0) {
       indices = doc.indices.map((idx: any, orderIdx: number) => {
-        const sym = (idx.symbol || '').toUpperCase();
-        let fallbackBase = 65;
-        if (sym.includes('BANK')) fallbackBase = 30;
-        else if (sym.includes('FIN')) fallbackBase = 65;
-        else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) fallbackBase = 120;
-        else if (sym.includes('SENSEX')) fallbackBase = 20;
-
-        // 1. defaultLotSize = preferred number of lots by user (e.g. 5)
-        // 2. defaultQuantityInOneLot = quantity in 1 lot size (e.g. 65)
-        const defaultQuantityInOneLot = Number(idx.defaultQuantityInOneLot ?? idx.lotSize) || fallbackBase;
-        const defaultLotSize = Number(idx.defaultLotSize ?? idx.defaultLots) || 5;
+        // 1. defaultLotSize = preferred number of lots by user
+        // 2. defaultQuantityInOneLot = quantity in 1 lot size
+        const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
+        const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
+        const rawLots = idx.defaultLotSize ?? idx.defaultLots;
+        const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
 
         return {
           symbol: idx.symbol,
@@ -945,31 +909,26 @@ export class FirestoreService implements OnModuleInit {
 
     const niftyItem = indices.find((i) => i.symbol.toUpperCase().includes('NIFTY 50')) || indices[0];
     const bankItem = indices.find((i) => i.symbol.toUpperCase().includes('BANK'));
-    const finItem = indices.find((i) => i.symbol.toUpperCase().includes('FIN'));
     const midcapItem = indices.find((i) => i.symbol.toUpperCase().includes('MIDCAP') || i.symbol.toUpperCase().includes('MIDCP'));
     const sensexItem = indices.find((i) => i.symbol.toUpperCase().includes('SENSEX'));
 
-    const nifty50 = niftyItem?.defaultQuantityInOneLot || 65;
-    const bankNifty = bankItem?.defaultQuantityInOneLot || 30;
-    const finNifty = finItem?.defaultQuantityInOneLot || 65;
-    const midcapNifty = midcapItem?.defaultQuantityInOneLot || 120;
-    const sensex = sensexItem?.defaultQuantityInOneLot || 20;
+    const nifty50 = Number(niftyItem?.defaultQuantityInOneLot ?? niftyItem?.lotSize ?? 0);
+    const bankNifty = Number(bankItem?.defaultQuantityInOneLot ?? bankItem?.lotSize ?? 0);
+    const midcapNifty = Number(midcapItem?.defaultQuantityInOneLot ?? midcapItem?.lotSize ?? 0);
+    const sensex = Number(sensexItem?.defaultQuantityInOneLot ?? sensexItem?.lotSize ?? 0);
 
-    const nifty50Lots = niftyItem?.defaultLotSize || 5;
-    const bankNiftyLots = bankItem?.defaultLotSize || 5;
-    const finNiftyLots = finItem?.defaultLotSize || 5;
-    const midcapNiftyLots = midcapItem?.defaultLotSize || 5;
-    const sensexLots = sensexItem?.defaultLotSize || 5;
+    const nifty50Lots = Number(niftyItem?.defaultLotSize ?? niftyItem?.defaultLots ?? 0);
+    const bankNiftyLots = Number(bankItem?.defaultLotSize ?? bankItem?.defaultLots ?? 0);
+    const midcapNiftyLots = Number(midcapItem?.defaultLotSize ?? midcapItem?.defaultLots ?? 0);
+    const sensexLots = Number(sensexItem?.defaultLotSize ?? sensexItem?.defaultLots ?? 0);
 
     return {
       nifty50,
       bankNifty,
-      finNifty,
       midcapNifty,
       sensex,
       nifty50Lots,
       bankNiftyLots,
-      finNiftyLots,
       midcapNiftyLots,
       sensexLots,
       indices,
@@ -994,15 +953,10 @@ export class FirestoreService implements OnModuleInit {
     let targetIndices: IndexConfigItem[] = [];
     if (config.indices && Array.isArray(config.indices) && config.indices.length > 0) {
       targetIndices = config.indices.map((idx: any, orderIdx: number) => {
-        const sym = (idx.symbol || '').toUpperCase();
-        let fallbackQty = 65;
-        if (sym.includes('BANK')) fallbackQty = 30;
-        else if (sym.includes('FIN')) fallbackQty = 65;
-        else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) fallbackQty = 120;
-        else if (sym.includes('SENSEX')) fallbackQty = 20;
-
-        const defaultQuantityInOneLot = Number(idx.defaultQuantityInOneLot ?? idx.lotSize) || fallbackQty;
-        const defaultLotSize = Number(idx.defaultLotSize ?? idx.defaultLots) || 5;
+        const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
+        const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
+        const rawLots = idx.defaultLotSize ?? idx.defaultLots;
+        const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
         return {
           symbol: idx.symbol,
           name: idx.name,
@@ -1025,9 +979,6 @@ export class FirestoreService implements OnModuleInit {
         if (sym.includes('BANK')) {
           if (config.bankNifty !== undefined) qtyInOneLot = Number(config.bankNifty);
           if (config.bankNiftyLots !== undefined) preferredLots = Number(config.bankNiftyLots);
-        } else if (sym.includes('FIN')) {
-          if (config.finNifty !== undefined) qtyInOneLot = Number(config.finNifty);
-          if (config.finNiftyLots !== undefined) preferredLots = Number(config.finNiftyLots);
         } else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) {
           if (config.midcapNifty !== undefined) qtyInOneLot = Number(config.midcapNifty);
           if (config.midcapNiftyLots !== undefined) preferredLots = Number(config.midcapNiftyLots);
@@ -1085,16 +1036,14 @@ export class FirestoreService implements OnModuleInit {
 
     const resultData: IndexLotSizesConfig = {
       indices: enrichedIndices,
-      nifty50: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultQuantityInOneLot || 65,
-      bankNifty: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultQuantityInOneLot || 30,
-      finNifty: targetIndices.find((i) => i.symbol.includes('FIN'))?.defaultQuantityInOneLot || 65,
-      midcapNifty: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultQuantityInOneLot || 120,
-      sensex: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultQuantityInOneLot || 20,
-      nifty50Lots: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultLotSize || 5,
-      bankNiftyLots: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultLotSize || 5,
-      finNiftyLots: targetIndices.find((i) => i.symbol.includes('FIN'))?.defaultLotSize || 5,
-      midcapNiftyLots: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultLotSize || 5,
-      sensexLots: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultLotSize || 5,
+      nifty50: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultQuantityInOneLot ?? 0,
+      bankNifty: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultQuantityInOneLot ?? 0,
+      midcapNifty: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultQuantityInOneLot ?? 0,
+      sensex: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultQuantityInOneLot ?? 0,
+      nifty50Lots: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultLotSize ?? 0,
+      bankNiftyLots: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultLotSize ?? 0,
+      midcapNiftyLots: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultLotSize ?? 0,
+      sensexLots: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultLotSize ?? 0,
       updatedAt: cleanFirestoreDoc.updatedAt,
     };
 
