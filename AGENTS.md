@@ -51,7 +51,7 @@ This document provides definitive instructions, architecture patterns, constrain
    - All master data is stored purely and strictly in **Google Cloud Firestore**. Zero local static data JSON files are authored or committed to the repository.
    - **Dedicated Separation of Collections**:
      - **Cash Equities & Benchmark Indices** (Collection `sec_id_to_name_mapping`):
-       - `indices`: All NSE benchmark and sectoral indices (`IDX_I`)
+       - `indices`: Strictly the 4 traded benchmark indices (`NIFTY 50`, `BANK NIFTY`, `MIDCAP NIFTY`, `SENSEX`) (`IDX_I`). All other non-traded or sectoral indices are excluded.
        - `equities_chunk_01` ... `equities_chunk_06`: All NSE equities (`NSE_EQ`) in balanced chunks
        - `_meta`: Summary metadata for equities & indices
        - Strictly zero option contracts stored in this collection.

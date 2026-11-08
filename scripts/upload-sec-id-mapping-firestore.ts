@@ -45,28 +45,49 @@ async function uploadSecIdMappingToFirestore() {
         const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
         if (!secId) continue;
 
-        // Strictly NSE instruments only - never BSE or MCX
-        if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE')) {
+        const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
+        // Strictly NSE instruments only - except SENSEX (from BSE)
+        const isSensex = sym.includes('SENSEX') || secId === '51';
+        if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE') && !isSensex) {
           continue;
         }
 
         const instName = instTypeIdx >= 0 ? parts[instTypeIdx] : '';
         const rawSegment = segmentIdx >= 0 ? parts[segmentIdx] : '';
-        const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
         const name = nameIdx >= 0 && parts[nameIdx] ? parts[nameIdx] : sym;
         const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
 
-        // 1. Benchmark Indices
+        // 1. Traded Benchmark Indices ONLY: NIFTY 50, BANK NIFTY, MIDCAP NIFTY, SENSEX
         const isIndex = instName === 'INDEX' || rawSegment === 'I' || exch === 'IDX_I';
         if (isIndex) {
-          scripMaster.push({
-            securityId: secId,
-            symbol: sym,
-            name: name,
-            exchangeSegment: 'IDX_I',
-            instrumentType: 'INDEX',
-            lotSize: lot,
-          });
+          let tradedIndexSymbol = '';
+          let tradedIndexName = '';
+          const symUpper = sym.toUpperCase();
+
+          if (secId === '13' || symUpper === 'NIFTY' || symUpper === 'NIFTY 50') {
+            tradedIndexSymbol = 'NIFTY 50';
+            tradedIndexName = 'Nifty 50 Index';
+          } else if (secId === '25' || symUpper === 'BANKNIFTY' || symUpper === 'BANK NIFTY') {
+            tradedIndexSymbol = 'BANK NIFTY';
+            tradedIndexName = 'Nifty Bank Index';
+          } else if (secId === '442' || symUpper === 'MIDCPNIFTY' || symUpper === 'MIDCAP NIFTY') {
+            tradedIndexSymbol = 'MIDCAP NIFTY';
+            tradedIndexName = 'Nifty Midcap Select';
+          } else if (secId === '51' || symUpper === 'SENSEX') {
+            tradedIndexSymbol = 'SENSEX';
+            tradedIndexName = 'BSE Sensex Index';
+          }
+
+          if (tradedIndexSymbol) {
+            scripMaster.push({
+              securityId: secId,
+              symbol: tradedIndexSymbol,
+              name: name && name !== sym ? name : tradedIndexName,
+              exchangeSegment: 'IDX_I',
+              instrumentType: 'INDEX',
+              lotSize: lot,
+            });
+          }
           continue;
         }
 

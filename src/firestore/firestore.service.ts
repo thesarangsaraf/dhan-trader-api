@@ -779,15 +779,19 @@ export class FirestoreService implements OnModuleInit {
     const now = new Date().toISOString();
     const docsToWrite: Record<string, any> = {};
 
-    // 1. Strictly filter to NSE instruments only
+    // 1. Strictly filter to NSE instruments and permitted traded index (SENSEX)
     const nseOptions = options.filter(
       (opt) => !opt.exchange || opt.exchange.startsWith('NSE'),
     );
-    const nseScrip = scripMaster.filter(
-      (s) =>
+    const nseScrip = scripMaster.filter((s) => {
+      const symUpper = String(s.symbol || '').toUpperCase();
+      const secId = String(s.securityId || '');
+      if (secId === '51' || symUpper === 'SENSEX') return true;
+      return (
         (!s.exchangeSegment || s.exchangeSegment.startsWith('NSE') || s.exchangeSegment === 'IDX_I') &&
-        !s.exchangeSegment.startsWith('BSE'),
-    );
+        !s.exchangeSegment.startsWith('BSE')
+      );
+    });
 
     // 2. Options divided by instrument
     const niftyOpts = nseOptions.filter((o) => o.symbolName === 'NIFTY');
@@ -886,10 +890,54 @@ export class FirestoreService implements OnModuleInit {
       };
     }
 
-    // 3. Scrip master: Indices
-    const indices = nseScrip.filter(
-      (s) => s.instrumentType === 'INDEX' || s.exchangeSegment === 'IDX_I',
-    );
+    // 3. Scrip master: Traded Indices ONLY (NIFTY 50, BANK NIFTY, MIDCAP NIFTY, SENSEX)
+    // Avoid saving any other sectoral, thematic, or non-traded indices
+    const TRADED_INDEX_SEC_IDS = new Set(['13', '25', '442', '51']);
+    const isTradedIndex = (s: any) => {
+      const isIndex = s.instrumentType === 'INDEX' || s.exchangeSegment === 'IDX_I';
+      if (!isIndex) return false;
+      const secId = String(s.securityId || '');
+      if (TRADED_INDEX_SEC_IDS.has(secId)) return true;
+      const sym = String(s.symbol || '').toUpperCase();
+      if (sym === 'NIFTY' || sym === 'NIFTY 50') return true;
+      if (sym === 'BANKNIFTY' || sym === 'BANK NIFTY') return true;
+      if (sym === 'MIDCPNIFTY' || sym === 'MIDCAP NIFTY') return true;
+      if (sym === 'SENSEX') return true;
+      return false;
+    };
+
+    const seenIndices = new Set<string>();
+    const indices: any[] = [];
+    for (const s of nseScrip) {
+      if (!isTradedIndex(s)) continue;
+      const secId = String(s.securityId || '');
+      const sym = String(s.symbol || '').toUpperCase();
+      const canonicalKey =
+        secId === '13' || sym === 'NIFTY' || sym === 'NIFTY 50'
+          ? 'NIFTY 50'
+          : secId === '25' || sym === 'BANKNIFTY' || sym === 'BANK NIFTY'
+          ? 'BANK NIFTY'
+          : secId === '442' || sym === 'MIDCPNIFTY' || sym === 'MIDCAP NIFTY'
+          ? 'MIDCAP NIFTY'
+          : secId === '51' || sym === 'SENSEX'
+          ? 'SENSEX'
+          : sym;
+
+      if (!seenIndices.has(canonicalKey)) {
+        seenIndices.add(canonicalKey);
+        indices.push({
+          ...s,
+          symbol: canonicalKey,
+          exchangeSegment: 'IDX_I',
+          instrumentType: 'INDEX',
+        });
+      }
+    }
+
+    // Order indices canonically: NIFTY 50 (1), BANK NIFTY (2), MIDCAP NIFTY (3), SENSEX (4)
+    const orderRank: Record<string, number> = { '13': 1, '25': 2, '442': 3, '51': 4 };
+    indices.sort((a, b) => (orderRank[String(a.securityId)] || 99) - (orderRank[String(b.securityId)] || 99));
+
     if (indices.length > 0) {
       docsToWrite['indices'] = {
         documentId: 'indices',
@@ -945,7 +993,7 @@ export class FirestoreService implements OnModuleInit {
     );
 
     // 7. Write metadata document
-    const totalInstruments = nseOptions.length + nseScrip.length;
+    const totalInstruments = nseOptions.length + indices.length + equities.length;
     await colRef.doc('_meta').set(
       {
         collection: 'sec_id_to_name_mapping',

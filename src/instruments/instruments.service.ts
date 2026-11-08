@@ -212,10 +212,23 @@ export class InstrumentsService implements OnModuleInit {
    * Set scrip master items in memory and update fast lookup maps.
    */
   public setScripMaster(items: Omit<InstrumentItem, 'ltp'>[]) {
-    this.scripMaster = items;
+    // Strictly preserve only cash equities and the 4 traded indices
+    const filtered = items.filter((item) => {
+      const isIndex = item.instrumentType === 'INDEX' || item.exchangeSegment === 'IDX_I';
+      if (!isIndex) return true;
+      const secId = String(item.securityId || '');
+      const sym = String(item.symbol || '').toUpperCase();
+      return (
+        secId === '13' || sym === 'NIFTY' || sym === 'NIFTY 50' ||
+        secId === '25' || sym === 'BANKNIFTY' || sym === 'BANK NIFTY' ||
+        secId === '442' || sym === 'MIDCPNIFTY' || sym === 'MIDCAP NIFTY' ||
+        secId === '51' || sym === 'SENSEX'
+      );
+    });
+    this.scripMaster = filtered;
     this.scripMasterBySecId.clear();
     this.scripMasterBySymbol.clear();
-    for (const item of items) {
+    for (const item of filtered) {
       if (item.securityId) {
         this.scripMasterBySecId.set(String(item.securityId).trim(), item);
       }
@@ -286,9 +299,11 @@ export class InstrumentsService implements OnModuleInit {
       const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
       const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
 
-      // Strictly NSE instruments only - except SENSEX index options (from BSE)
-      const isSensexOption = instName === 'OPTIDX' && (sym.startsWith('SENSEX') || rawSymName === 'BSXOPT');
-      if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE') && !isSensexOption) {
+      // Strictly NSE instruments only - except SENSEX index options and SENSEX benchmark index (from BSE)
+      const isSensex = sym.includes('SENSEX') || rawSymName === 'BSXOPT' || secId === '51';
+      const isSensexOption = instName === 'OPTIDX' && isSensex;
+      const isSensexIndex = (instName === 'INDEX' || rawSegment === 'I') && isSensex;
+      if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE') && !isSensexOption && !isSensexIndex) {
         continue;
       }
 
@@ -322,17 +337,38 @@ export class InstrumentsService implements OnModuleInit {
         continue;
       }
 
-      // 2. Benchmark Indices
+      // 2. Traded Benchmark Indices ONLY: NIFTY 50, BANK NIFTY, MIDCAP NIFTY, SENSEX
       const isIndex = instName === 'INDEX' || rawSegment === 'I' || exch === 'IDX_I';
       if (isIndex) {
-        parsedScrip.push({
-          securityId: secId,
-          symbol: sym,
-          name: customSym,
-          exchangeSegment: 'IDX_I',
-          instrumentType: 'INDEX',
-          lotSize: lot,
-        });
+        let tradedIndexSymbol = '';
+        let tradedIndexName = '';
+        const symUpper = sym.toUpperCase();
+
+        if (secId === '13' || symUpper === 'NIFTY' || symUpper === 'NIFTY 50') {
+          tradedIndexSymbol = 'NIFTY 50';
+          tradedIndexName = 'Nifty 50 Index';
+        } else if (secId === '25' || symUpper === 'BANKNIFTY' || symUpper === 'BANK NIFTY') {
+          tradedIndexSymbol = 'BANK NIFTY';
+          tradedIndexName = 'Nifty Bank Index';
+        } else if (secId === '442' || symUpper === 'MIDCPNIFTY' || symUpper === 'MIDCAP NIFTY') {
+          tradedIndexSymbol = 'MIDCAP NIFTY';
+          tradedIndexName = 'Nifty Midcap Select';
+        } else if (secId === '51' || symUpper === 'SENSEX') {
+          tradedIndexSymbol = 'SENSEX';
+          tradedIndexName = 'BSE Sensex Index';
+        }
+
+        // Strictly save ONLY the traded indices; ignore all other indices
+        if (tradedIndexSymbol) {
+          parsedScrip.push({
+            securityId: secId,
+            symbol: tradedIndexSymbol,
+            name: customSym && customSym !== sym ? customSym : tradedIndexName,
+            exchangeSegment: 'IDX_I',
+            instrumentType: 'INDEX',
+            lotSize: this.getLotSizeForInstrument(tradedIndexSymbol) || lot,
+          });
+        }
         continue;
       }
 
