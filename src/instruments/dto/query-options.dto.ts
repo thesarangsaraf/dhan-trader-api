@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 
 export class QueryOptionsDto {
   @ApiPropertyOptional({
-    description: 'Filter by traded index (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY)',
+    description: 'Filter by traded index (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX)',
     example: 'NIFTY',
   })
   @IsOptional()

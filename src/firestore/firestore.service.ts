@@ -135,20 +135,6 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     order: 2,
   },
   {
-    symbol: 'FINNIFTY',
-    name: 'Nifty Financial Services',
-    securityId: '27',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 60,
-    lotSize: 60,
-    defaultLots: 5,
-    defaultQuantity: 300,
-    stopLossPoints: 15,
-    enabled: true,
-    order: 3,
-  },
-  {
     symbol: 'MIDCAP NIFTY',
     name: 'Nifty Midcap Select',
     securityId: '442',
@@ -160,7 +146,7 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultQuantity: 600,
     stopLossPoints: 15,
     enabled: true,
-    order: 4,
+    order: 3,
   },
   {
     symbol: 'SENSEX',
@@ -173,20 +159,18 @@ export const DEFAULT_INDICES: IndexConfigItem[] = [
     defaultLots: 5,
     defaultQuantity: 100,
     stopLossPoints: 30,
-    enabled: false,
-    order: 5,
+    enabled: true,
+    order: 4,
   },
 ];
 
 export interface IndexLotSizesConfig {
   nifty50: number;
   bankNifty: number;
-  finnifty?: number;
   midcapNifty: number;
   sensex: number;
   nifty50Lots?: number;
   bankNiftyLots?: number;
-  finniftyLots?: number;
   midcapNiftyLots?: number;
   sensexLots?: number;
   indices?: IndexConfigItem[];
@@ -196,12 +180,10 @@ export interface IndexLotSizesConfig {
 export const DEFAULT_LOT_SIZES: IndexLotSizesConfig = {
   nifty50: 65,
   bankNifty: 30,
-  finnifty: 60,
   midcapNifty: 120,
   sensex: 20,
   nifty50Lots: 5,
   bankNiftyLots: 5,
-  finniftyLots: 5,
   midcapNiftyLots: 5,
   sensexLots: 5,
   indices: [...DEFAULT_INDICES],
@@ -507,13 +489,13 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
-   * Helper: Normalize traded index symbol to canonical form ('NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY').
+   * Helper: Normalize traded index symbol to canonical form ('NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX').
    */
   public normalizeIndexSymbol(symbol: string): string {
     const sym = (symbol || '').toUpperCase().trim();
     if (sym === 'BANKNIFTY' || sym.includes('BANK')) return 'BANKNIFTY';
     if (sym === 'MIDCPNIFTY' || sym.includes('MIDCP') || sym.includes('MIDCAP')) return 'MIDCPNIFTY';
-    if (sym === 'FINNIFTY' || sym.includes('FIN NIFTY') || sym.includes('FINANCIAL')) return 'FINNIFTY';
+    if (sym === 'SENSEX' || sym === 'BSXOPT' || sym.includes('SENSEX')) return 'SENSEX';
     if (sym === 'NIFTY' || sym === 'NIFTY 50') return 'NIFTY';
     return '';
   }
@@ -528,8 +510,8 @@ export class FirestoreService implements OnModuleInit {
         return 'NIFTY BANK';
       case 'MIDCPNIFTY':
         return 'MIDCAP NIFTY';
-      case 'FINNIFTY':
-        return 'NIFTY FINANCIAL SERVICES';
+      case 'SENSEX':
+        return 'BSE Sensex Index';
       case 'NIFTY':
       default:
         return 'NIFTY 50';
@@ -538,7 +520,7 @@ export class FirestoreService implements OnModuleInit {
 
   /**
    * Helper: Save index options into Firestore database in dedicated documents per traded index.
-   * Stored in collection 'index_options' with document IDs 'NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY',
+   * Stored in collection 'index_options' with document IDs 'NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX',
    * plus a '_meta' document tracking total count and document structure.
    *
    * Limits option contracts strictly to a maximum of 2 expiries per index (currentExpiry and nextExpiry).
@@ -563,10 +545,10 @@ export class FirestoreService implements OnModuleInit {
     const now = new Date().toISOString();
     const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
-    // 1. Clean up any obsolete/legacy chunk_* documents if they exist
+    // 1. Clean up any obsolete/legacy chunk_* documents or excluded indices (e.g. FINNIFTY) if they exist
     try {
       const existingSnap = await colRef.get();
-      const legacyDocs = existingSnap.docs.filter((d) => d.id.startsWith('chunk_'));
+      const legacyDocs = existingSnap.docs.filter((d) => d.id.startsWith('chunk_') || d.id === 'FINNIFTY');
       if (legacyDocs.length > 0) {
         await Promise.all(legacyDocs.map((d) => d.ref.delete()));
       }
@@ -585,7 +567,7 @@ export class FirestoreService implements OnModuleInit {
       grouped.get(sym)!.push(item);
     }
 
-    const ORDERED_TRADED_INDICES = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const ORDERED_TRADED_INDICES = ['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX'];
     const activeSymbols = Array.from(grouped.keys());
     const symbolsToProcess = activeSymbols.length > 0
       ? ORDERED_TRADED_INDICES.filter((s) => grouped.has(s))
@@ -670,7 +652,7 @@ export class FirestoreService implements OnModuleInit {
 
   /**
    * Helper: Retrieve all index options from Firestore collection 'index_options'.
-   * Reads dedicated index documents ('NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY')
+   * Reads dedicated index documents ('NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX')
    * or legacy chunks for backward compatibility.
    */
   public async getIndexOptions(): Promise<CachedIndexOption[]> {
@@ -684,7 +666,7 @@ export class FirestoreService implements OnModuleInit {
     }
 
     const allOptions: CachedIndexOption[] = [];
-    const orderedIndexOrder = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'];
+    const orderedIndexOrder = ['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX'];
     const docsById = new Map<string, any>();
     const legacyChunks: any[] = [];
 
@@ -768,8 +750,8 @@ export class FirestoreService implements OnModuleInit {
    * Divides data logically by instrument into documents:
    * - nifty_50_options_part1, nifty_50_options_part2 (all NIFTY option contracts)
    * - bank_nifty_options (all BANK NIFTY option contracts)
-   * - finnifty_options (all FINNIFTY option contracts)
    * - midcap_nifty_options (all MIDCAP NIFTY option contracts)
+   * - sensex_options (all SENSEX option contracts)
    * - indices (all NSE benchmark & sectoral indices)
    * - equities_chunk_01 ... equities_chunk_XX (all NSE equities in balanced chunks)
    * - _meta (comprehensive metadata)
@@ -857,19 +839,6 @@ export class FirestoreService implements OnModuleInit {
       };
     }
 
-    const finOpts = nseOptions.filter((o) => o.symbolName === 'FINNIFTY');
-    if (finOpts.length > 0) {
-      docsToWrite['finnifty_options'] = {
-        documentId: 'finnifty_options',
-        symbol: 'FINNIFTY',
-        category: 'OPTIONS',
-        exchange: 'NSE_FNO',
-        count: finOpts.length,
-        items: finOpts,
-        updatedAt: now,
-      };
-    }
-
     const midOpts = nseOptions.filter((o) => o.symbolName === 'MIDCPNIFTY');
     if (midOpts.length > 0) {
       docsToWrite['midcap_nifty_options'] = {
@@ -884,7 +853,7 @@ export class FirestoreService implements OnModuleInit {
     }
 
     // Any other remaining option contracts (e.g. NIFTYNXT50, NIFTYFPI, etc.)
-    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+    const handledSymbols = new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']);
     const otherOpts = nseOptions.filter((o) => !handledSymbols.has(o.symbolName));
     const optChunkSize = 2000;
     if (otherOpts.length > optChunkSize) {
@@ -1114,54 +1083,52 @@ export class FirestoreService implements OnModuleInit {
       indices = DEFAULT_INDICES.map((i) => ({ ...i }));
     }
 
-    // Ensure FINNIFTY is present in traded indices
-    const hasFinnifty = indices.some((i) => i.symbol.toUpperCase().includes('FIN'));
-    if (!hasFinnifty) {
+    // Strictly filter out FINNIFTY from traded indices
+    indices = indices.filter((i) => !i.symbol.toUpperCase().includes('FIN'));
+
+    // Ensure SENSEX is present in traded indices
+    const hasSensex = indices.some((i) => i.symbol.toUpperCase().includes('SENSEX'));
+    if (!hasSensex) {
       indices.push({
-        symbol: 'FINNIFTY',
-        name: 'Nifty Financial Services',
-        securityId: '27',
+        symbol: 'SENSEX',
+        name: 'BSE Sensex Index',
+        securityId: '51',
         exchangeSegment: 'IDX_I',
         defaultLotSize: 5,
-        defaultQuantityInOneLot: 60,
-        lotSize: 60,
+        defaultQuantityInOneLot: 20,
+        lotSize: 20,
         defaultLots: 5,
-        defaultQuantity: 300,
-        stopLossPoints: 15,
+        defaultQuantity: 100,
+        stopLossPoints: 30,
         enabled: true,
-        order: 3,
+        order: 4,
       });
-      // Sort by order
-      indices.sort((a, b) => (a.order || 99) - (b.order || 99));
     }
+    // Sort by order
+    indices.sort((a, b) => (a.order || 99) - (b.order || 99));
 
     const niftyItem = indices.find((i) => i.symbol.toUpperCase().includes('NIFTY 50')) || indices[0];
     const bankItem = indices.find((i) => i.symbol.toUpperCase().includes('BANK'));
-    const finItem = indices.find((i) => i.symbol.toUpperCase().includes('FIN'));
     const midcapItem = indices.find((i) => i.symbol.toUpperCase().includes('MIDCAP') || i.symbol.toUpperCase().includes('MIDCP'));
     const sensexItem = indices.find((i) => i.symbol.toUpperCase().includes('SENSEX'));
 
     const nifty50 = Number(niftyItem?.defaultQuantityInOneLot ?? niftyItem?.lotSize ?? 0);
     const bankNifty = Number(bankItem?.defaultQuantityInOneLot ?? bankItem?.lotSize ?? 0);
-    const finnifty = Number(finItem?.defaultQuantityInOneLot ?? finItem?.lotSize ?? 60);
     const midcapNifty = Number(midcapItem?.defaultQuantityInOneLot ?? midcapItem?.lotSize ?? 0);
     const sensex = Number(sensexItem?.defaultQuantityInOneLot ?? sensexItem?.lotSize ?? 0);
 
     const nifty50Lots = Number(niftyItem?.defaultLotSize ?? niftyItem?.defaultLots ?? 0);
     const bankNiftyLots = Number(bankItem?.defaultLotSize ?? bankItem?.defaultLots ?? 0);
-    const finniftyLots = Number(finItem?.defaultLotSize ?? finItem?.defaultLots ?? 5);
     const midcapNiftyLots = Number(midcapItem?.defaultLotSize ?? midcapItem?.defaultLots ?? 0);
     const sensexLots = Number(sensexItem?.defaultLotSize ?? sensexItem?.defaultLots ?? 0);
 
     return {
       nifty50,
       bankNifty,
-      finnifty,
       midcapNifty,
       sensex,
       nifty50Lots,
       bankNiftyLots,
-      finniftyLots,
       midcapNiftyLots,
       sensexLots,
       indices,
@@ -1185,59 +1152,60 @@ export class FirestoreService implements OnModuleInit {
 
     let targetIndices: IndexConfigItem[] = [];
     if (config.indices && Array.isArray(config.indices) && config.indices.length > 0) {
-      targetIndices = config.indices.map((idx: any, orderIdx: number) => {
-        const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
-        const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
-        const rawLots = idx.defaultLotSize ?? idx.defaultLots;
-        const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
-        return {
-          symbol: idx.symbol,
-          name: idx.name,
-          securityId: idx.securityId,
-          exchangeSegment: idx.exchangeSegment,
-          defaultLotSize,
-          defaultQuantityInOneLot,
-          stopLossPoints: idx.stopLossPoints,
-          enabled: idx.enabled !== false,
-          order: idx.order ?? orderIdx + 1,
-        };
-      });
+      targetIndices = config.indices
+        .filter((idx: any) => !String(idx?.symbol || '').toUpperCase().includes('FIN'))
+        .map((idx: any, orderIdx: number) => {
+          const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
+          const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
+          const rawLots = idx.defaultLotSize ?? idx.defaultLots;
+          const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
+          return {
+            symbol: idx.symbol,
+            name: idx.name,
+            securityId: idx.securityId,
+            exchangeSegment: idx.exchangeSegment,
+            defaultLotSize,
+            defaultQuantityInOneLot,
+            stopLossPoints: idx.stopLossPoints,
+            enabled: idx.enabled !== false,
+            order: idx.order ?? orderIdx + 1,
+          };
+        });
     } else {
       // Build from current or partial inputs
-      targetIndices = (current.indices || DEFAULT_INDICES).map((idx, orderIdx) => {
-        const sym = idx.symbol.toUpperCase();
-        let qtyInOneLot = idx.defaultQuantityInOneLot;
-        let preferredLots = idx.defaultLotSize;
+      targetIndices = (current.indices || DEFAULT_INDICES)
+        .filter((idx) => !idx.symbol.toUpperCase().includes('FIN'))
+        .map((idx, orderIdx) => {
+          const sym = idx.symbol.toUpperCase();
+          let qtyInOneLot = idx.defaultQuantityInOneLot;
+          let preferredLots = idx.defaultLotSize;
 
-        if (sym.includes('BANK')) {
-          if (config.bankNifty !== undefined) qtyInOneLot = Number(config.bankNifty);
-          if (config.bankNiftyLots !== undefined) preferredLots = Number(config.bankNiftyLots);
-        } else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) {
-          if (config.midcapNifty !== undefined) qtyInOneLot = Number(config.midcapNifty);
-          if (config.midcapNiftyLots !== undefined) preferredLots = Number(config.midcapNiftyLots);
-        } else if (sym.includes('SENSEX')) {
-          if (config.sensex !== undefined) qtyInOneLot = Number(config.sensex);
-          if (config.sensexLots !== undefined) preferredLots = Number(config.sensexLots);
-        } else if (sym.includes('FIN')) {
-          if (config.finnifty !== undefined) qtyInOneLot = Number(config.finnifty);
-          if (config.finniftyLots !== undefined) preferredLots = Number(config.finniftyLots);
-        } else if (sym.includes('NIFTY')) {
-          if (config.nifty50 !== undefined) qtyInOneLot = Number(config.nifty50);
-          if (config.nifty50Lots !== undefined) preferredLots = Number(config.nifty50Lots);
-        }
+          if (sym.includes('BANK')) {
+            if (config.bankNifty !== undefined) qtyInOneLot = Number(config.bankNifty);
+            if (config.bankNiftyLots !== undefined) preferredLots = Number(config.bankNiftyLots);
+          } else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) {
+            if (config.midcapNifty !== undefined) qtyInOneLot = Number(config.midcapNifty);
+            if (config.midcapNiftyLots !== undefined) preferredLots = Number(config.midcapNiftyLots);
+          } else if (sym.includes('SENSEX')) {
+            if (config.sensex !== undefined) qtyInOneLot = Number(config.sensex);
+            if (config.sensexLots !== undefined) preferredLots = Number(config.sensexLots);
+          } else if (sym.includes('NIFTY')) {
+            if (config.nifty50 !== undefined) qtyInOneLot = Number(config.nifty50);
+            if (config.nifty50Lots !== undefined) preferredLots = Number(config.nifty50Lots);
+          }
 
-        return {
-          symbol: idx.symbol,
-          name: idx.name,
-          securityId: idx.securityId,
-          exchangeSegment: idx.exchangeSegment,
-          defaultLotSize: preferredLots,
-          defaultQuantityInOneLot: qtyInOneLot,
-          stopLossPoints: idx.stopLossPoints,
-          enabled: idx.enabled !== false,
-          order: idx.order ?? orderIdx + 1,
-        };
-      });
+          return {
+            symbol: idx.symbol,
+            name: idx.name,
+            securityId: idx.securityId,
+            exchangeSegment: idx.exchangeSegment,
+            defaultLotSize: preferredLots,
+            defaultQuantityInOneLot: qtyInOneLot,
+            stopLossPoints: idx.stopLossPoints,
+            enabled: idx.enabled !== false,
+            order: idx.order ?? orderIdx + 1,
+          };
+        });
     }
 
     // PURE CLEAN FIRESTORE DOCUMENT — Only standardized indices array with:

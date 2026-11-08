@@ -300,22 +300,23 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Resolves the human-readable instrument name from a security ID or condition details.
+   * Dynamically resolves from Firestore master data via InstrumentsService.
    */
   resolveInstrumentName(securityId?: string, fallbackUserNote?: string, fallbackSymbol?: string): string {
     const secId = securityId ? String(securityId).trim() : '';
 
-    // 1. Check popular indices
-    if (secId) {
-      const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
-      if (matchedIndex) return matchedIndex.name;
-    }
-
-    // 2. Check InstrumentsService by security ID
+    // 1. Check InstrumentsService by security ID (Firestore master data)
     if (secId && this.instrumentsService && typeof this.instrumentsService.findBySecurityId === 'function') {
       const found = this.instrumentsService.findBySecurityId(secId);
       if (found) {
         return found.customSymbol || found.name || found.symbol || found.tradingSymbol || `SEC-${secId}`;
       }
+    }
+
+    // 2. Check popular indices fallback
+    if (secId) {
+      const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+      if (matchedIndex) return matchedIndex.name;
     }
 
     // 3. Fallback to clean userNote if present and not a system string
@@ -344,24 +345,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Returns structured instrument details for a given security ID.
+   * Dynamically checks InstrumentsService (Firestore master cache).
    */
   getInstrumentDetailsBySecurityId(securityId: string) {
     const secId = String(securityId || '').trim();
     if (!secId) return null;
 
-    const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
-    if (matchedIndex) {
-      return {
-        securityId: secId,
-        instrumentName: matchedIndex.name,
-        name: matchedIndex.name,
-        symbol: matchedIndex.name,
-        tradingSymbol: matchedIndex.name,
-        exchangeSegment: matchedIndex.exchangeSegment,
-        lotSize: 1,
-      };
-    }
-
+    // 1. Check InstrumentsService first (Firestore master data)
     if (this.instrumentsService && typeof this.instrumentsService.findBySecurityId === 'function') {
       const found = this.instrumentsService.findBySecurityId(secId);
       if (found) {
@@ -380,6 +370,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           lotSize: found.lotSize || 1,
         };
       }
+    }
+
+    // 2. Check popular indices fallback
+    const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+    if (matchedIndex) {
+      return {
+        securityId: secId,
+        instrumentName: matchedIndex.name,
+        name: matchedIndex.name,
+        symbol: matchedIndex.name,
+        tradingSymbol: matchedIndex.name,
+        exchangeSegment: matchedIndex.exchangeSegment,
+        lotSize: 1,
+      };
     }
 
     return null;
@@ -714,7 +718,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
     );
 
-    if (!secId && matchedIndex) secId = matchedIndex.securityId;
     if (!secId && this.instrumentsService) {
       const found = this.instrumentsService.findBySymbol(dto.instrument);
       if (found) {
@@ -722,6 +725,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         if (!dto.exchangeSegment) dto.exchangeSegment = found.exchangeSegment;
       }
     }
+    if (!secId && matchedIndex) secId = matchedIndex.securityId;
 
     secId = secId || (matchedIndex ? matchedIndex.securityId : '0');
     const exSegment = dto.exchangeSegment || (matchedIndex ? matchedIndex.exchangeSegment : 'NSE_EQ');
@@ -918,9 +922,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     let exSegment = dto.exchangeSegment;
 
-    if (!secId && matchedIndex) secId = matchedIndex.securityId;
-    if (!exSegment && matchedIndex) exSegment = matchedIndex.exchangeSegment;
-
     if (!secId && this.instrumentsService) {
       const found = this.instrumentsService.findBySymbol(dto.instrument);
       if (found) {
@@ -928,6 +929,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         if (!exSegment) exSegment = found.exchangeSegment;
       }
     }
+
+    if (!secId && matchedIndex) secId = matchedIndex.securityId;
+    if (!exSegment && matchedIndex) exSegment = matchedIndex.exchangeSegment;
 
     secId = secId || '0';
     exSegment = exSegment || (matchedIndex ? matchedIndex.exchangeSegment : 'IDX_I');
@@ -1318,11 +1322,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     try {
       const segmentsMap: Record<string, number[]> = {};
 
-      for (const idx of POPULAR_NSE_INDICES) {
+      // Dynamically get tradeable indices configured in Firestore / InstrumentsService
+      const monitoredIndices: Array<{ name: string; symbol?: string; securityId: string; exchangeSegment: string }> =
+        this.instrumentsService && typeof this.instrumentsService.getConfiguredIndicesSync === 'function'
+          ? this.instrumentsService.getConfiguredIndicesSync(true)
+          : POPULAR_NSE_INDICES;
+
+      for (const idx of monitoredIndices) {
         if (!segmentsMap[idx.exchangeSegment]) {
           segmentsMap[idx.exchangeSegment] = [];
         }
-        segmentsMap[idx.exchangeSegment].push(parseInt(idx.securityId, 10));
+        const numId = parseInt(idx.securityId, 10);
+        if (!isNaN(numId) && !segmentsMap[idx.exchangeSegment].includes(numId)) {
+          segmentsMap[idx.exchangeSegment].push(numId);
+        }
       }
 
       const allActive = [...this.alerts, ...this.dhanAlerts];
@@ -1352,15 +1365,18 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                 if (typeof liveLtp === 'number') {
                   this.priceCache.set(`${seg}:${secId}`, liveLtp);
 
-                  const matched = POPULAR_NSE_INDICES.find(
-                    (i) => i.securityId === secId && i.exchangeSegment === seg,
+                  const matched = monitoredIndices.find(
+                    (i) => String(i.securityId) === String(secId) && i.exchangeSegment === seg,
                   );
                   if (matched) {
                     this.priceCache.set(matched.name.toUpperCase(), liveLtp);
-                    if (matched.name === 'BANK NIFTY') {
+                    if (matched.symbol) {
+                      this.priceCache.set(matched.symbol.toUpperCase(), liveLtp);
+                    }
+                    if (matched.name === 'BANK NIFTY' || matched.symbol === 'BANK NIFTY') {
                       this.priceCache.set('NIFTY BANK', liveLtp);
                     }
-                    if (matched.name === 'MIDCAP NIFTY') {
+                    if (matched.name === 'MIDCAP NIFTY' || matched.symbol === 'MIDCAP NIFTY') {
                       this.priceCache.set('MIDCP NIFTY', liveLtp);
                       this.priceCache.set('MIDCPNIFTY', liveLtp);
                     }
@@ -1377,8 +1393,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       // 2. Fetch live prices from Yahoo Finance for indices & active alerts
       if (this.yahooService) {
         const symbolsToFetch = new Set<string>();
-        for (const idx of POPULAR_NSE_INDICES) {
-          symbolsToFetch.add(idx.name);
+        for (const idx of monitoredIndices) {
+          symbolsToFetch.add(idx.name || idx.symbol || '');
         }
         for (const alert of allActive) {
           if (alert.status === 'ACTIVE' && alert.instrument) {
@@ -1392,9 +1408,10 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             if (typeof price === 'number') {
               this.priceCache.set(sym.toUpperCase(), price);
 
-              const matchedIdx = POPULAR_NSE_INDICES.find(
+              const matchedIdx = monitoredIndices.find(
                 (i) =>
                   i.name.toUpperCase() === sym.toUpperCase() ||
+                  (i.symbol && i.symbol.toUpperCase() === sym.toUpperCase()) ||
                   (i.name === 'BANK NIFTY' && sym.toUpperCase() === 'NIFTY BANK') ||
                   (i.name === 'MIDCAP NIFTY' && (sym.toUpperCase() === 'MIDCP NIFTY' || sym.toUpperCase() === 'MIDCPNIFTY')),
               );

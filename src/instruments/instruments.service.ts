@@ -67,7 +67,8 @@ export interface OptionContractsResult {
   contracts: OptionContractDetails[];
 }
 
-const POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
+// Cold-start fallback used ONLY when Firestore database is uninitialized or in isolated unit tests
+const FALLBACK_POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
   // Indices
   { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
   { symbol: 'BANK NIFTY', name: 'Nifty Bank Index', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
@@ -95,7 +96,7 @@ export class InstrumentsService implements OnModuleInit {
    * Traded index symbols strictly tracked and stored in collection 'index_options'.
    * All other options (stock options, non-traded indices) are strictly excluded.
    */
-  public static readonly TRADED_INDEX_SYMBOLS = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+  public static readonly TRADED_INDEX_SYMBOLS = new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']);
 
   private indexOptions: CachedIndexOption[] = [];
   private indexOptionsBySecId = new Map<string, CachedIndexOption>();
@@ -241,7 +242,7 @@ export class InstrumentsService implements OnModuleInit {
 
   /**
    * Parse Dhan CSV content, strictly extracting NSE cash equities & indices,
-   * and traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY).
+   * and traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX).
    */
   public parseCsv(csvContent: string): {
     parsedScrip: Omit<InstrumentItem, 'ltp'>[];
@@ -278,36 +279,37 @@ export class InstrumentsService implements OnModuleInit {
       const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
       if (!secId) continue;
 
-      // Strictly NSE instruments only - never BSE, MCX, or others
-      if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE')) {
-        continue;
-      }
-
       const instName = instNameIdx >= 0 ? parts[instNameIdx] : '';
       const rawSegment = segmentIdx >= 0 ? parts[segmentIdx] : '';
       const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
       const customSym = nameIdx >= 0 && parts[nameIdx] ? parts[nameIdx] : sym;
       const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
+      const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
 
-      // 1. Index Options (OPTIDX on NSE)
+      // Strictly NSE instruments only - except SENSEX index options (from BSE)
+      const isSensexOption = instName === 'OPTIDX' && (sym.startsWith('SENSEX') || rawSymName === 'BSXOPT');
+      if (exch && exch !== 'NSE' && exch !== 'IDX_I' && !exch.startsWith('NSE') && !isSensexOption) {
+        continue;
+      }
+
+      // 1. Index Options (OPTIDX)
       if (instName === 'OPTIDX') {
         const rawExpiry = expiryIdx >= 0 ? parts[expiryIdx] : '';
         const expiryDate = rawExpiry ? rawExpiry.split(' ')[0].trim() : '';
         const strikePrice = strikeIdx >= 0 ? parseFloat(parts[strikeIdx]) || 0 : 0;
         const optType = optTypeIdx >= 0 && parts[optTypeIdx] === 'PE' ? 'PE' : 'CE';
-        const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
         let root = (rawSymName || sym.split('-')[0].trim()).toUpperCase();
         if (root === 'BANKNIFTY' || root.includes('BANK')) root = 'BANKNIFTY';
         else if (root === 'MIDCPNIFTY' || root.includes('MIDCP') || root.includes('MIDCAP')) root = 'MIDCPNIFTY';
-        else if (root === 'FINNIFTY' || root.includes('FIN NIFTY')) root = 'FINNIFTY';
+        else if (root === 'SENSEX' || root === 'BSXOPT' || root.includes('SENSEX') || sym.startsWith('SENSEX-')) root = 'SENSEX';
         else if (root === 'NIFTY' || root === 'NIFTY 50') root = 'NIFTY';
         else root = '';
 
-        // Filter strictly to user's traded indices: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY
+        // Filter strictly to user's traded indices: NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX
         if (root && InstrumentsService.TRADED_INDEX_SYMBOLS.has(root)) {
           parsedOptions.push({
             symbolName: root,
-            exchange: 'NSE_FNO',
+            exchange: root === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO',
             securityId: secId,
             tradingSymbol: sym,
             customSymbol: customSym,
@@ -407,7 +409,7 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
-   * Synchronize traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) into Firestore collection 'index_options'.
+   * Synchronize traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX) into Firestore collection 'index_options'.
    * Purely stores options contracts for the traded indices in chunks of 500.
    */
   public async syncOptions(dto?: SyncInstrumentsDto) {
@@ -425,7 +427,7 @@ export class InstrumentsService implements OnModuleInit {
         let sym = (o.symbolName || '').toUpperCase();
         if (sym.includes('BANK')) sym = 'BANKNIFTY';
         else if (sym.includes('MIDCP') || sym.includes('MIDCAP')) sym = 'MIDCPNIFTY';
-        else if (sym.includes('FINNIFTY') || sym.includes('FIN NIFTY')) sym = 'FINNIFTY';
+        else if (sym.includes('SENSEX') || sym.includes('BSX')) sym = 'SENSEX';
         else if (sym.includes('NIFTY')) sym = 'NIFTY';
         return InstrumentsService.TRADED_INDEX_SYMBOLS.has(sym);
       });
@@ -622,6 +624,61 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
+   * Retrieve list of tradeable indices synchronously from in-memory cache / database config.
+   */
+  public getConfiguredIndicesSync(onlyEnabled = true): (Omit<InstrumentItem, 'ltp'> & {
+    defaultLots?: number;
+    defaultQuantity?: number;
+    defaultLotSize?: number;
+    defaultQuantityInOneLot?: number;
+    stopLossPoints?: number;
+  })[] {
+    const rawIndices = this.lotSizes?.indices && this.lotSizes.indices.length > 0
+      ? this.lotSizes.indices
+      : (this.scripMaster.filter((i) => i.instrumentType === 'INDEX').slice(0, 5));
+
+    const filtered = onlyEnabled
+      ? rawIndices.filter((idx) => (idx as any).enabled !== false)
+      : rawIndices;
+
+    if (filtered.length === 0) {
+      return FALLBACK_POPULAR_INSTRUMENTS.filter((i) => i.instrumentType === 'INDEX') as any;
+    }
+
+    return filtered.map((idx) => {
+      const defaultLotSize = (idx as any).defaultLotSize ?? (idx as any).defaultLots ?? 5;
+      const defaultQuantityInOneLot = (idx as any).defaultQuantityInOneLot ?? idx.lotSize ?? 1;
+      return {
+        symbol: idx.symbol,
+        name: idx.name,
+        securityId: idx.securityId,
+        exchangeSegment: idx.exchangeSegment,
+        instrumentType: 'INDEX',
+        lotSize: defaultQuantityInOneLot,
+        defaultLots: defaultLotSize,
+        defaultQuantity: defaultLotSize * defaultQuantityInOneLot,
+        defaultLotSize,
+        defaultQuantityInOneLot,
+        stopLossPoints: (idx as any).stopLossPoints,
+      };
+    });
+  }
+
+  /**
+   * Retrieve popular instruments dynamically from master data (configured indices + top active equities).
+   */
+  public getPopularInstruments(): Omit<InstrumentItem, 'ltp'>[] {
+    const configured = this.getConfiguredIndicesSync(true);
+    if (this.scripMaster.length > 0) {
+      const equities = this.scripMaster
+        .filter((item) => item.exchangeSegment === 'NSE_EQ')
+        .slice(0, 10);
+      return [...configured, ...equities];
+    }
+    return configured.length > 0 ? configured : FALLBACK_POPULAR_INSTRUMENTS;
+  }
+
+  /**
    * Resolve lot size for a specific index or symbol from database-driven config.
    */
   public getLotSizeForInstrument(instrument: string): number {
@@ -632,10 +689,6 @@ export class InstrumentsService implements OnModuleInit {
     }
     if (clean.includes('BANK')) return this.lotSizes.bankNifty || 30;
     if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 120;
-    if (clean.includes('FINNIFTY') || clean.includes('FIN NIFTY') || clean.includes('FINANCIAL')) {
-      const match = this.lotSizes.indices?.find((i) => i.symbol.toUpperCase().includes('FIN'));
-      return match?.defaultQuantityInOneLot ?? match?.lotSize ?? 65;
-    }
     if (clean.includes('SENSEX')) return this.lotSizes.sensex || 20;
     if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 65;
     return 1;
@@ -727,7 +780,6 @@ export class InstrumentsService implements OnModuleInit {
     let symKey = symbolName.toUpperCase();
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
     else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-    else if (symKey.includes('FINNIFTY') || symKey.includes('FIN NIFTY') || symKey.includes('FINANCIAL')) symKey = 'FINNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -742,14 +794,17 @@ export class InstrumentsService implements OnModuleInit {
 
   /**
    * Search across cash equities, benchmark indices, and traded index option contracts.
+   * Dynamically queries Firestore master data and configured indices.
    */
   async search(query?: string, limit = 10): Promise<InstrumentItem[]> {
     let matched: Omit<InstrumentItem, 'ltp'>[];
+    const popular = this.getPopularInstruments();
+
     if (!query || typeof query !== 'string') {
-      matched = POPULAR_INSTRUMENTS.slice(0, limit);
+      matched = popular.slice(0, limit);
     } else {
       const clean = query.trim().toUpperCase();
-      const popMatches = POPULAR_INSTRUMENTS.filter(
+      const popMatches = popular.filter(
         (item) => item.symbol.includes(clean) || item.name.toUpperCase().includes(clean),
       );
 
@@ -759,7 +814,7 @@ export class InstrumentsService implements OnModuleInit {
         const seenSecIds = new Set(popMatches.map((p) => p.securityId));
         const masterMatches: Omit<InstrumentItem, 'ltp'>[] = [];
 
-        // 1. Search cash equities & indices
+        // 1. Search cash equities & indices from Firestore master data
         for (const item of this.scripMaster) {
           if (seenSecIds.has(item.securityId)) continue;
           if (item.symbol.includes(clean) || item.name.toUpperCase().includes(clean)) {
@@ -769,7 +824,7 @@ export class InstrumentsService implements OnModuleInit {
           }
         }
 
-        // 2. If limit not reached, also search traded index options
+        // 2. If limit not reached, also search traded index options from Firestore
         if (popMatches.length + masterMatches.length < limit) {
           for (const opt of this.indexOptions) {
             if (seenSecIds.has(opt.securityId)) continue;
@@ -864,7 +919,7 @@ export class InstrumentsService implements OnModuleInit {
       let symKey = indexFilter;
       if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
       else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-      else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+      else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
       else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
       filtered = filtered.filter((o) => o.symbolName === symKey);
@@ -899,7 +954,7 @@ export class InstrumentsService implements OnModuleInit {
       let symKey = indexFilter;
       if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
       else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-      else if (symKey.includes('FIN')) symKey = 'FINNIFTY';
+      else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
       else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
       return o.symbolName === symKey;
     }) : this.indexOptions;
@@ -922,36 +977,56 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   async getAll(): Promise<InstrumentItem[]> {
-    return this.enrichWithLiveLtp(POPULAR_INSTRUMENTS);
+    return this.enrichWithLiveLtp(this.getPopularInstruments());
   }
 
   getAllSync(): Omit<InstrumentItem, 'ltp'>[] {
-    return POPULAR_INSTRUMENTS;
+    return this.getPopularInstruments();
   }
 
   findBySymbol(symbol: string): Omit<InstrumentItem, 'ltp'> | undefined {
     if (!symbol) return undefined;
     const clean = symbol.trim().toUpperCase();
-    if (clean === 'BANK NIFTY' || clean === 'NIFTY BANK' || clean === 'BANKNIFTY') {
-      return (
-        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'BANK NIFTY') ||
-        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'NIFTY BANK')
-      );
-    }
-    if (clean === 'MIDCAP NIFTY' || clean === 'MIDCP NIFTY' || clean === 'MIDCPNIFTY' || clean === 'NIFTY MIDCAP') {
-      return (
-        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'MIDCAP NIFTY') ||
-        POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === 'MIDCP NIFTY')
-      );
+
+    // 1. Check configured tradeable indices dynamically from Firestore
+    const configured = this.getConfiguredIndicesSync(false);
+    for (const idx of configured) {
+      const symUpper = idx.symbol.toUpperCase();
+      const nameUpper = (idx.name || '').toUpperCase();
+      if (clean === symUpper || clean === nameUpper) {
+        return idx;
+      }
+      if (symUpper.includes('BANK') && (clean === 'BANK NIFTY' || clean === 'NIFTY BANK' || clean === 'BANKNIFTY')) {
+        return idx;
+      }
+      if (
+        (symUpper.includes('MIDCAP') || symUpper.includes('MIDCP')) &&
+        (clean === 'MIDCAP NIFTY' || clean === 'MIDCP NIFTY' || clean === 'MIDCPNIFTY' || clean === 'NIFTY MIDCAP')
+      ) {
+        return idx;
+      }
+      if (
+        symUpper.includes('SENSEX') &&
+        (clean === 'SENSEX' || clean === 'BSE SENSEX' || clean === 'BSE SENSEX INDEX')
+      ) {
+        return idx;
+      }
+      if ((symUpper === 'NIFTY' || symUpper === 'NIFTY 50') && (clean === 'NIFTY' || clean === 'NIFTY 50')) {
+        return idx;
+      }
     }
 
-    const popMatch = POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
-    if (popMatch) return popMatch;
-
+    // 2. Search scripMaster by exact symbol (Firestore master cache)
     const scripMatch = this.scripMasterBySymbol.get(clean);
     if (scripMatch) return scripMatch;
 
-    // Search in real options loaded from Firestore
+    // 3. Search scripMaster by company name / custom symbol
+    const foundInMaster = this.scripMaster.find(
+      (item) => item.symbol.toUpperCase() === clean || item.name.toUpperCase() === clean,
+    );
+    if (foundInMaster) return foundInMaster;
+
+    // 4. Search in real options loaded from Firestore
     const optMatch = this.indexOptions.find(
       (o) =>
         (o.customSymbol && o.customSymbol.toUpperCase() === clean) ||
@@ -968,11 +1043,13 @@ export class InstrumentsService implements OnModuleInit {
       };
     }
 
-    return undefined;
+    // 5. Fallback cold-start
+    return FALLBACK_POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
   }
 
   findBySecurityId(securityId: string): {
     symbol: string;
+    securityId?: string;
     tradingSymbol?: string;
     customSymbol?: string;
     name?: string;
@@ -992,6 +1069,7 @@ export class InstrumentsService implements OnModuleInit {
     if (matchedOpt) {
       return {
         symbol: matchedOpt.customSymbol || matchedOpt.tradingSymbol,
+        securityId: cleanId,
         tradingSymbol: matchedOpt.tradingSymbol,
         customSymbol: matchedOpt.customSymbol,
         name: matchedOpt.customSymbol || matchedOpt.symbolName,
@@ -1003,11 +1081,12 @@ export class InstrumentsService implements OnModuleInit {
       };
     }
 
-    // 2. Search scripMaster (23,900+ equities and indices from Dhan scrip master)
+    // 2. Search scripMaster (10,193+ equities and indices from Firestore database)
     const matchedMaster = this.scripMasterBySecId.get(cleanId);
     if (matchedMaster) {
       return {
         symbol: matchedMaster.symbol,
+        securityId: cleanId,
         name: matchedMaster.name,
         customSymbol: matchedMaster.symbol,
         tradingSymbol: matchedMaster.symbol,
@@ -1016,11 +1095,26 @@ export class InstrumentsService implements OnModuleInit {
       };
     }
 
-    // 3. Search POPULAR_INSTRUMENTS (fallback)
-    const matchedPop = POPULAR_INSTRUMENTS.find((item) => String(item.securityId).trim() === cleanId);
+    // 3. Search configured tradeable indices from Firestore
+    const matchedConfig = this.getConfiguredIndicesSync(false).find(
+      (item) => String(item.securityId).trim() === cleanId,
+    );
+    if (matchedConfig) {
+      return {
+        symbol: matchedConfig.symbol,
+        securityId: cleanId,
+        name: matchedConfig.name,
+        exchangeSegment: matchedConfig.exchangeSegment,
+        lotSize: matchedConfig.lotSize || 1,
+      };
+    }
+
+    // 4. Fallback cold-start
+    const matchedPop = FALLBACK_POPULAR_INSTRUMENTS.find((item) => String(item.securityId).trim() === cleanId);
     if (matchedPop) {
       return {
         symbol: matchedPop.symbol,
+        securityId: cleanId,
         name: matchedPop.name,
         exchangeSegment: matchedPop.exchangeSegment,
         lotSize: matchedPop.lotSize,
@@ -1057,7 +1151,6 @@ export class InstrumentsService implements OnModuleInit {
     let symKey = raw;
     if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
     else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-    else if (symKey.includes('FINNIFTY') || symKey.includes('FIN NIFTY') || symKey.includes('FINANCIAL')) symKey = 'FINNIFTY';
     else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
     else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
 
@@ -1092,9 +1185,6 @@ export class InstrumentsService implements OnModuleInit {
     } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
       securityId = '442';
       targetWeekday = 1;
-    } else if (raw.includes('FINNIFTY') || raw.includes('FIN NIFTY')) {
-      securityId = '27';
-      targetWeekday = 2;
     } else if (raw.includes('SENSEX')) {
       securityId = '51';
       exchangeSegment = 'BSE_FNO';
@@ -1160,13 +1250,6 @@ export class InstrumentsService implements OnModuleInit {
       securityId = '442';
       lotSize = this.lotSizes.midcapNifty;
       defaultStep = 25;
-    } else if (raw.includes('FINNIFTY') || raw.includes('FIN NIFTY') || raw.includes('FINANCIAL')) {
-      normalizedName = 'NIFTY FINANCIAL SERVICES';
-      baseSymbol = 'FINNIFTY';
-      securityId = '27';
-      const finConfig = this.lotSizes.indices?.find((i) => i.symbol.toUpperCase().includes('FIN'));
-      lotSize = finConfig?.defaultQuantityInOneLot ?? finConfig?.lotSize ?? 65;
-      defaultStep = 50;
     } else if (raw.includes('SENSEX')) {
       normalizedName = 'SENSEX';
       baseSymbol = 'SENSEX';
@@ -1181,15 +1264,13 @@ export class InstrumentsService implements OnModuleInit {
       lotSize = this.lotSizes.nifty50;
       defaultStep = 50;
     } else {
-      const match = POPULAR_INSTRUMENTS.find(
-        (it) => it.symbol.toUpperCase() === raw || it.name.toUpperCase() === raw,
-      );
+      const match = this.findBySymbol(raw) || this.findBySecurityId(raw);
       if (match) {
-        normalizedName = match.name;
+        normalizedName = match.name || match.symbol;
         baseSymbol = match.symbol;
         securityId = match.securityId;
         lotSize = match.lotSize || 1;
-        exchangeSegment = match.exchangeSegment === 'NSE_EQ' ? 'NSE_FNO' : match.exchangeSegment;
+        exchangeSegment = match.exchangeSegment === 'NSE_EQ' ? 'NSE_FNO' : (match.exchangeSegment || 'NSE_FNO');
       }
     }
 

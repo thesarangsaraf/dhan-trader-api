@@ -56,20 +56,20 @@ This document provides definitive instructions, architecture patterns, constrain
        - `_meta`: Summary metadata for equities & indices
        - Strictly zero option contracts stored in this collection.
      - **Traded Index Options** (Collection `index_options`):
-       - Option contracts are saved **strictly for the indices that the user trades**: `NIFTY`, `BANKNIFTY`, `FINNIFTY`, and `MIDCPNIFTY`.
-       - All single stock options (`OPTSTK`) and non-traded index options (`NIFTYFPI`, `NIFTYNXT50`) are strictly excluded.
+       - Option contracts are saved **strictly for the indices that the user trades**: `NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, and `SENSEX`.
+       - `FINNIFTY`, all single stock options (`OPTSTK`), and non-traded index options (`NIFTYFPI`, `NIFTYNXT50`) are strictly excluded.
        - **Maximum 2 Expiries**: Limited strictly to nearest 2 active expiries (`currentExpiry` and `nextExpiry`).
-       - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `FINNIFTY`, `MIDCPNIFTY`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `expiries`, and array of `contracts`.
-       - Stale/legacy chunk documents (`chunk_*`) are automatically purged.
+       - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, `SENSEX`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `expiries`, and array of `contracts`.
+       - Stale/legacy chunk documents (`chunk_*`) and obsolete index documents (`FINNIFTY`) are automatically purged.
    - **Two Separate Sync Endpoints & UI Controls**:
      - `POST /api/instruments/sync/equities` (CLI `npm run upload:sec-id-mapping`)
      - `POST /api/instruments/sync/options` (CLI `npm run upload:index-options`)
    - **Strict Zero Mock Policy**:
      - If required data is not found in the database, return HTTP 404 and display a prominent warning banner on the UI that data is not found in database with a direct prompt to sync. Never generate synthetic, mock, or fake option contracts.
-   - **NO BSE objects or contracts** (`BSE_EQ`, `BSE_FNO`, `BSE_IDX`) may ever be authored, added, or committed.
+   - Non-traded BSE equities and stock options are strictly excluded; BSE data is permitted exclusively for the `SENSEX` index and option contracts traded by the user.
 
 8. **Dynamic Index Lot Sizes in Firestore (`config/lot_sizes`)**:
-   - Index lot sizes (NIFTY 50, BANK NIFTY, FINNIFTY, MIDCAP NIFTY, SENSEX) are configuration-driven and persisted in Firestore document `config/lot_sizes`.
+   - Index lot sizes (NIFTY 50, BANK NIFTY, MIDCAP NIFTY, SENSEX) are configuration-driven and persisted in Firestore document `config/lot_sizes`.
    - Never hardcode static lot multipliers without consulting `FirestoreService.getLotSizes()` or `InstrumentsService.getLotSizes()`.
    - Modifiable via REST API (`GET /api/instruments/lot-sizes`, `PUT /api/instruments/lot-sizes`, `POST /api/instruments/lot-sizes/reset`) and through the UI Settings Page (`/settings`).
 

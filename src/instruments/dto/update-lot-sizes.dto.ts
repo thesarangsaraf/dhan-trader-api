@@ -14,12 +14,6 @@ export class UpdateLotSizesDto {
   @Min(1)
   bankNifty?: number;
 
-  @ApiPropertyOptional({ description: 'FINNIFTY units per lot', example: 60 })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  finnifty?: number;
-
   @ApiPropertyOptional({ description: 'MIDCAP NIFTY units per lot', example: 120 })
   @IsOptional()
   @IsNumber()
@@ -43,12 +37,6 @@ export class UpdateLotSizesDto {
   @IsNumber()
   @Min(1)
   bankNiftyLots?: number;
-
-  @ApiPropertyOptional({ description: 'FINNIFTY order lots input', example: 5 })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  finniftyLots?: number;
 
   @ApiPropertyOptional({ description: 'MIDCAP NIFTY order lots input', example: 5 })
   @IsOptional()

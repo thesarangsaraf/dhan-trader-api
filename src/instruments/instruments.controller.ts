@@ -81,7 +81,7 @@ export class InstrumentsController {
   @Post('sync/options')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Sync traded index options (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY) into Firestore collection (index_options)',
+    summary: 'Sync traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX) into Firestore collection (index_options)',
     description: 'Uploads option contracts strictly for the 4 traded indices into collection index_options in chunks of 500. Excludes stock options and non-traded indices.',
   })
   @ApiResponse({ status: 200, description: 'Traded index options successfully synced to index_options' })

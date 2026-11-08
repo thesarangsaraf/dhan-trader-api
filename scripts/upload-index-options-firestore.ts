@@ -50,34 +50,36 @@ async function uploadIndexOptionsToFirestore() {
         const exch = exchIdx >= 0 ? parts[exchIdx] : '';
         const secId = secIdIdx >= 0 ? parts[secIdIdx] : '';
         if (!secId) continue;
-        if (exch && exch !== 'NSE' && !exch.startsWith('NSE')) continue;
 
         const instName = instNameIdx >= 0 ? parts[instNameIdx] : '';
         const rawSegment = segmentIdx >= 0 ? parts[segmentIdx] : '';
         const sym = symbolIdx >= 0 ? parts[symbolIdx] : parts[0];
         const name = nameIdx >= 0 && parts[nameIdx] ? parts[nameIdx] : sym;
         const lot = lotSizeIdx >= 0 ? parseInt(parts[lotSizeIdx], 10) || 1 : 1;
+        const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
+
+        const isSensexOption = instName === 'OPTIDX' && (sym.startsWith('SENSEX') || rawSymName === 'BSXOPT');
+        if (exch && exch !== 'NSE' && !exch.startsWith('NSE') && !isSensexOption) continue;
 
         if (instName === 'OPTIDX') {
           const rawExpiry = expiryIdx >= 0 ? parts[expiryIdx] : '';
           const expiryDate = rawExpiry ? rawExpiry.split(' ')[0].trim() : '';
           const strikePrice = strikeIdx >= 0 ? parseFloat(parts[strikeIdx]) || 0 : 0;
           const optType = optTypeIdx >= 0 && parts[optTypeIdx] === 'PE' ? 'PE' : 'CE';
-          const rawSymName = symNameIdx >= 0 ? parts[symNameIdx] : '';
           let root = (rawSymName || sym.split('-')[0].trim()).toUpperCase();
           if (root === 'BANKNIFTY' || root.includes('BANK')) root = 'BANKNIFTY';
           else if (root === 'MIDCPNIFTY' || root.includes('MIDCP') || root.includes('MIDCAP')) root = 'MIDCPNIFTY';
-          else if (root === 'FINNIFTY' || root.includes('FIN NIFTY')) root = 'FINNIFTY';
+          else if (root === 'SENSEX' || root === 'BSXOPT' || root.includes('SENSEX') || sym.startsWith('SENSEX-')) root = 'SENSEX';
           else if (root === 'NIFTY' || root === 'NIFTY 50') root = 'NIFTY';
           else root = '';
 
-          // Strictly filter to traded indices: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY
-          const TRADED_INDICES = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY']);
+          // Strictly filter to traded indices: NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX
+          const TRADED_INDICES = new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']);
           if (!root || !TRADED_INDICES.has(root)) continue;
 
           indexOptions.push({
             symbolName: root,
-            exchange: 'NSE_FNO',
+            exchange: root === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO',
             securityId: secId,
             tradingSymbol: sym,
             customSymbol: name,
@@ -101,11 +103,11 @@ async function uploadIndexOptionsToFirestore() {
     process.exit(1);
   }
 
-  const nseOptions = indexOptions.filter((opt) => !opt.exchange || opt.exchange.startsWith('NSE'));
+  const tradedOptions = indexOptions.filter((opt) => opt.symbolName && new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']).has(opt.symbolName));
 
   console.log(`\n📤 Uploading contracts to Firestore collection [index_options] across dedicated documents (max 2 expiries: current & next)...`);
   const startTime = Date.now();
-  const result = await firestoreService.saveIndexOptions(nseOptions, 2);
+  const result = await firestoreService.saveIndexOptions(tradedOptions, 2);
   const elapsed = Date.now() - startTime;
 
   console.log(`✅ Upload complete in ${elapsed}ms!`);
