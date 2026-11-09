@@ -58,7 +58,7 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     this.telegramBotToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
     this.telegramChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
     this.port = parseInt(process.env.PORT || '8000', 10);
-    this.host = process.env.HOST || '127.0.0.1';
+    this.host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
     this.pollIntervalMs = parseInt(process.env.POLL_INTERVAL_MS || '4000', 10);
     this.dhanApiBase = (process.env.DHAN_API_BASE || 'https://api.dhan.co/v2').trim();
 

@@ -9,6 +9,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors();
+  app.enableShutdownHooks();
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
@@ -45,8 +46,8 @@ async function bootstrap() {
   });
 
   const configService = app.get(ConfigService);
-  const port = configService.port || 8000;
-  const host = configService.host || '127.0.0.1';
+  const port = Number(process.env.PORT) || configService.port || 8000;
+  const host = process.env.HOST || configService.host || '127.0.0.1';
 
   await app.listen(port, host);
 

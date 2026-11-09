@@ -1,0 +1,51 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies & Build artifacts (fresh build in Docker)
+node_modules
+dist
+build
+*.tsbuildinfo
+
+# Test suites & coverage
+tests
+coverage
+.nyc_output
+
+# Local ad-hoc scripts (not needed for runtime)
+scripts
+
+# Documentation & Agent directives
+README.md
+AGENTS.md
+
+# Secrets, local environment files & credentials
+.env
+.env.*
+!.env.example
+*service-account*.json
+*serviceaccount*.json
+google-service-account-key.json
+
+# Logs & temp files
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp
+temp
+.cache
+
+# Editor & OS files
+.idea
+.vscode
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Docker artifacts
+Dockerfile
+.dockerignore

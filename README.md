@@ -266,6 +266,79 @@ Updates `botToken` and `chatId` dynamically.
 
 ---
 
+## 🐳 Docker & GCP Cloud Run Deployment
+
+The repository includes an optimized multi-stage [Dockerfile](file:///Users/sarangsaraf/git/dhan-trader-api/Dockerfile) tailored for **GCP Cloud Run** and serverless container runtimes. The production runtime is built on `node:22-alpine`, executes as an unprivileged user (`node`), includes `dumb-init` for graceful `SIGTERM` process supervision, and achieves a compressed download size of ~**55–65 MB** in Google Artifact Registry (~**180 MB** uncompressed).
+
+### 1. Authenticate Docker with GCP Artifact Registry
+
+Google Artifact Registry for this project is located in **`asia-south1` (Mumbai)** under repository **`dhan-api-docker`**:
+```text
+asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest
+```
+
+Choose either authentication method:
+
+#### Option A: Using `gcloud` CLI (Standard)
+```bash
+gcloud auth configure-docker asia-south1-docker.pkg.dev
+```
+
+#### Option B: Using Service Account Key (No `gcloud` CLI required)
+```bash
+cat google-service-account-key.json | docker login -u _json_key --password-stdin https://asia-south1-docker.pkg.dev
+```
+
+---
+
+### 2. Set Image URL & Build Image for Cloud Run
+
+> [!IMPORTANT]
+> When building on macOS (Apple Silicon M-series), always pass `--platform linux/amd64` to ensure the container runs natively on Cloud Run's x86_64 architecture without architecture mismatch errors.
+
+```bash
+# 1. Export production image tag
+export IMAGE_TAG="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest"
+
+# 2. Build multi-stage production Docker image
+docker build --platform linux/amd64 -t $IMAGE_TAG .
+```
+
+---
+
+### 3. Push Image to GCP Artifact Registry
+
+```bash
+docker push $IMAGE_TAG
+```
+
+---
+
+### 4. Deploy to GCP Cloud Run
+
+#### Option A: Via Google Cloud Console (Web UI)
+1. Go to **Google Cloud Console** → **Artifact Registry**.
+2. Click repository **`dhan-api-docker`** (Region: `asia-south1`) → click **`dhan-trader-api`** → select tag **`latest`**.
+3. Click **Deploy to Cloud Run**.
+4. Configure service settings:
+   - **Region**: `asia-south1 (Mumbai)`.
+   - **Authentication**: Allow unauthenticated invocations (or require IAM as preferred).
+   - **Container Port**: `8080`.
+   - **Environment Variables**: Cloud Run automatically supplies `PORT=8080`. Add `FIRESTORE_PROJECT_ID=dhan-trader-514002` and `FIRESTORE_DATABASE_ID=dhan-trader-firebase-db`.
+
+#### Option B: Via `gcloud` CLI
+```bash
+gcloud run deploy dhan-trader-api \
+  --image $IMAGE_TAG \
+  --platform managed \
+  --region asia-south1 \
+  --port 8080 \
+  --allow-unauthenticated \
+  --set-env-vars "FIRESTORE_PROJECT_ID=dhan-trader-514002,FIRESTORE_DATABASE_ID=dhan-trader-firebase-db"
+```
+
+---
+
 ## 📂 Project Structure
 
 ```
@@ -320,6 +393,8 @@ dhan-trader/
 │   ├── auth.service.spec.ts           # TypeScript unit tests for AuthService & JWT decoding
 │   └── orders.service.spec.ts         # TypeScript unit tests for OrdersService
 ├── .env                               # Environment credentials
+├── .dockerignore                      # Build context exclusions
+├── Dockerfile                         # Production multi-stage Docker build (Cloud Run)
 ├── package.json                       # Scripts, NestJS & TypeScript dependencies
 ├── tsconfig.json                      # TypeScript compiler configuration
 └── README.md                          # NestJS architecture & API documentation

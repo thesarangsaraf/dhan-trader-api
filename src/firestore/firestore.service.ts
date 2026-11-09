@@ -249,9 +249,23 @@ export class FirestoreService implements OnModuleInit {
       this.keyFileFound = !!foundPath;
 
       if (!foundPath) {
-        this.initError = `Service account key file not found at: ${this.keyFilePath}`;
-        this.logger.warn(`Firestore not initialized: ${this.initError}`);
-        return false;
+        // Fallback to Google Application Default Credentials (e.g. GCP Cloud Run, Compute Engine)
+        try {
+          this.db = new Firestore({
+            projectId: projectId,
+            databaseId: databaseId,
+            ignoreUndefinedProperties: true,
+          });
+          this.initError = null;
+          this.logger.log(
+            `✅ Google Cloud Firestore connected via Application Default Credentials (Project: ${projectId}, Database: ${databaseId})`,
+          );
+          return true;
+        } catch (adcErr: any) {
+          this.initError = `Service account key file not found at: ${this.keyFilePath}`;
+          this.logger.warn(`Firestore not initialized: ${this.initError}`);
+          return false;
+        }
       }
 
       // 2. Read and parse service account credentials
@@ -1414,8 +1428,8 @@ export class FirestoreService implements OnModuleInit {
       // 3. Application Configuration (Port, Host, Poll Interval, Dhan API Base)
       const appDoc = await this.getAppConfig();
       if (appDoc) {
-        if (appDoc.port) this.config.port = Number(appDoc.port);
-        if (appDoc.host) this.config.host = String(appDoc.host);
+        if (appDoc.port && !process.env.PORT) this.config.port = Number(appDoc.port);
+        if (appDoc.host && !process.env.HOST) this.config.host = String(appDoc.host);
         if (appDoc.pollIntervalMs) this.config.pollIntervalMs = Number(appDoc.pollIntervalMs);
         if (appDoc.dhanApiBase) this.config.dhanApiBase = String(appDoc.dhanApiBase);
         this.logger.log(`⚙️ Application settings synced from Firestore (config/app)`);
