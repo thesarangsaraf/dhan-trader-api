@@ -1,7 +1,8 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FirestoreService } from './firestore.service';
 import { ConfigService } from '../config/config.service';
+import { UpdateTradeSecurityDto } from './dto/update-trade-security.dto';
 
 @ApiTags('Firestore')
 @Controller('api/firestore')
@@ -75,6 +76,29 @@ export class FirestoreController {
     return {
       storedInFirestore: !!meta,
       metadata: meta,
+    };
+  }
+
+  @Get('trade-security')
+  @ApiOperation({ summary: 'Get trade security configuration status from Firestore (config/security)' })
+  @ApiResponse({ status: 200, description: 'Security config status' })
+  async getTradeSecurityStatus() {
+    const sec = await this.firestoreService.getTradeSecurityConfig();
+    return {
+      configured: !!(sec?.orderPassword || sec?.password),
+      updatedAt: sec?.updatedAt,
+    };
+  }
+
+  @Post('trade-security')
+  @ApiOperation({ summary: 'Update trade security / order authorization password in Firestore (config/security)' })
+  @ApiResponse({ status: 200, description: 'Trade security password saved' })
+  async updateTradeSecurity(@Body() dto: UpdateTradeSecurityDto) {
+    const res = await this.firestoreService.saveTradePassword(dto.password);
+    return {
+      success: true,
+      message: 'Trade password updated in Firestore (config/security)',
+      writeTime: res.writeTime,
     };
   }
 }

@@ -487,6 +487,19 @@ test('FirestoreService (NestJS)', async (t) => {
     assert.strictEqual(appDoc?.host, '0.0.0.0');
     assert.strictEqual(appDoc?.pollIntervalMs, 5000);
 
+    // 3. Save, retrieve, and verify Trade Security password (config/security)
+    const secSave = await service.saveTradePassword('3646');
+    assert.strictEqual(secSave.success, true);
+
+    const secDoc = await service.getTradeSecurityConfig();
+    assert.strictEqual(secDoc?.orderPassword, '3646');
+
+    const validCheck = await service.verifyTradePassword('3646');
+    assert.strictEqual(validCheck, true);
+
+    const invalidCheck = await service.verifyTradePassword('9999');
+    assert.strictEqual(invalidCheck, false);
+
     // Restore mockDb
     service.setFirestoreInstance(mockDb);
   });

@@ -134,4 +134,21 @@ export class CreateConditionalAlertDto {
   @ValidateNested()
   @Type(() => StopLossConfigDto)
   stopLoss?: StopLossConfigDto;
+
+  @ApiPropertyOptional({
+    description: 'Order authorization password verified against Firestore config/security',
+    example: '••••',
+  })
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @ApiPropertyOptional({ description: 'Internal flag indicating automated stop loss child alert' })
+  @IsOptional()
+  isStopLossAlert?: boolean;
+
+  @ApiPropertyOptional({ description: 'Parent alert ID for linked stop loss alert' })
+  @IsOptional()
+  @IsString()
+  parentAlertId?: string;
 }

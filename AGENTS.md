@@ -73,6 +73,12 @@ This document provides definitive instructions, architecture patterns, constrain
    - Never hardcode static lot multipliers without consulting `FirestoreService.getLotSizes()` or `InstrumentsService.getLotSizes()`.
    - Modifiable via REST API (`GET /api/instruments/lot-sizes`, `PUT /api/instruments/lot-sizes`, `POST /api/instruments/lot-sizes/reset`) and through the UI Settings Page (`/settings`).
 
+9. **Strict Zero Static Fallback & Zero Hardcoded Data Policy**:
+   - **Never author, commit, or inject static fallback data or hardcoded credentials anywhere in the backend API or frontend UI codebase.**
+   - All authorization credentials, trade passwords, option contracts, index prices, lot sizes, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
+   - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. `password.trim() === '3646'`, mock orders, fake prices, or default passwords in source code).
+   - **Zero Secrets / Passwords in UI**: Never expose or hint at sensitive credentials (such as passwords, PINs, or tokens) in UI placeholders, helper text, error messages, labels, or documentation examples (e.g. never write `(e.g. 3646)` or display default credentials). Placeholders must remain generic (e.g., `"Enter trade password"`).
+
 ---
 
 ## 📂 Architecture & Directory Structure

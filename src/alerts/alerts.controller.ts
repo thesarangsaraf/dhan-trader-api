@@ -4,6 +4,7 @@ import { AlertsService } from './alerts.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
+import { VerifyOrderPasswordDto } from './dto/verify-order-password.dto';
 
 @ApiTags('Alerts')
 @Controller('api/alerts')
@@ -81,8 +82,24 @@ export class AlertsController {
   })
   @ApiResponse({ status: 201, description: 'Alert with conditional order placed successfully' })
   @ApiResponse({ status: 400, description: 'Validation failed' })
+  @ApiResponse({ status: 401, description: 'Order authorization password incorrect or missing' })
   createConditionalAlert(@Body() dto: CreateConditionalAlertDto) {
     return this.alertsService.createConditionalAlert(dto);
+  }
+
+  @Post('verify-order-password')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Verify order authorization password against Firestore config/security',
+    description: 'Verifies the user-entered password before placing an alert with conditional order.',
+  })
+  @ApiResponse({ status: 200, description: 'Verification result' })
+  async verifyOrderPassword(@Body() dto: VerifyOrderPasswordDto) {
+    const valid = await this.alertsService.verifyTradePassword(dto.password);
+    return {
+      valid,
+      message: valid ? 'Password verified successfully' : 'Incorrect trade authorization password',
+    };
   }
 
   @Post('test-chime')

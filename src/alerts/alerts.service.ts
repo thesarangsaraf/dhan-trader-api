@@ -1,9 +1,10 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, NotFoundException, BadRequestException, UnauthorizedException, InternalServerErrorException, Optional } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { DhanService } from '../dhan/dhan.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { YahooFinanceService } from '../yahoo/yahoo.service';
 import { InstrumentsService } from '../instruments/instruments.service';
+import { FirestoreService } from '../firestore/firestore.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
 import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
@@ -32,7 +33,20 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     private readonly telegramService: TelegramService,
     @Optional() private readonly yahooService?: YahooFinanceService,
     @Optional() private readonly instrumentsService?: InstrumentsService,
+    @Optional() private readonly firestoreService?: FirestoreService,
   ) {}
+
+  /**
+   * Verify trade authorization password strictly against Firestore config/security.
+   * Strict Zero Static Fallback Policy: Never defaults to a hardcoded password.
+   */
+  async verifyTradePassword(password: string): Promise<boolean> {
+    if (!password || !password.trim()) return false;
+    if (!this.firestoreService) {
+      throw new InternalServerErrorException('Firestore security service is unavailable for trade password verification.');
+    }
+    return this.firestoreService.verifyTradePassword(password);
+  }
 
   onModuleInit() {
     this.startMonitor();
@@ -828,6 +842,17 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     if (rawOrders.length === 0) {
       throw new BadRequestException('At least one conditional order must be provided in conditionalOrder or conditionalOrders');
+    }
+
+    // Require and verify order authorization password stored in Firestore config/security
+    if (!dto.isStopLossAlert) {
+      if (!dto.password || !dto.password.trim()) {
+        throw new UnauthorizedException('Order authorization password is required to place an alert with order.');
+      }
+      const isValid = await this.verifyTradePassword(dto.password);
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid order authorization password. Please provide the correct password.');
+      }
     }
 
     // Validate and enrich each order

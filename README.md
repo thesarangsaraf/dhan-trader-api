@@ -402,5 +402,17 @@ dhan-trader/
 
 ---
 
+## 🔒 Security & Strict Zero Static Fallback Policy
+
+1. **No Static Fallback Credentials or Data**:
+   - The backend and UI code contain **zero hardcoded fallback passwords, static security PINs, mock instruments, or synthetic option contracts**.
+   - All credentials and configurations (including the trade authorization password) are fetched strictly and dynamically from Google Cloud Firestore (`config/security`).
+   - If required security configurations or data are unavailable, the system explicitly rejects the request with an error. No static fallbacks (e.g. `password.trim() === '3646'`) are allowed in source code.
+
+2. **Zero Secret Exposure on UI / Docs**:
+   - Passwords, tokens, and PINs are never exposed in UI placeholder text, helper labels, error toasts, or Swagger documentation examples.
+
+---
+
 ## 🛡️ License
 MIT

@@ -184,6 +184,9 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     saveTelegramConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
     getAppConfig: async () => ({ port: 8000, host: '127.0.0.1', pollIntervalMs: 4000, dhanApiBase: 'https://api.dhan.co/v2' }),
     saveAppConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    getTradeSecurityConfig: async () => ({ orderPassword: '3646', password: '3646', updatedAt: new Date().toISOString() }),
+    saveTradePassword: async (password: string) => ({ success: true, writeTime: new Date().toISOString() }),
+    verifyTradePassword: async (input: string) => input === '3646',
     syncAllConfigFromFirestore: async () => {},
     getStatus: () => ({
       configured: true,
@@ -833,12 +836,57 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(resNotFound.status, 404);
   });
 
-  await t.test('POST /api/alerts/conditional-order creates alert with conditional order', async () => {
+  await t.test('POST /api/alerts/verify-order-password verifies password against Firestore config/security', async () => {
+    const resWrong = await makeMockRequest('POST', '/api/alerts/verify-order-password', {
+      password: 'wrong',
+    });
+    assert.strictEqual(resWrong.status, 200);
+    assert.strictEqual(resWrong.body.valid, false);
+
+    const resValid = await makeMockRequest('POST', '/api/alerts/verify-order-password', {
+      password: '3646',
+    });
+    assert.strictEqual(resValid.status, 200);
+    assert.strictEqual(resValid.body.valid, true);
+  });
+
+  await t.test('POST /api/alerts/conditional-order validates order password and creates alert with conditional order', async () => {
+    // 1. Rejects when password missing
+    const resNoPass = await makeMockRequest('POST', '/api/alerts/conditional-order', {
+      instrument: 'NIFTY 50',
+      targetPrice: 25500.0,
+      conditionalOrder: {
+        symbol: 'NIFTY 25500 CE',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 50,
+      },
+    });
+    assert.strictEqual(resNoPass.status, 401);
+
+    // 2. Rejects when password incorrect
+    const resBadPass = await makeMockRequest('POST', '/api/alerts/conditional-order', {
+      instrument: 'NIFTY 50',
+      targetPrice: 25500.0,
+      password: '9999',
+      conditionalOrder: {
+        symbol: 'NIFTY 25500 CE',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 50,
+      },
+    });
+    assert.strictEqual(resBadPass.status, 401);
+
+    // 3. Succeeds with correct trade password (3646)
     const res = await makeMockRequest('POST', '/api/alerts/conditional-order', {
       instrument: 'NIFTY 50',
       targetPrice: 25500.0,
       operator: 'GREATER_THAN_OR_EQUAL',
       remarks: 'Buy Call option when Nifty breaks 25500',
+      password: '3646',
       conditionalOrder: {
         symbol: 'NIFTY 25500 CE',
         transactionType: 'BUY',
@@ -1094,6 +1142,18 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.storedInFirestore, true);
     assert.strictEqual(res.body.metadata.collection, 'sec_id_to_name_mapping');
+  });
+
+  await t.test('GET /api/firestore/trade-security returns status and POST updates password', async () => {
+    const resGet = await makeMockRequest('GET', '/api/firestore/trade-security');
+    assert.strictEqual(resGet.status, 200);
+    assert.strictEqual(resGet.body.configured, true);
+
+    const resPost = await makeMockRequest('POST', '/api/firestore/trade-security', {
+      password: '3646',
+    });
+    assert.strictEqual(resPost.status, 201);
+    assert.strictEqual(resPost.body.success, true);
   });
 
   await t.test('GET /api/instruments/lot-sizes returns index lot sizes config', async () => {

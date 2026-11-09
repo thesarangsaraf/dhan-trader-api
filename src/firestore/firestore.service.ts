@@ -88,6 +88,12 @@ export interface AppConfig {
   updatedAt?: string;
 }
 
+export interface TradeSecurityConfig {
+  orderPassword: string;
+  password?: string;
+  updatedAt?: string;
+}
+
 export interface IndexConfigItem {
   symbol: string;
   name: string;
@@ -207,6 +213,7 @@ export class FirestoreService implements OnModuleInit {
   private keyFilePath: string | null = null;
   private keyFileFound = false;
   private initError: string | null = null;
+  private cachedOrderPassword: string | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -1394,6 +1401,72 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
+   * Helper: Retrieve trade security configuration from Firestore (config/security).
+   */
+  public async getTradeSecurityConfig(): Promise<TradeSecurityConfig | null> {
+    if (!this.isReady()) return null;
+    return this.getDoc<TradeSecurityConfig>('config', 'security');
+  }
+
+  /**
+   * Helper: Save or update trade security password in Firestore (config/security).
+   */
+  public async saveTradePassword(
+    password: string,
+  ): Promise<{ success: boolean; writeTime: string }> {
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Check credentials.');
+    }
+    const cleanPwd = (password || '').trim();
+    const payload: TradeSecurityConfig = {
+      orderPassword: cleanPwd,
+      password: cleanPwd,
+      updatedAt: new Date().toISOString(),
+    };
+    const res = await this.setDoc('config', 'security', payload, true);
+    this.cachedOrderPassword = cleanPwd;
+    this.logger.log(`⚙️ Saved Trade Security password to Firestore (config/security)`);
+    return {
+      success: true,
+      writeTime: res.writeTime,
+    };
+  }
+
+  /**
+   * Helper: Verify user-provided trade password strictly against Firestore (config/security).
+   * Strict Zero Static Fallback Policy: Never defaults to a hardcoded password.
+   */
+  public async verifyTradePassword(inputPassword: string): Promise<boolean> {
+    if (!inputPassword) return false;
+    const cleanInput = inputPassword.trim();
+    if (!cleanInput) return false;
+
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Cannot verify trade security password.');
+    }
+
+    let storedPassword = this.cachedOrderPassword;
+    if (!storedPassword) {
+      try {
+        const secDoc = await this.getTradeSecurityConfig();
+        if (secDoc?.orderPassword || secDoc?.password) {
+          storedPassword = (secDoc.orderPassword || secDoc.password || '').trim();
+          this.cachedOrderPassword = storedPassword;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not read trade password from Firestore: ${err.message}`);
+      }
+    }
+
+    if (!storedPassword) {
+      this.logger.error('No trade security password found in Firestore (config/security). Verification failed.');
+      return false;
+    }
+
+    return cleanInput === storedPassword;
+  }
+
+  /**
    * Synchronizes all application settings, Telegram credentials, and Dhan tokens
    * from Firestore database directly into in-memory ConfigService state.
    */
@@ -1433,6 +1506,19 @@ export class FirestoreService implements OnModuleInit {
         if (appDoc.pollIntervalMs) this.config.pollIntervalMs = Number(appDoc.pollIntervalMs);
         if (appDoc.dhanApiBase) this.config.dhanApiBase = String(appDoc.dhanApiBase);
         this.logger.log(`⚙️ Application settings synced from Firestore (config/app)`);
+      }
+
+      // 4. Trade Security Password (config/security)
+      try {
+        const secDoc = await this.getTradeSecurityConfig();
+        if (secDoc?.orderPassword || secDoc?.password) {
+          this.cachedOrderPassword = (secDoc.orderPassword || secDoc.password || '').trim();
+          this.logger.log(`🔐 Trade security password synced from Firestore (config/security)`);
+        } else {
+          this.logger.warn(`⚠️ No trade security password found in Firestore (config/security). Please configure one.`);
+        }
+      } catch (secErr: any) {
+        this.logger.warn(`Could not sync trade security password from Firestore: ${secErr.message}`);
       }
     } catch (err: any) {
       this.logger.warn(`Could not sync configurations from Firestore: ${err.message}`);

@@ -86,4 +86,12 @@ export class CreateAlertDto {
   @IsOptional()
   @IsString()
   expDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Order authorization password required when placing alerts with attached orders',
+    example: '••••',
+  })
+  @IsOptional()
+  @IsString()
+  password?: string;
 }
