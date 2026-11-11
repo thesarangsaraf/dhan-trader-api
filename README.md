@@ -339,6 +339,64 @@ gcloud run deploy dhan-trader-api \
 
 ---
 
+### 5. Restarting / Updating Service on New Image Push
+
+Cloud Run revisions are immutable and pin the exact container image digest (`sha256`). Pushing a new Docker image under `:latest` will **not** automatically restart or update running instances. To deploy your newly pushed image:
+
+#### Option A: Fast Revision Update via `gcloud` CLI (Recommended)
+Pulls the latest image digest for `$IMAGE_TAG` and performs a zero-downtime rolling restart:
+```bash
+gcloud run services update dhan-trader-api \
+  --image asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest \
+  --region asia-south1
+```
+
+#### Option B: Complete Build, Push & Restart Pipeline
+Run the entire end-to-end workflow from your local terminal:
+```bash
+export IMAGE_TAG="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest"
+
+# 1. Build for Cloud Run architecture (linux/amd64)
+docker build --platform linux/amd64 -t $IMAGE_TAG .
+
+# 2. Push image to Artifact Registry
+docker push $IMAGE_TAG
+
+# 3. Restart Cloud Run with the new revision
+gcloud run services update dhan-trader-api --image $IMAGE_TAG --region asia-south1
+```
+
+#### Option C: Via Google Cloud Console (Web UI)
+1. Go to **Google Cloud Console** → **Cloud Run** → **`dhan-trader-api`** (Region: `asia-south1`).
+2. Click **Edit & Deploy New Revision** at the top bar.
+3. Keep the image URL unchanged and click **Deploy**. Cloud Run re-resolves the tag to the newest digest and deploys the new revision.
+
+> [!TIP]
+> **Forcing an Instance Restart Without Changing Images**:
+> If you need to force-restart all Cloud Run container instances without rebuilding or pushing an image, update a timestamp environment variable:
+> ```bash
+> gcloud run services update dhan-trader-api \
+>   --region asia-south1 \
+>   --update-env-vars RESTART_TIMESTAMP="$(date +%s)"
+> ```
+
+---
+
+### 6. Delete Untagged Images from Artifact Registry
+
+Repeatedly pushing builds to `:latest` leaves previous image versions untagged ("dangling") in Google Artifact Registry. Run this command to prune and delete all untagged images:
+
+```bash
+IMAGE_PATH="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api"
+
+for digest in $(gcloud artifacts docker images list $IMAGE_PATH --filter="NOT tags:*" --format="value(IMAGE)"); do
+  echo "Deleting untagged image: $digest"
+  gcloud artifacts docker images delete "$digest" --delete-tags --quiet
+done
+```
+
+---
+
 ## 📂 Project Structure
 
 ```
