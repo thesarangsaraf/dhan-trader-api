@@ -153,7 +153,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     }),
     getOptionChainExpiryList: async () => ({
       ok: true,
-      data: ['2026-11-05', '2026-11-12', '2026-11-19'],
+      data: ['2026-11-05', '2026-11-19', '2026-11-26'],
     }),
     getOptionChain: async () => ({
       ok: true,
@@ -178,6 +178,10 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
 
   const mockFirestoreService = {
     isReady: () => true,
+    getDoc: async () => null,
+    setDoc: async () => ({ success: true }),
+    deleteDoc: async () => ({ success: true }),
+    listDocuments: async () => [],
     getDhanToken: async () => null,
     saveDhanToken: async () => ({ success: true, writeTime: new Date().toISOString() }),
     getTelegramConfig: async () => ({ botToken: 'test_token', chatId: 'test_chat' }),
@@ -205,14 +209,14 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       collections: ['orders'],
     }),
     getIndexOptions: async () => [
-      // NIFTY 2026-11-12
+      // NIFTY 2026-11-19
       {
         symbolName: 'NIFTY',
         exchange: 'NSE_FNO',
         securityId: '45019',
         tradingSymbol: 'NIFTY-Nov2026-25450-CE',
         customSymbol: 'NIFTY 12 NOV 25450 CALL',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25450,
         optionType: 'CE',
         lotSize: 50,
@@ -223,7 +227,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45020',
         tradingSymbol: 'NIFTY-Nov2026-25450-PE',
         customSymbol: 'NIFTY 12 NOV 25450 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25450,
         optionType: 'PE',
         lotSize: 50,
@@ -234,7 +238,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45021',
         tradingSymbol: 'NIFTY 24500 CE',
         customSymbol: 'NIFTY 24500 CE',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25500,
         optionType: 'CE',
         lotSize: 50,
@@ -245,7 +249,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45022',
         tradingSymbol: 'NIFTY-Nov2026-25500-PE',
         customSymbol: 'NIFTY 12 NOV 25500 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25500,
         optionType: 'PE',
         lotSize: 50,
@@ -256,7 +260,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45023',
         tradingSymbol: 'NIFTY-Nov2026-25550-CE',
         customSymbol: 'NIFTY 12 NOV 25550 CALL',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25550,
         optionType: 'CE',
         lotSize: 50,
@@ -267,19 +271,19 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45024',
         tradingSymbol: 'NIFTY-Nov2026-25550-PE',
         customSymbol: 'NIFTY 12 NOV 25550 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 25550,
         optionType: 'PE',
         lotSize: 50,
       },
-      // NIFTY 2026-11-19
+      // NIFTY 2026-11-26
       {
         symbolName: 'NIFTY',
         exchange: 'NSE_FNO',
         securityId: '45025',
         tradingSymbol: 'NIFTY-Nov2026-25450-CE',
         customSymbol: 'NIFTY 19 NOV 25450 CALL',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25450,
         optionType: 'CE',
         lotSize: 50,
@@ -290,7 +294,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45026',
         tradingSymbol: 'NIFTY-Nov2026-25450-PE',
         customSymbol: 'NIFTY 19 NOV 25450 PUT',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25450,
         optionType: 'PE',
         lotSize: 50,
@@ -301,7 +305,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45027',
         tradingSymbol: 'NIFTY-Nov2026-25500-CE',
         customSymbol: 'NIFTY 19 NOV 25500 CALL',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25500,
         optionType: 'CE',
         lotSize: 50,
@@ -312,7 +316,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45028',
         tradingSymbol: 'NIFTY-Nov2026-25500-PE',
         customSymbol: 'NIFTY 19 NOV 25500 PUT',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25500,
         optionType: 'PE',
         lotSize: 50,
@@ -323,7 +327,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45029',
         tradingSymbol: 'NIFTY-Nov2026-25550-CE',
         customSymbol: 'NIFTY 19 NOV 25550 CALL',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25550,
         optionType: 'CE',
         lotSize: 50,
@@ -334,19 +338,19 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '45030',
         tradingSymbol: 'NIFTY-Nov2026-25550-PE',
         customSymbol: 'NIFTY 19 NOV 25550 PUT',
-        expiryDate: '2026-11-19',
+        expiryDate: '2026-11-26',
         strikePrice: 25550,
         optionType: 'PE',
         lotSize: 50,
       },
-      // BANKNIFTY 2026-11-12
+      // BANKNIFTY 2026-11-19
       {
         symbolName: 'BANKNIFTY',
         exchange: 'NSE_FNO',
         securityId: '52008',
         tradingSymbol: 'BANKNIFTY-Nov2026-51900-CE',
         customSymbol: 'BANKNIFTY 12 NOV 51900 CALL',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 51900,
         optionType: 'CE',
         lotSize: 30,
@@ -357,7 +361,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '52009',
         tradingSymbol: 'BANKNIFTY-Nov2026-51900-PE',
         customSymbol: 'BANKNIFTY 12 NOV 51900 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 51900,
         optionType: 'PE',
         lotSize: 30,
@@ -368,7 +372,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '52010',
         tradingSymbol: 'BANKNIFTY-Nov2026-52000-CE',
         customSymbol: 'BANKNIFTY 12 NOV 52000 CALL',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 52000,
         optionType: 'CE',
         lotSize: 30,
@@ -379,7 +383,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '52011',
         tradingSymbol: 'BANKNIFTY-Nov2026-52000-PE',
         customSymbol: 'BANKNIFTY 12 NOV 52000 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 52000,
         optionType: 'PE',
         lotSize: 30,
@@ -390,7 +394,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '52012',
         tradingSymbol: 'BANKNIFTY-Nov2026-52100-CE',
         customSymbol: 'BANKNIFTY 12 NOV 52100 CALL',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 52100,
         optionType: 'CE',
         lotSize: 30,
@@ -401,7 +405,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         securityId: '52013',
         tradingSymbol: 'BANKNIFTY-Nov2026-52100-PE',
         customSymbol: 'BANKNIFTY 12 NOV 52100 PUT',
-        expiryDate: '2026-11-12',
+        expiryDate: '2026-11-19',
         strikePrice: 52100,
         optionType: 'PE',
         lotSize: 30,
@@ -415,14 +419,14 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     }),
     getSecIdMapping: async () => ({
       options: [
-        // NIFTY 2026-11-12
+        // NIFTY 2026-11-19
         {
           symbolName: 'NIFTY',
           exchange: 'NSE_FNO',
           securityId: '45019',
           tradingSymbol: 'NIFTY-Nov2026-25450-CE',
           customSymbol: 'NIFTY 12 NOV 25450 CALL',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25450,
           optionType: 'CE',
           lotSize: 50,
@@ -433,7 +437,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45020',
           tradingSymbol: 'NIFTY-Nov2026-25450-PE',
           customSymbol: 'NIFTY 12 NOV 25450 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25450,
           optionType: 'PE',
           lotSize: 50,
@@ -444,7 +448,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45021',
           tradingSymbol: 'NIFTY 24500 CE',
           customSymbol: 'NIFTY 24500 CE',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25500,
           optionType: 'CE',
           lotSize: 50,
@@ -455,7 +459,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45022',
           tradingSymbol: 'NIFTY-Nov2026-25500-PE',
           customSymbol: 'NIFTY 12 NOV 25500 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25500,
           optionType: 'PE',
           lotSize: 50,
@@ -466,7 +470,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45023',
           tradingSymbol: 'NIFTY-Nov2026-25550-CE',
           customSymbol: 'NIFTY 12 NOV 25550 CALL',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25550,
           optionType: 'CE',
           lotSize: 50,
@@ -477,19 +481,19 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45024',
           tradingSymbol: 'NIFTY-Nov2026-25550-PE',
           customSymbol: 'NIFTY 12 NOV 25550 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 25550,
           optionType: 'PE',
           lotSize: 50,
         },
-        // NIFTY 2026-11-19
+        // NIFTY 2026-11-26
         {
           symbolName: 'NIFTY',
           exchange: 'NSE_FNO',
           securityId: '45025',
           tradingSymbol: 'NIFTY-Nov2026-25450-CE',
           customSymbol: 'NIFTY 19 NOV 25450 CALL',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25450,
           optionType: 'CE',
           lotSize: 50,
@@ -500,7 +504,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45026',
           tradingSymbol: 'NIFTY-Nov2026-25450-PE',
           customSymbol: 'NIFTY 19 NOV 25450 PUT',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25450,
           optionType: 'PE',
           lotSize: 50,
@@ -511,7 +515,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45027',
           tradingSymbol: 'NIFTY-Nov2026-25500-CE',
           customSymbol: 'NIFTY 19 NOV 25500 CALL',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25500,
           optionType: 'CE',
           lotSize: 50,
@@ -522,7 +526,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45028',
           tradingSymbol: 'NIFTY-Nov2026-25500-PE',
           customSymbol: 'NIFTY 19 NOV 25500 PUT',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25500,
           optionType: 'PE',
           lotSize: 50,
@@ -533,7 +537,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45029',
           tradingSymbol: 'NIFTY-Nov2026-25550-CE',
           customSymbol: 'NIFTY 19 NOV 25550 CALL',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25550,
           optionType: 'CE',
           lotSize: 50,
@@ -544,19 +548,19 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '45030',
           tradingSymbol: 'NIFTY-Nov2026-25550-PE',
           customSymbol: 'NIFTY 19 NOV 25550 PUT',
-          expiryDate: '2026-11-19',
+          expiryDate: '2026-11-26',
           strikePrice: 25550,
           optionType: 'PE',
           lotSize: 50,
         },
-        // BANKNIFTY 2026-11-12
+        // BANKNIFTY 2026-11-19
         {
           symbolName: 'BANKNIFTY',
           exchange: 'NSE_FNO',
           securityId: '52008',
           tradingSymbol: 'BANKNIFTY-Nov2026-51900-CE',
           customSymbol: 'BANKNIFTY 12 NOV 51900 CALL',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 51900,
           optionType: 'CE',
           lotSize: 30,
@@ -567,7 +571,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '52009',
           tradingSymbol: 'BANKNIFTY-Nov2026-51900-PE',
           customSymbol: 'BANKNIFTY 12 NOV 51900 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 51900,
           optionType: 'PE',
           lotSize: 30,
@@ -578,7 +582,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '52010',
           tradingSymbol: 'BANKNIFTY-Nov2026-52000-CE',
           customSymbol: 'BANKNIFTY 12 NOV 52000 CALL',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 52000,
           optionType: 'CE',
           lotSize: 30,
@@ -589,7 +593,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '52011',
           tradingSymbol: 'BANKNIFTY-Nov2026-52000-PE',
           customSymbol: 'BANKNIFTY 12 NOV 52000 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 52000,
           optionType: 'PE',
           lotSize: 30,
@@ -600,7 +604,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '52012',
           tradingSymbol: 'BANKNIFTY-Nov2026-52100-CE',
           customSymbol: 'BANKNIFTY 12 NOV 52100 CALL',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 52100,
           optionType: 'CE',
           lotSize: 30,
@@ -611,7 +615,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
           securityId: '52013',
           tradingSymbol: 'BANKNIFTY-Nov2026-52100-PE',
           customSymbol: 'BANKNIFTY 12 NOV 52100 PUT',
-          expiryDate: '2026-11-12',
+          expiryDate: '2026-11-19',
           strikePrice: 52100,
           optionType: 'PE',
           lotSize: 30,
@@ -652,6 +656,8 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       totalChunks: Math.ceil((items.length || 1) / chunkSize),
       writeTime: new Date().toISOString(),
     }),
+    deleteSecIdMapping: async () => ({ success: true, deletedCount: 3 }),
+    deleteIndexOptions: async () => ({ success: true, deletedCount: 4 }),
     getSecIdMappingMetadata: async () => ({
       collection: 'sec_id_to_name_mapping',
       totalInstruments: 20,
@@ -709,13 +715,13 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
 
   const expressApp = app.getHttpAdapter().getInstance();
 
-  function makeMockRequest(method: string, url: string, body?: any): Promise<any> {
+  function makeMockRequest(method: string, url: string, body?: any, customHeaders: Record<string, string> = {}): Promise<any> {
     return new Promise((resolve) => {
       const { EventEmitter } = require('events');
       const req = new EventEmitter();
       req.method = method;
       req.url = url;
-      req.headers = { host: '127.0.0.1:8000' };
+      req.headers = { host: '127.0.0.1:8000', ...customHeaders };
 
       if (body) {
         req.body = body;
@@ -945,9 +951,9 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
   });
 
   await t.test('GET /api/instruments/option-contracts accepts target expiry string and returns 3 contracts', async () => {
-    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=nifty%2050&price=25500&expiry=2026-11-12');
+    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=nifty%2050&price=25500&expiry=2026-11-19');
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-12');
+    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-19');
     assert.strictEqual(res.body.strikes.length, 3);
     assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
   });
@@ -965,12 +971,12 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
       instrument: 'BANKNIFTY',
       price: 52000,
-      expiry: '2026-11-12',
+      expiry: '2026-11-19',
     });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.instrument, 'NIFTY BANK');
     assert.strictEqual(res.body.strikeStep, 100);
-    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-12');
+    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-19');
     assert.deepStrictEqual(res.body.strikes, [51900, 52000, 52100]);
   });
 
@@ -1120,6 +1126,42 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.tradedIndices.includes('NIFTY'));
   });
 
+  await t.test('POST /api/instruments/flush-and-reload flushes Firestore collections and reloads master data', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/flush-and-reload', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.ok(res.body.flushed);
+    assert.strictEqual(res.body.flushed.secIdMappingDeleted, 3);
+    assert.strictEqual(res.body.flushed.indexOptionsDeleted, 4);
+    assert.ok(res.body.reloaded);
+    assert.ok(res.body.reloaded.totalInstruments >= 1);
+    assert.ok(res.body.message.includes('Successfully flushed master data and reloaded'));
+  });
+
+  await t.test('POST /api/instruments/flush-and-reload/equities flushes sec_id_to_name_mapping and reloads equities', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/flush-and-reload/equities', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.collection, 'sec_id_to_name_mapping');
+    assert.strictEqual(res.body.deletedDocuments, 3);
+    assert.ok(res.body.totalInstruments >= 1);
+  });
+
+  await t.test('POST /api/instruments/flush-and-reload/options flushes index_options and reloads option contracts', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/flush-and-reload/options', {
+      force: true,
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.collection, 'index_options');
+    assert.strictEqual(res.body.deletedDocuments, 4);
+    assert.ok(res.body.totalItems >= 1);
+  });
+
   await t.test('GET /api/instruments/sync/options/status returns current Firestore index_options sync status', async () => {
     const res = await makeMockRequest('GET', '/api/instruments/sync/options/status');
     assert.strictEqual(res.status, 200);
@@ -1191,6 +1233,104 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body[0].symbol, 'NIFTY 50');
     assert.strictEqual(res.body[0].lotSize, 65);
     assert.strictEqual(res.body[0].defaultLots, 5);
+  });
+
+  await t.test('POST /api/user-auth/login and session management E2E', async () => {
+    const loginRes = await makeMockRequest(
+      'POST',
+      '/api/user-auth/login',
+      { username: 'admin', password: 'admin123' },
+      { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' },
+    );
+    assert.strictEqual(loginRes.status, 200);
+    assert.ok(loginRes.body.accessToken);
+    assert.ok(loginRes.body.refreshToken);
+
+    const token = loginRes.body.accessToken;
+    const refreshToken = loginRes.body.refreshToken;
+
+    const sessionsRes = await makeMockRequest(
+      'GET',
+      '/api/user-auth/sessions',
+      undefined,
+      {
+        authorization: `Bearer ${token}`,
+        'x-refresh-token': refreshToken,
+      },
+    );
+    assert.strictEqual(sessionsRes.status, 200);
+    assert.ok(Array.isArray(sessionsRes.body));
+    assert.ok(sessionsRes.body.length >= 1);
+    assert.strictEqual(sessionsRes.body[0].isCurrent, true);
+    assert.strictEqual(sessionsRes.body[0].os, 'macOS');
+    assert.strictEqual(sessionsRes.body[0].browser, 'Chrome');
+
+    const sessionId = sessionsRes.body[0].id;
+    const killRes = await makeMockRequest(
+      'DELETE',
+      `/api/user-auth/sessions/${sessionId}`,
+      undefined,
+      { authorization: `Bearer ${token}` },
+    );
+    assert.strictEqual(killRes.status, 200);
+    assert.strictEqual(killRes.body.success, true);
+
+    // RBAC @Roles(UserRole.ADMIN) verification:
+    // 1. Admin user ('admin' with role 'admin') can list users
+    const adminUsersRes = await makeMockRequest(
+      'GET',
+      '/api/user-auth/users',
+      undefined,
+      { authorization: `Bearer ${token}` },
+    );
+    assert.strictEqual(adminUsersRes.status, 200);
+    assert.ok(Array.isArray(adminUsersRes.body));
+
+    // 2. Create trader user
+    const createTraderRes = await makeMockRequest(
+      'POST',
+      '/api/user-auth/users',
+      { username: 'trader_sam', password: 'traderPassword123', role: 'trader' },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.strictEqual(createTraderRes.status, 201);
+
+    // 3. Login as trader_sam
+    const traderLoginRes = await makeMockRequest(
+      'POST',
+      '/api/user-auth/login',
+      { username: 'trader_sam', password: 'traderPassword123' },
+    );
+    assert.strictEqual(traderLoginRes.status, 200);
+    const traderToken = traderLoginRes.body.accessToken;
+
+    // 4. Non-admin trader calling @Roles(UserRole.ADMIN) endpoint receives 403 Forbidden
+    const forbiddenRes = await makeMockRequest(
+      'GET',
+      '/api/user-auth/users',
+      undefined,
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(forbiddenRes.status, 403);
+    assert.ok(forbiddenRes.body.message.includes('Access denied'));
+
+    // 5. Admin updates trader_sam's role to 'admin'
+    const updateRoleRes = await makeMockRequest(
+      'PUT',
+      '/api/user-auth/users/trader_sam',
+      { role: 'admin' },
+      { authorization: `Bearer ${token}` },
+    );
+    assert.strictEqual(updateRoleRes.status, 200);
+
+    // 6. Delete trader_sam to clean up
+    const deleteTraderRes = await makeMockRequest(
+      'DELETE',
+      '/api/user-auth/users/trader_sam',
+      undefined,
+      { authorization: `Bearer ${token}` },
+    );
+    assert.strictEqual(deleteTraderRes.status, 200);
   });
 
   await app.close();

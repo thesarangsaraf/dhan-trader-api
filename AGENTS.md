@@ -61,9 +61,10 @@ This document provides definitive instructions, architecture patterns, constrain
        - **Maximum 2 Expiries**: Limited strictly to nearest 2 active expiries (`currentExpiry` and `nextExpiry`).
        - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, `SENSEX`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `expiries`, and array of `contracts`.
        - Stale/legacy chunk documents (`chunk_*`) and obsolete index documents (`FINNIFTY`) are automatically purged.
-   - **Two Separate Sync Endpoints & UI Controls**:
+   - **Sync & Flush-Reload Endpoints**:
      - `POST /api/instruments/sync/equities` (CLI `npm run upload:sec-id-mapping`)
      - `POST /api/instruments/sync/options` (CLI `npm run upload:index-options`)
+     - `POST /api/instruments/flush-and-reload`: Completely wipes `sec_id_to_name_mapping` and `index_options` from Firestore and memory, and reloads fresh scrip master from official Dhan servers.
    - **Strict Zero Mock Policy**:
      - If required data is not found in the database, return HTTP 404 and display a prominent warning banner on the UI that data is not found in database with a direct prompt to sync. Never generate synthetic, mock, or fake option contracts.
    - Non-traded BSE equities and stock options are strictly excluded; BSE data is permitted exclusively for the `SENSEX` index and option contracts traded by the user.
@@ -77,7 +78,25 @@ This document provides definitive instructions, architecture patterns, constrain
    - **Never author, commit, or inject static fallback data or hardcoded credentials anywhere in the backend API or frontend UI codebase.**
    - All authorization credentials, trade passwords, option contracts, index prices, lot sizes, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
    - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. `password.trim() === '3646'`, mock orders, fake prices, or default passwords in source code).
-   - **Zero Secrets / Passwords in UI**: Never expose or hint at sensitive credentials (such as passwords, PINs, or tokens) in UI placeholders, helper text, error messages, labels, or documentation examples (e.g. never write `(e.g. 3646)` or display default credentials). Placeholders must remain generic (e.g., `"Enter trade password"`).
+   - **Zero Secrets / Passwords in UI & Responses (CRITICAL)**:
+     - Never expose, return, or hint at sensitive credentials (such as passwords, password hashes, salts, PINs, or tokens) in UI placeholders, helper text, error messages, labels, or documentation examples.
+     - Login pages and dialogs must NEVER show default credentials chips or helper text (e.g. never display `admin / admin123` or default credentials anywhere). Placeholders must remain strictly generic (e.g., `"Enter username"`, `"Enter password"`, `"Enter trade password"`).
+
+10. **User Authentication & Persistent Session Architecture (Firestore `users`)**:
+    - **Dual-Token System**:
+      - Access Token: Short-lived HS256 JWT (15 minutes). Attached to HTTP requests via `Authorization: Bearer <accessToken>`.
+      - Refresh Token: Long-lived cryptographically secure random token (365 days / 1 year), stored in client `localStorage` and persisted in Firestore collection `users` within each user document.
+    - **Indefinite Persistent Sessions**:
+      - Users stay logged in indefinitely across restarts and tab closures (just like Twitter/X, Facebook, LinkedIn) until they explicitly sign out or clear their browser cache, history, and cookies.
+      - `UserAuthGuard`: Enforces Bearer token verification across non-public endpoints. Public endpoints (`@Public()`) include `/health`, `/api`, `/api/user-auth/login`, `/api/user-auth/refresh`, `/api/user-auth/logout`, and `/api/user-auth/status`.
+    - **Multi-User Storage & Superuser 'sarang' Authorization**:
+      - User accounts and roles (`admin`, `trader`, `viewer`) are stored in Google Cloud Firestore collection `users` (document ID = `username.toLowerCase()`).
+      - Superuser `sarang` is automatically seeded on application boot if absent and is permanently protected from deletion.
+      - **Strict Authorization**: User management CRUD endpoints (`GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`) are strictly restricted to the user with username `sarang`. Any non-`sarang` caller is immediately rejected with HTTP 403 Forbidden.
+      - Sensitive fields (passwords, salts, password hashes, refresh token arrays) are strictly stripped from all user list responses.
+    - **Security Primitives**:
+      - Passwords are derived using memory-hard `scrypt` with a cryptographically random salt and validated using constant-time `timingSafeEqual`.
+      - Endpoints: `POST /api/user-auth/login`, `POST /api/user-auth/refresh`, `POST /api/user-auth/logout`, `GET /api/user-auth/me`, `PUT /api/user-auth/password`, `GET /api/user-auth/status`, `GET /api/user-auth/sessions`, `DELETE /api/user-auth/sessions`, `DELETE /api/user-auth/sessions/:id`, `GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`, `GET /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions/:id`.
 
 ---
 
@@ -107,8 +126,18 @@ dhan-trader/
 │   ├── dhan/
 │   │   ├── dhan.module.ts             # @Global() Dhan API client provider
 │   │   └── dhan.service.ts            # Dhan HQ API v2 HTTPS client wrapper
+│   ├── user-auth/
+│   │   ├── user-auth.module.ts        # App user login, JWT tokens & session management
+│   │   ├── user-auth.controller.ts    # /api/user-auth endpoints (login, refresh, logout, me, password, users, sessions)
+│   │   ├── user-auth.service.ts       # Scrypt hashing, HS256 JWT, persistent sessions in Firestore
+│   │   ├── user-auth.guard.ts         # Global Bearer token authorization guard
+│   │   ├── roles.decorator.ts         # @Roles(UserRole.ADMIN) annotation for declarative RBAC
+│   │   ├── roles.guard.ts             # Global Role-Based Access Control guard
+│   │   ├── public.decorator.ts        # @Public() bypass decorator for public routes
+│   │   ├── utils/                     # PasswordUtil (scrypt) & UserJwtUtil (HS256)
+│   │   └── dto/                       # LoginDto, RefreshTokenDto, ChangePasswordDto, CreateUserDto, UpdateUserDto
 │   ├── auth/
-│   │   ├── auth.module.ts             # Authentication feature module
+│   │   ├── auth.module.ts             # Dhan broker token feature module
 │   │   ├── auth.controller.ts         # /api/auth endpoints (status, verify, renew, update)
 │   │   ├── auth.service.ts            # JWT decoding, IST timestamp math, token renewal
 │   │   └── dto/update-token.dto.ts    # DTO for token updates

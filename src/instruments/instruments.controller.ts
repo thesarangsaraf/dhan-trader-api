@@ -89,6 +89,39 @@ export class InstrumentsController {
     return this.instrumentsService.syncOptions(dto);
   }
 
+  @Post('flush-and-reload')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Flush all master data from Firestore and reload fresh from Dhan',
+    description: 'Completely wipes both sec_id_to_name_mapping and index_options Firestore collections and re-downloads fresh scrip master from Dhan API.',
+  })
+  @ApiResponse({ status: 200, description: 'Master data successfully flushed and reloaded' })
+  async flushAndReload(@Body() dto?: SyncInstrumentsDto) {
+    return this.instrumentsService.flushAndReload(dto);
+  }
+
+  @Post('flush-and-reload/equities')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Flush and reload cash equities & benchmark indices from Dhan',
+    description: 'Completely wipes sec_id_to_name_mapping from Firestore and re-downloads fresh cash equities from Dhan API.',
+  })
+  @ApiResponse({ status: 200, description: 'Cash equities successfully flushed and reloaded' })
+  async flushAndReloadEquities(@Body() dto?: SyncInstrumentsDto) {
+    return this.instrumentsService.flushAndReloadEquities(dto);
+  }
+
+  @Post('flush-and-reload/options')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Flush and reload traded index options from Dhan',
+    description: 'Completely wipes index_options from Firestore and re-downloads fresh option contracts from Dhan API.',
+  })
+  @ApiResponse({ status: 200, description: 'Traded index options successfully flushed and reloaded' })
+  async flushAndReloadOptions(@Body() dto?: SyncInstrumentsDto) {
+    return this.instrumentsService.flushAndReloadOptions(dto);
+  }
+
   @Post('sync/csv')
   @HttpCode(200)
   @ApiOperation({

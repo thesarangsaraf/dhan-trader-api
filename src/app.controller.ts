@@ -1,12 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from './config/config.service';
+import { Public } from './user-auth/public.decorator';
 
 @ApiTags('System')
 @Controller()
 export class AppController {
   constructor(private readonly config: ConfigService) {}
 
+  @Public()
   @Get(['', 'api'])
   @ApiOperation({ summary: 'Backend status & service discovery index' })
   @ApiResponse({ status: 200, description: 'Service endpoint index' })

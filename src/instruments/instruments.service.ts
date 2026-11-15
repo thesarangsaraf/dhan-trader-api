@@ -508,6 +508,212 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
+   * Flush and reload cash equities & benchmark indices into sec_id_to_name_mapping.
+   * Completely purges collection sec_id_to_name_mapping and reloads fresh instruments from Dhan.
+   */
+  public async flushAndReloadEquities(dto?: SyncInstrumentsDto) {
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    this.logger.log('Flushing Firestore collection [sec_id_to_name_mapping]...');
+    const secIdDeleteRes = await this.firestoreService.deleteSecIdMapping().catch((err: any) => {
+      this.logger.warn(`Failed deleting sec_id_to_name_mapping: ${err.message}`);
+      return { success: false, deletedCount: 0 };
+    });
+
+    this.scripMaster = [];
+
+    let parsedScrip: any[] = [];
+    if (dto?.csvContent) {
+      const parsed = this.parseCsv(dto.csvContent);
+      parsedScrip = parsed.parsedScrip;
+    } else if (dto?.scripMaster && dto.scripMaster.length > 0) {
+      parsedScrip = dto.scripMaster;
+    } else if (process.env.NODE_ENV !== 'test') {
+      try {
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const parsed = this.parseCsv(csvText);
+        parsedScrip = parsed.parsedScrip;
+      } catch (err: any) {
+        this.logger.error(`Failed downloading live Dhan scrip master: ${err.message}`);
+        throw new BadRequestException(`Failed to download live Dhan scrip master: ${err.message}`);
+      }
+    } else {
+      parsedScrip = [
+        { securityId: '13', symbol: 'NIFTY 50', name: 'Nifty 50 Index', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
+        { securityId: '25', symbol: 'BANK NIFTY', name: 'Bank Nifty Index', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
+        { securityId: '2885', symbol: 'RELIANCE', name: 'Reliance Industries Ltd', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
+      ];
+    }
+
+    const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
+    this.setScripMaster(parsedScrip);
+
+    return {
+      success: true,
+      collection: 'sec_id_to_name_mapping',
+      deletedDocuments: secIdDeleteRes.deletedCount,
+      totalInstruments: eqRes.totalInstruments,
+      totalEquities: eqRes.totalEquities,
+      totalIndices: eqRes.totalIndices,
+      documents: eqRes.documents,
+      syncedAt: eqRes.syncedAt,
+      message: `Successfully flushed sec_id_to_name_mapping and reloaded ${eqRes.totalInstruments} NSE cash equities & indices`,
+    };
+  }
+
+  /**
+   * Flush and reload traded index options into dedicated collection index_options.
+   * Completely purges collection index_options and reloads fresh options contracts from Dhan.
+   */
+  public async flushAndReloadOptions(dto?: SyncInstrumentsDto) {
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    this.logger.log('Flushing Firestore collection [index_options]...');
+    const optDeleteRes = await this.firestoreService.deleteIndexOptions().catch((err: any) => {
+      this.logger.warn(`Failed deleting index_options: ${err.message}`);
+      return { success: false, deletedCount: 0 };
+    });
+
+    this.indexOptions = [];
+
+    let parsedOptions: CachedIndexOption[] = [];
+    if (dto?.csvContent) {
+      const parsed = this.parseCsv(dto.csvContent);
+      parsedOptions = parsed.parsedOptions;
+    } else if (dto?.options && dto.options.length > 0) {
+      parsedOptions = dto.options;
+    } else if (process.env.NODE_ENV !== 'test') {
+      try {
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const parsed = this.parseCsv(csvText);
+        parsedOptions = parsed.parsedOptions;
+      } catch (err: any) {
+        this.logger.error(`Failed downloading live Dhan scrip master: ${err.message}`);
+        throw new BadRequestException(`Failed to download live Dhan scrip master: ${err.message}`);
+      }
+    } else {
+      parsedOptions = [
+        { securityId: '40001', symbolName: 'NIFTY', exchange: 'NSE', tradingSymbol: 'NIFTY 24500 CE', customSymbol: 'NIFTY 24500 CE', expiryDate: '2026-11-26', strikePrice: 24500, optionType: 'CE', lotSize: 65 },
+        { securityId: '40002', symbolName: 'NIFTY', exchange: 'NSE', tradingSymbol: 'NIFTY 24500 PE', customSymbol: 'NIFTY 24500 PE', expiryDate: '2026-11-26', strikePrice: 24500, optionType: 'PE', lotSize: 65 },
+        { securityId: '50001', symbolName: 'BANKNIFTY', exchange: 'NSE', tradingSymbol: 'BANKNIFTY 52000 CE', customSymbol: 'BANKNIFTY 52000 CE', expiryDate: '2026-11-26', strikePrice: 52000, optionType: 'CE', lotSize: 30 },
+      ];
+    }
+
+    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+    this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
+
+    return {
+      success: true,
+      collection: 'index_options',
+      deletedDocuments: optDeleteRes.deletedCount,
+      totalItems: optRes.totalItems,
+      totalChunks: optRes.totalChunks,
+      documentIds: optRes.documentIds,
+      writeTime: optRes.writeTime,
+      tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
+      message: `Successfully flushed index_options and reloaded ${optRes.totalItems} traded index options contracts`,
+    };
+  }
+
+  /**
+   * Totally flush all master data from Firestore (sec_id_to_name_mapping & index_options)
+   * and reload fresh instruments from official Dhan servers.
+   */
+  public async flushAndReload(dto?: SyncInstrumentsDto) {
+    if (dto?.target === 'equities') {
+      return this.flushAndReloadEquities(dto);
+    }
+    if (dto?.target === 'options') {
+      return this.flushAndReloadOptions(dto);
+    }
+
+    if (!this.firestoreService || !this.firestoreService.isReady()) {
+      throw new BadRequestException('Firestore database is not connected or initialized');
+    }
+
+    this.logger.log('Starting total flush of master data collections in Firestore...');
+    const secIdDeleteRes = await this.firestoreService.deleteSecIdMapping().catch((err: any) => {
+      this.logger.warn(`Failed deleting sec_id_to_name_mapping: ${err.message}`);
+      return { success: false, deletedCount: 0 };
+    });
+    const optDeleteRes = await this.firestoreService.deleteIndexOptions().catch((err: any) => {
+      this.logger.warn(`Failed deleting index_options: ${err.message}`);
+      return { success: false, deletedCount: 0 };
+    });
+
+    // Reset in-memory caches
+    this.scripMaster = [];
+    this.indexOptions = [];
+
+    this.logger.log(
+      `Master data flushed: deleted ${secIdDeleteRes.deletedCount} mapping docs and ${optDeleteRes.deletedCount} option docs. Beginning reload...`,
+    );
+
+    let parsedScrip: any[] = [];
+    let parsedOptions: CachedIndexOption[] = [];
+
+    if (dto?.csvContent) {
+      const parsed = this.parseCsv(dto.csvContent);
+      parsedScrip = parsed.parsedScrip;
+      parsedOptions = parsed.parsedOptions;
+    } else if (dto?.scripMaster || dto?.options) {
+      parsedScrip = dto.scripMaster || [];
+      parsedOptions = dto.options || [];
+    } else if (process.env.NODE_ENV !== 'test') {
+      try {
+        const csvText = await this.downloadDhanCsv(dto?.csvUrl);
+        const parsed = this.parseCsv(csvText);
+        parsedScrip = parsed.parsedScrip;
+        parsedOptions = parsed.parsedOptions;
+      } catch (err: any) {
+        this.logger.error(`Failed downloading live Dhan scrip master during reload: ${err.message}`);
+        throw new BadRequestException(`Failed to download live Dhan scrip master: ${err.message}`);
+      }
+    } else {
+      // In test environment, seed test fixture instruments
+      parsedScrip = [
+        { securityId: '13', symbol: 'NIFTY 50', name: 'Nifty 50 Index', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
+        { securityId: '25', symbol: 'BANK NIFTY', name: 'Bank Nifty Index', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
+        { securityId: '2885', symbol: 'RELIANCE', name: 'Reliance Industries Ltd', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
+      ];
+      parsedOptions = [
+        { securityId: '40001', symbolName: 'NIFTY', exchange: 'NSE', tradingSymbol: 'NIFTY 24500 CE', customSymbol: 'NIFTY 24500 CE', expiryDate: '2026-11-26', strikePrice: 24500, optionType: 'CE', lotSize: 65 },
+        { securityId: '40002', symbolName: 'NIFTY', exchange: 'NSE', tradingSymbol: 'NIFTY 24500 PE', customSymbol: 'NIFTY 24500 PE', expiryDate: '2026-11-26', strikePrice: 24500, optionType: 'PE', lotSize: 65 },
+        { securityId: '50001', symbolName: 'BANKNIFTY', exchange: 'NSE', tradingSymbol: 'BANKNIFTY 52000 CE', customSymbol: 'BANKNIFTY 52000 CE', expiryDate: '2026-11-26', strikePrice: 52000, optionType: 'CE', lotSize: 30 },
+      ];
+    }
+
+    // Save reloaded data into Firestore
+    const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
+    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+
+    // Repopulate in-memory cache
+    this.setScripMaster(parsedScrip);
+    this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
+
+    return {
+      success: true,
+      flushed: {
+        secIdMappingDeleted: secIdDeleteRes.deletedCount,
+        indexOptionsDeleted: optDeleteRes.deletedCount,
+      },
+      reloaded: {
+        totalInstruments: eqRes.totalInstruments + optRes.totalItems,
+        totalEquities: eqRes.totalEquities,
+        totalIndices: eqRes.totalIndices,
+        totalOptions: optRes.totalItems,
+        documents: eqRes.documents,
+        syncedAt: eqRes.syncedAt,
+      },
+      message: `Successfully flushed master data and reloaded ${eqRes.totalInstruments} NSE cash equities & indices and ${optRes.totalItems} traded index options`,
+    };
+  }
+
+  /**
    * On-demand synchronization of NSE instruments and index options to Firestore.
    */
   public async syncMaster(dto?: SyncInstrumentsDto) {

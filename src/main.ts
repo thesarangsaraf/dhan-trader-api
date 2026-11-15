@@ -28,6 +28,7 @@ async function bootstrap() {
     )
     .setVersion('2.0.0')
     .addTag('System', 'Service status & health')
+    .addTag('User Auth', 'App username and password login & persistent session management')
     .addTag('Auth', 'Dhan access token inspection, validation and renewal')
     .addTag('Alerts', 'Price alerts monitoring on NSE Indices')
     .addTag('Orders', 'Order placement, book inspection, and cancellation')
@@ -35,6 +36,7 @@ async function bootstrap() {
     .addTag('Instruments', 'NSE scrip master search and indices lookup')
     .addTag('Telegram', 'Telegram bot alerts and live connection configuration')
     .addTag('Firestore', 'Google Cloud Firestore database connection and operations')
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
