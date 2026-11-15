@@ -9,7 +9,7 @@ export class AppController {
   constructor(private readonly config: ConfigService) {}
 
   @Public()
-  @Get(['', 'api'])
+  @Get(['', 'api', 'health'])
   @ApiOperation({ summary: 'Backend status & service discovery index' })
   @ApiResponse({ status: 200, description: 'Service endpoint index' })
   getRoot() {

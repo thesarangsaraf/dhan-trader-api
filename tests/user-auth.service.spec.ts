@@ -118,13 +118,17 @@ test('UserAuthService (NestJS)', async (t) => {
   });
 
   await t.test('changes password successfully', async () => {
-    await service.changePassword('sarang', { currentPassword: 'admin123', newPassword: 'newSarangPassword2026' });
+    // 1. Change password with current password verified
+    await service.changePassword('sarang', { currentPassword: 'admin123', newPassword: 'tempPassword' });
 
     // Login with old password fails
     await assert.rejects(
       async () => service.login({ username: 'sarang', password: 'admin123' }),
       /Invalid username or password/,
     );
+
+    // 2. Change password directly to newSarangPassword2026 without current password
+    await service.changePassword('sarang', { newPassword: 'newSarangPassword2026' });
 
     // Login with new password succeeds
     const newLogin = await service.login({ username: 'sarang', password: 'newSarangPassword2026' });
@@ -221,5 +225,32 @@ test('UserAuthService (NestJS)', async (t) => {
     const all = await service.listAllActiveSessions();
     assert.ok(Array.isArray(all));
     assert.ok(all.some((s) => s.username === 'admin'));
+  });
+
+  await t.test('deleting admin user permanently removes it and initUsers does not resurrect it in Firestore', async () => {
+    // 1. Delete admin user
+    const delRes = await service.deleteUser('admin');
+    assert.strictEqual(delRes.success, true);
+
+    // 2. getUser('admin') must return null
+    const checkAfterDelete = await service.getUser('admin');
+    assert.strictEqual(checkAfterDelete, null);
+
+    // 3. Document in Firestore must not exist
+    const adminDoc = await mockFirestoreService.getDoc('users', 'admin');
+    assert.strictEqual(adminDoc, null);
+
+    // 4. Simulate server restart / cold-start by calling initUsers() again
+    await service.initUsers();
+
+    // 5. Admin must NOT be resurrected in Firestore or in-memory cache
+    const checkAfterRestart = await service.getUser('admin');
+    assert.strictEqual(checkAfterRestart, null);
+
+    const docAfterRestart = await mockFirestoreService.getDoc('users', 'admin');
+    assert.strictEqual(docAfterRestart, null);
+
+    const users = await service.listUsers();
+    assert.strictEqual(users.some((u) => u.username === 'admin'), false);
   });
 });

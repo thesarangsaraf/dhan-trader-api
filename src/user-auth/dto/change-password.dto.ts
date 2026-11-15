@@ -1,11 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
-  @ApiProperty({ description: 'Current password for verification' })
+  @ApiPropertyOptional({ description: 'Current password for verification (optional)' })
   @IsString()
-  @IsNotEmpty()
-  currentPassword: string;
+  @IsOptional()
+  currentPassword?: string;
 
   @ApiProperty({ description: 'New password to set', minLength: 6 })
   @IsString()

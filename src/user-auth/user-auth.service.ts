@@ -97,7 +97,8 @@ export class UserAuthService implements OnModuleInit {
 
       // 1. Ensure superuser 'sarang' exists
       const sarangDoc = await this.firestoreService.getDoc<StoredUserDoc>('users', 'sarang');
-      if (!sarangDoc || !sarangDoc.passwordHash) {
+      const isInitialSetup = !sarangDoc || !sarangDoc.passwordHash;
+      if (isInitialSetup) {
         const sarangUser: StoredUserDoc = {
           username: 'sarang',
           passwordHash: PasswordUtil.hashPassword(process.env.SARANG_PASSWORD || 'admin123'),
@@ -110,10 +111,13 @@ export class UserAuthService implements OnModuleInit {
         this.logger.log(`🔐 Auto-seeded superuser [sarang] in Firestore (users/sarang)`);
       }
 
-      // 2. Ensure default 'admin' exists
+      // 2. Default 'admin' user initialization:
+      // Only seed 'admin' during the initial system setup if it does not already exist.
+      // Once the system is initialized (sarang exists), if 'admin' is absent,
+      // it means it was deleted by the user! Never resurrect deleted users.
       const adminDocId = this.defaultAdminUsername.toLowerCase();
       const adminDoc = await this.firestoreService.getDoc<StoredUserDoc>('users', adminDocId);
-      if (!adminDoc || !adminDoc.passwordHash) {
+      if (isInitialSetup && (!adminDoc || !adminDoc.passwordHash)) {
         // Check if legacy config/auth_user exists to preserve password
         const legacyAuth = await this.firestoreService.getDoc<StoredUserDoc>('config', 'auth_user');
         const adminUser: StoredUserDoc = {
@@ -125,7 +129,24 @@ export class UserAuthService implements OnModuleInit {
           updatedAt: now,
         };
         await this.firestoreService.setDoc('users', adminDocId, adminUser, true);
+        if (legacyAuth) {
+          try {
+            await this.firestoreService.deleteDoc('config', 'auth_user');
+          } catch (e: any) {
+            this.logger.warn(`Could not clean up legacy config/auth_user: ${e.message}`);
+          }
+        }
         this.logger.log(`👤 Initialized admin user [${this.defaultAdminUsername}] in Firestore (users/${adminDocId})`);
+      } else if (!adminDoc) {
+        // If adminDoc does not exist in Firestore on an already initialized system,
+        // ensure in-memory cache drops it too so it stays deleted across restarts.
+        this.inMemoryUsers.delete(adminDocId);
+        // Also ensure any lingering legacy config/auth_user is purged
+        try {
+          await this.firestoreService.deleteDoc('config', 'auth_user');
+        } catch {
+          // ignore
+        }
       }
     } catch (err: any) {
       this.logger.warn(`Could not initialize users in Firestore: ${err.message}`);
@@ -144,16 +165,14 @@ export class UserAuthService implements OnModuleInit {
         const user = await this.firestoreService.getDoc<StoredUserDoc>('users', docId);
         if (user) return user;
 
-        // Fallback for legacy config/auth_user
-        if (docId === this.defaultAdminUsername.toLowerCase()) {
-          const legacy = await this.firestoreService.getDoc<StoredUserDoc>('config', 'auth_user');
-          if (legacy) return legacy;
-        }
+        // When Firestore is connected and ready, if document is not in 'users', user does not exist.
+        return null;
       } catch (err: any) {
         this.logger.warn(`Could not fetch user [${docId}] from Firestore: ${err.message}`);
       }
     }
 
+    // Fallback to in-memory only when Firestore is not ready
     return this.inMemoryUsers.get(docId) || null;
   }
 
@@ -301,6 +320,14 @@ export class UserAuthService implements OnModuleInit {
     this.inMemoryUsers.delete(docId);
     if (this.firestoreService.isReady()) {
       await this.firestoreService.deleteDoc('users', docId);
+      // If deleting the admin user, permanently purge legacy config/auth_user document as well
+      if (docId === this.defaultAdminUsername.toLowerCase()) {
+        try {
+          await this.firestoreService.deleteDoc('config', 'auth_user');
+        } catch (e: any) {
+          this.logger.warn(`Could not delete legacy config/auth_user: ${e.message}`);
+        }
+      }
     }
 
     this.logger.log(`🗑️ User '${cleanUsername}' deleted`);
@@ -409,10 +436,8 @@ export class UserAuthService implements OnModuleInit {
       } catch (err: any) {
         this.logger.warn(`Could not search refresh token in Firestore: ${err.message}`);
       }
-    }
-
-    // Fallback to in-memory
-    if (!matchedUser) {
+    } else {
+      // Fallback to in-memory ONLY when Firestore is not ready
       for (const u of this.inMemoryUsers.values()) {
         const session = (u.refreshTokens || []).find((s) => s.token === dto.refreshToken);
         if (session) {
@@ -457,12 +482,32 @@ export class UserAuthService implements OnModuleInit {
    */
   public async logout(refreshToken?: string) {
     if (refreshToken) {
-      // Find and remove matching token
+      // 1. If Firestore is ready, find and update user document in Firestore
+      if (this.firestoreService.isReady()) {
+        try {
+          const docs = await this.firestoreService.listDocuments('users', 100);
+          for (const { data } of docs) {
+            const hasToken = ((data as StoredUserDoc).refreshTokens || []).some((s) => s.token === refreshToken);
+            if (hasToken) {
+              const updatedUser = data as StoredUserDoc;
+              updatedUser.refreshTokens = (updatedUser.refreshTokens || []).filter((s) => s.token !== refreshToken);
+              await this.saveUser(updatedUser);
+              break;
+            }
+          }
+        } catch (err: any) {
+          this.logger.warn(`Could not remove refresh token from Firestore during logout: ${err.message}`);
+        }
+      }
+
+      // 2. Also remove from in-memory cache
       for (const u of this.inMemoryUsers.values()) {
         const hasToken = (u.refreshTokens || []).some((s) => s.token === refreshToken);
         if (hasToken) {
           u.refreshTokens = u.refreshTokens?.filter((s) => s.token !== refreshToken);
-          await this.saveUser(u);
+          if (!this.firestoreService.isReady()) {
+            await this.saveUser(u);
+          }
           break;
         }
       }
@@ -479,8 +524,10 @@ export class UserAuthService implements OnModuleInit {
       throw new BadRequestException('User record not found');
     }
 
-    if (!PasswordUtil.verifyPassword(dto.currentPassword, user.passwordHash)) {
-      throw new BadRequestException('Current password is incorrect');
+    if (dto.currentPassword) {
+      if (!PasswordUtil.verifyPassword(dto.currentPassword, user.passwordHash)) {
+        throw new BadRequestException('Current password is incorrect');
+      }
     }
 
     user.passwordHash = PasswordUtil.hashPassword(dto.newPassword);

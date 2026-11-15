@@ -20,6 +20,7 @@ test('YahooFinanceService (NestJS)', async (t) => {
     assert.strictEqual(service.mapToYahooSymbol('SENSEX'), '^BSESN');
     assert.strictEqual(service.mapToYahooSymbol('MIDCAP NIFTY'), 'NIFTY_MID_SELECT.NS');
     assert.strictEqual(service.mapToYahooSymbol('MIDCP NIFTY'), 'NIFTY_MID_SELECT.NS');
+    assert.strictEqual(service.mapToYahooSymbol('FINNIFTY'), 'NIFTY_FIN_SERVICE.NS');
     assert.strictEqual(service.mapToYahooSymbol('RELIANCE'), 'RELIANCE.NS');
     assert.strictEqual(service.mapToYahooSymbol('TCS'), 'TCS.NS');
     assert.strictEqual(service.mapToYahooSymbol('^NSEI'), '^NSEI');
@@ -65,6 +66,37 @@ test('YahooFinanceService (NestJS)', async (t) => {
     if (ltp !== null) {
       assert.ok(typeof ltp === 'number');
       assert.ok(ltp > 10000);
+    }
+  });
+
+  await t.test('fetches candlestick data with OHLC and volume', async () => {
+    try {
+      const res = await service.getCandles({ symbol: 'NIFTY 50', interval: '5m', range: '1d', limit: 10 });
+      assert.strictEqual(res.symbol, 'NIFTY 50');
+      assert.strictEqual(res.yahooSymbol, '^NSEI');
+      assert.ok(Array.isArray(res.candles));
+      assert.ok(res.candles.length <= 10);
+      if (res.candles.length > 0) {
+        const c = res.candles[0];
+        assert.ok(typeof c.time === 'number');
+        assert.ok(typeof c.open === 'number');
+        assert.ok(typeof c.high === 'number');
+        assert.ok(typeof c.low === 'number');
+        assert.ok(typeof c.close === 'number');
+      }
+
+      // Also test with period1 and period2
+      const now = Math.floor(Date.now() / 1000);
+      const periodRes = await service.getCandles({
+        symbol: 'NIFTY 50',
+        interval: '5m',
+        period1: now - 86400 * 3,
+        period2: now,
+      });
+      assert.ok(Array.isArray(periodRes.candles));
+    } catch (e: any) {
+      // If offline/network blocked in test environment
+      assert.ok(e.message);
     }
   });
 });

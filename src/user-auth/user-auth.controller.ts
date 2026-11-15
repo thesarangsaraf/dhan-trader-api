@@ -11,6 +11,7 @@ import {
   Put,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -70,7 +71,8 @@ export class UserAuthController {
   @ApiOperation({ summary: 'Get profile information of current authenticated user' })
   @ApiResponse({ status: 200, description: 'Current user profile' })
   async getProfile(@Req() req: any) {
-    const username = req.user?.username || 'admin';
+    const username = req.user?.username || req.user?.sub;
+    if (!username) throw new UnauthorizedException('User identity missing from token');
     return this.userAuthService.getProfile(username);
   }
 
@@ -81,7 +83,8 @@ export class UserAuthController {
   @ApiResponse({ status: 200, description: 'Password changed successfully' })
   @ApiResponse({ status: 400, description: 'Current password invalid' })
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    const username = req.user?.username || 'admin';
+    const username = req.user?.username || req.user?.sub;
+    if (!username) throw new UnauthorizedException('User identity missing from token');
     return this.userAuthService.changePassword(username, dto);
   }
 
@@ -107,7 +110,8 @@ export class UserAuthController {
   @ApiOperation({ summary: 'List active sessions for current authenticated user' })
   @ApiResponse({ status: 200, description: 'List of active sessions' })
   async getMySessions(@Req() req: any, @Headers('x-refresh-token') currentRefreshToken?: string) {
-    const username = req.user?.username || 'admin';
+    const username = req.user?.username || req.user?.sub;
+    if (!username) throw new UnauthorizedException('User identity missing from token');
     return this.userAuthService.listUserSessions(username, currentRefreshToken);
   }
 
@@ -118,7 +122,8 @@ export class UserAuthController {
   @ApiResponse({ status: 200, description: 'Session terminated' })
   @ApiResponse({ status: 404, description: 'Session not found' })
   async revokeMySession(@Req() req: any, @Param('id') sessionId: string) {
-    const username = req.user?.username || 'admin';
+    const username = req.user?.username || req.user?.sub;
+    if (!username) throw new UnauthorizedException('User identity missing from token');
     return this.userAuthService.revokeSession(username, sessionId);
   }
 
@@ -132,7 +137,8 @@ export class UserAuthController {
     @Headers('x-refresh-token') currentRefreshToken?: string,
     @Query('othersOnly') othersOnly?: string,
   ) {
-    const username = req.user?.username || 'admin';
+    const username = req.user?.username || req.user?.sub;
+    if (!username) throw new UnauthorizedException('User identity missing from token');
     if (othersOnly === 'true' && currentRefreshToken) {
       return this.userAuthService.revokeOtherSessions(username, currentRefreshToken);
     }

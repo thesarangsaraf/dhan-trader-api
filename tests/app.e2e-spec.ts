@@ -176,12 +176,24 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     sendTestNotification: async () => ({ success: true, test: true }),
   };
 
+  const mockFirestoreDb: Record<string, any> = {};
   const mockFirestoreService = {
     isReady: () => true,
-    getDoc: async () => null,
-    setDoc: async () => ({ success: true }),
-    deleteDoc: async () => ({ success: true }),
-    listDocuments: async () => [],
+    getDoc: async (col: string, doc: string) => mockFirestoreDb[`${col}/${doc}`] || null,
+    setDoc: async (col: string, doc: string, data: any) => {
+      mockFirestoreDb[`${col}/${doc}`] = { ...(mockFirestoreDb[`${col}/${doc}`] || {}), ...data };
+      return { success: true };
+    },
+    deleteDoc: async (col: string, doc: string) => {
+      delete mockFirestoreDb[`${col}/${doc}`];
+      return { success: true };
+    },
+    listDocuments: async (col: string) => {
+      const prefix = `${col}/`;
+      return Object.entries(mockFirestoreDb)
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([k, data]) => ({ id: k.replace(prefix, ''), data }));
+    },
     getDhanToken: async () => null,
     saveDhanToken: async () => ({ success: true, writeTime: new Date().toISOString() }),
     getTelegramConfig: async () => ({ botToken: 'test_token', chatId: 'test_chat' }),
