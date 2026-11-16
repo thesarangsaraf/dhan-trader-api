@@ -14,7 +14,8 @@
     "check:dhan": "ts-node scripts/verify-dhan.ts",
     "check:firestore": "ts-node scripts/verify-firestore.ts",
     "upload:index-options": "ts-node scripts/upload-index-options-firestore.ts",
-    "upload:sec-id-mapping": "ts-node scripts/upload-sec-id-mapping-firestore.ts"
+    "upload:sec-id-mapping": "ts-node scripts/upload-sec-id-mapping-firestore.ts",
+    "prune:registry": "ts-node scripts/prune-registry.ts"
   },
   "keywords": [
     "dhan",

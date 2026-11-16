@@ -93,14 +93,21 @@ This document provides definitive instructions, architecture patterns, constrain
     - **Indefinite Persistent Sessions**:
       - Users stay logged in indefinitely across restarts and tab closures (just like Twitter/X, Facebook, LinkedIn) until they explicitly sign out or clear their browser cache, history, and cookies.
       - `UserAuthGuard`: Enforces Bearer token verification across non-public endpoints. Public endpoints (`@Public()`) include `/health`, `/api`, `/api/user-auth/login`, `/api/user-auth/refresh`, `/api/user-auth/logout`, and `/api/user-auth/status`.
-    - **Multi-User Storage & Superuser 'sarang' Authorization**:
+    - **Multi-User Storage & Role-Based Authorization**:
       - User accounts and roles (`admin`, `trader`, `viewer`) are stored in Google Cloud Firestore collection `users` (document ID = `username.toLowerCase()`).
       - Superuser `sarang` is automatically seeded on application boot if absent and is permanently protected from deletion.
-      - **Strict Authorization**: User management CRUD endpoints (`GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`) are strictly restricted to the user with username `sarang`. Any non-`sarang` caller is immediately rejected with HTTP 403 Forbidden.
+      - **Strict Role-Based Authorization**: Sensitive modifications (placing orders, cancelling orders, updating lot sizes, syncing instruments, updating credentials, managing watchlists, user management CRUD) are strictly restricted to users having `admin` role (`@Roles(UserRole.ADMIN)`). Non-admin callers (`trader`, `viewer`) are immediately rejected with HTTP 403 Forbidden.
       - Sensitive fields (passwords, salts, password hashes, refresh token arrays) are strictly stripped from all user list responses.
     - **Security Primitives**:
       - Passwords are derived using memory-hard `scrypt` with a cryptographically random salt and validated using constant-time `timingSafeEqual`.
       - Endpoints: `POST /api/user-auth/login`, `POST /api/user-auth/refresh`, `POST /api/user-auth/logout`, `GET /api/user-auth/me`, `PUT /api/user-auth/password`, `GET /api/user-auth/status`, `GET /api/user-auth/sessions`, `DELETE /api/user-auth/sessions`, `DELETE /api/user-auth/sessions/:id`, `GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`, `GET /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions/:id`.
+
+11. **Strict Container Registry Space Saving (Only Latest Image Retained)**:
+    - To conserve container registry storage and eliminate unnecessary storage costs in Google Cloud Artifact Registry (`asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api`), agents and deployment pipelines MUST strictly retain only the latest production Docker image.
+    - Whenever a new Docker image is built and pushed to Artifact Registry, older images and dangling digests MUST be purged immediately.
+    - Use the automated operational command:
+      - `npm run prune:registry` (executes `scripts/prune-registry.ts` to delete older digests and prune local dangling images).
+    - Never allow stale, superseded, or untagged container image digests to accumulate in Artifact Registry.
 
 ---
 
@@ -119,7 +126,8 @@ dhan-trader/
 │   ├── verify-dhan.ts                 # Real live Dhan HQ API connectivity script
 │   ├── verify-firestore.ts            # Live Firestore database verification script
 │   ├── upload-index-options-firestore.ts # Script to seed/upload NSE index options to Firestore
-│   └── upload-sec-id-mapping-firestore.ts # Script to upload modular sec_id_to_name_mapping
+│   ├── upload-sec-id-mapping-firestore.ts # Script to upload modular sec_id_to_name_mapping
+│   └── prune-registry.ts              # Script to prune older Docker images from Google Artifact Registry
 ├── src/
 │   ├── main.ts                        # Application entry point, Swagger init, ValidationPipe
 │   ├── app.module.ts                  # Root NestJS module registering all feature modules
@@ -200,6 +208,7 @@ Always use the following npm scripts rather than manual invocation:
 | `npm run check:firestore` | Test live Google Cloud Firestore connectivity & Dhan token persistence |
 | `npm run upload:index-options` | Upload/seed NSE index options master into Firestore database |
 | `npm run upload:sec-id-mapping` | Upload modular security ID to name mapping to Firestore database |
+| `npm run prune:registry` | Prune older Docker images from Google Artifact Registry & local cache (retains latest only) |
 
 ---
 
@@ -258,5 +267,6 @@ Before marking any task as complete:
 - [ ] Every new endpoint is registered with appropriate `@ApiTags`, `@ApiOperation`, and `@ApiResponse` decorators.
 - [ ] Input payloads have corresponding DTO classes with `class-validator` rules.
 - [ ] If any backend API or UI-affecting functionality was modified, checked `../dhan-trader-ui` and made necessary changes there.
+- [ ] If new Docker images were built and pushed, older images were pruned from Google Artifact Registry (`npm run prune:registry`); strictly only the latest image is retained.
 - [ ] Data masters in `data/*.json` strictly contain NSE instruments only (`NSE_EQ`, `NSE_FNO`, `IDX_I`), with zero BSE entries.
 - [ ] Code comments and existing docstrings remain intact.
