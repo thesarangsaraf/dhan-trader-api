@@ -19,8 +19,8 @@ export class ScreenerService {
   /**
    * Retrieve the configured stock universe watchlist from Firestore.
    */
-  async getWatchlist(): Promise<ScreenerWatchlistDoc> {
-    return this.firestore.getScreenerWatchlist();
+  async getWatchlist(force = false): Promise<ScreenerWatchlistDoc> {
+    return this.firestore.getScreenerWatchlist(force);
   }
 
   /**
@@ -40,8 +40,8 @@ export class ScreenerService {
   /**
    * Retrieve configurable strategy settings from Firestore.
    */
-  async getSettings(): Promise<ScreenerSettingsDoc> {
-    return this.firestore.getScreenerSettings();
+  async getSettings(force = false): Promise<ScreenerSettingsDoc> {
+    return this.firestore.getScreenerSettings(force);
   }
 
   /**

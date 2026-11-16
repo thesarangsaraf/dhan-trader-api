@@ -5,6 +5,7 @@ import { Firestore, CollectionReference, DocumentReference } from '@google-cloud
 import { JWT } from 'google-auth-library';
 import { ConfigService } from '../config/config.service';
 import { decodeJwtPayload, formatIST } from '../auth/jwt.util';
+import { Cacheable, CacheEvict, CachePut, defaultCacheStore } from '../cache';
 
 export interface FirestoreStatus {
   configured: boolean;
@@ -383,6 +384,14 @@ export class FirestoreService implements OnModuleInit {
   public setFirestoreInstance(instance: Firestore | null) {
     this.db = instance;
     this.initError = null;
+    this.clearConfigCache();
+  }
+
+  /**
+   * Clear in-memory caches for configuration documents and metadata.
+   */
+  public clearConfigCache(): void {
+    defaultCacheStore.clear();
   }
 
   /**
@@ -466,12 +475,15 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve Dhan access token document from Firestore database (config/dhan).
    */
-  public async getDhanToken(): Promise<StoredDhanToken | null> {
+  @Cacheable({ key: 'config:dhan', condition: (force) => !force })
+  public async getDhanToken(force = false): Promise<StoredDhanToken | null> {
     if (!this.isReady()) {
       return null;
     }
     const token = await this.getDoc<StoredDhanToken>('config', 'dhan');
-    if (token) return token;
+    if (token) {
+      return token;
+    }
 
     // Fallback migration check for legacy path (dhan/token or tokens/dhan)
     const legacyToken = (await this.getDoc<StoredDhanToken>('dhan', 'token'))
@@ -490,6 +502,7 @@ export class FirestoreService implements OnModuleInit {
    * Guarded against stale overwrites: If Firestore already holds a token with a later expiry
    * than the incoming token, the write is rejected unless `options.force` is explicitly true.
    */
+  @CacheEvict({ key: 'config:dhan' })
   public async saveDhanToken(
     tokenData: Partial<StoredDhanToken> & { accessToken: string; clientId: string },
     options: { force?: boolean } = {},
@@ -511,7 +524,8 @@ export class FirestoreService implements OnModuleInit {
     // Guard against overwriting newer/active token with stale/expired token
     if (!options.force) {
       try {
-        const existing = await this.getDoc<StoredDhanToken>('config', 'dhan')
+        const existing = defaultCacheStore.get<StoredDhanToken>('config:dhan')
+          || await this.getDoc<StoredDhanToken>('config', 'dhan')
           || await this.getDoc<StoredDhanToken>('dhan', 'token');
         if (existing?.accessToken) {
           const existingPayload = decodeJwtPayload(existing.accessToken);
@@ -607,6 +621,7 @@ export class FirestoreService implements OnModuleInit {
    *
    * Limits option contracts strictly to a maximum of 2 expiries per index (currentExpiry and nextExpiry).
    */
+  @CacheEvict({ key: 'meta:index_options' })
   public async saveIndexOptions(
     items: CachedIndexOption[],
     maxExpiriesPerIndex = 2,
@@ -805,7 +820,8 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve metadata for stored index options from Firestore.
    */
-  public async getIndexOptionsMetadata(): Promise<IndexOptionsMetadata | null> {
+  @Cacheable({ key: 'meta:index_options', condition: (force) => !force, clone: true })
+  public async getIndexOptionsMetadata(force = false): Promise<IndexOptionsMetadata | null> {
     if (!this.isReady()) {
       return null;
     }
@@ -815,6 +831,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Delete all index options documents and metadata in Firestore.
    */
+  @CacheEvict({ key: 'meta:index_options' })
   public async deleteIndexOptions(): Promise<{ success: boolean; deletedCount: number }> {
     if (!this.isReady()) {
       return { success: false, deletedCount: 0 };
@@ -840,6 +857,7 @@ export class FirestoreService implements OnModuleInit {
    *
    * Strictly filters out any BSE or non-NSE objects.
    */
+  @CacheEvict({ key: 'meta:sec_id_mapping' })
   public async saveSecIdMapping(
     options: CachedIndexOption[] = [],
     scripMaster: any[] = [],
@@ -1076,19 +1094,17 @@ export class FirestoreService implements OnModuleInit {
 
     // 7. Write metadata document
     const totalInstruments = nseOptions.length + indices.length + equities.length;
-    await colRef.doc('_meta').set(
-      {
-        collection: 'sec_id_to_name_mapping',
-        totalInstruments,
-        totalOptions: nseOptions.length,
-        totalIndices: indices.length,
-        totalEquities: equities.length,
-        documentsCount: docIds.length,
-        documentIds: docIds,
-        updatedAt: now,
-      },
-      { merge: true },
-    );
+    const metaDoc: SecIdMappingMetadata = {
+      collection: 'sec_id_to_name_mapping',
+      totalInstruments,
+      totalOptions: nseOptions.length,
+      totalIndices: indices.length,
+      totalEquities: equities.length,
+      documentsCount: docIds.length,
+      documentIds: docIds,
+      updatedAt: now,
+    };
+    await colRef.doc('_meta').set(metaDoc, { merge: true });
 
     this.logger.log(
       `✅ Saved ${totalInstruments} NSE instruments into Firestore collection 'sec_id_to_name_mapping' across ${docIds.length} documents`,
@@ -1147,7 +1163,8 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve metadata for collection 'sec_id_to_name_mapping' from Firestore.
    */
-  public async getSecIdMappingMetadata(): Promise<SecIdMappingMetadata | null> {
+  @Cacheable({ key: 'meta:sec_id_mapping', condition: (force) => !force, clone: true })
+  public async getSecIdMappingMetadata(force = false): Promise<SecIdMappingMetadata | null> {
     if (!this.isReady()) {
       return null;
     }
@@ -1157,6 +1174,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Delete all documents in collection 'sec_id_to_name_mapping'.
    */
+  @CacheEvict({ key: 'meta:sec_id_mapping' })
   public async deleteSecIdMapping(): Promise<{ success: boolean; deletedCount: number }> {
     if (!this.isReady()) {
       return { success: false, deletedCount: 0 };
@@ -1173,7 +1191,8 @@ export class FirestoreService implements OnModuleInit {
    * Helper: Retrieve index lot sizes from Firestore database (config/lot_sizes).
    * Falls back to standard defaults if not yet customized.
    */
-  public async getLotSizes(): Promise<IndexLotSizesConfig> {
+  @Cacheable({ key: 'config:lot_sizes', condition: (force) => !force, clone: true })
+  public async getLotSizes(force = false): Promise<IndexLotSizesConfig> {
     if (!this.isReady()) {
       return { ...DEFAULT_LOT_SIZES, indices: DEFAULT_INDICES.map((i) => ({ ...i })) };
     }
@@ -1252,7 +1271,7 @@ export class FirestoreService implements OnModuleInit {
     const midcapNiftyLots = Number(midcapItem?.defaultLotSize ?? midcapItem?.defaultLots ?? 0);
     const sensexLots = Number(sensexItem?.defaultLotSize ?? sensexItem?.defaultLots ?? 0);
 
-    return {
+    const result: IndexLotSizesConfig = {
       nifty50,
       bankNifty,
       midcapNifty,
@@ -1264,6 +1283,7 @@ export class FirestoreService implements OnModuleInit {
       indices,
       updatedAt: doc.updatedAt,
     };
+    return result;
   }
 
   /**
@@ -1272,6 +1292,7 @@ export class FirestoreService implements OnModuleInit {
    * 1. defaultLotSize: default lot size for index (how much lot size preferred by user)
    * 2. defaultQuantityInOneLot: default quantity in 1 lot size (how much quantity is there for 1 lot size)
    */
+  @CachePut({ key: 'config:lot_sizes', value: (res) => res?.data })
   public async saveLotSizes(
     config: Partial<IndexLotSizesConfig>,
   ): Promise<{ success: boolean; data: IndexLotSizesConfig; writeTime: string }> {
@@ -1391,7 +1412,8 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve Telegram credentials from Firestore (config/telegram).
    */
-  public async getTelegramConfig(): Promise<TelegramConfig | null> {
+  @Cacheable({ key: 'config:telegram', condition: (force) => !force, clone: true })
+  public async getTelegramConfig(force = false): Promise<TelegramConfig | null> {
     if (!this.isReady()) return null;
     return this.getDoc<TelegramConfig>('config', 'telegram');
   }
@@ -1399,6 +1421,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Save Telegram credentials in Firestore (config/telegram).
    */
+  @CacheEvict({ key: 'config:telegram' })
   public async saveTelegramConfig(
     cfg: { botToken: string; chatId: string },
   ): Promise<{ success: boolean; writeTime: string }> {
@@ -1427,7 +1450,8 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve application settings from Firestore (config/app).
    */
-  public async getAppConfig(): Promise<AppConfig | null> {
+  @Cacheable({ key: 'config:app', condition: (force) => !force, clone: true })
+  public async getAppConfig(force = false): Promise<AppConfig | null> {
     if (!this.isReady()) return null;
     return this.getDoc<AppConfig>('config', 'app');
   }
@@ -1435,6 +1459,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Save application settings in Firestore (config/app).
    */
+  @CacheEvict({ key: 'config:app' })
   public async saveAppConfig(
     cfg: Partial<AppConfig>,
   ): Promise<{ success: boolean; writeTime: string }> {
@@ -1465,7 +1490,8 @@ export class FirestoreService implements OnModuleInit {
    * Helper: Retrieve stock screener watchlist from Firestore (config/screener_watchlist).
    * Auto-seeds with top 28 large-cap NSE stocks if not yet configured.
    */
-  public async getScreenerWatchlist(): Promise<ScreenerWatchlistDoc> {
+  @Cacheable({ key: 'config:screener_watchlist', condition: (force) => !force, clone: true })
+  public async getScreenerWatchlist(force = false): Promise<ScreenerWatchlistDoc> {
     const fallback: ScreenerWatchlistDoc = {
       symbols: [...DEFAULT_LARGE_CAP_STOCKS],
       updatedAt: new Date().toISOString(),
@@ -1495,6 +1521,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Save or update screener watchlist in Firestore (config/screener_watchlist).
    */
+  @CachePut({ key: 'config:screener_watchlist', value: (res) => res?.data })
   public async saveScreenerWatchlist(
     watchlist: Partial<ScreenerWatchlistDoc> | WatchlistStockItem[],
   ): Promise<{ success: boolean; data: ScreenerWatchlistDoc; writeTime: string }> {
@@ -1544,7 +1571,8 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Retrieve configurable screener strategy parameters from Firestore (config/screener_settings).
    */
-  public async getScreenerSettings(): Promise<ScreenerSettingsDoc> {
+  @Cacheable({ key: 'config:screener_settings', condition: (force) => !force, clone: true })
+  public async getScreenerSettings(force = false): Promise<ScreenerSettingsDoc> {
     if (!this.isReady()) {
       return { ...DEFAULT_SCREENER_SETTINGS };
     }
@@ -1552,7 +1580,7 @@ export class FirestoreService implements OnModuleInit {
     try {
       const doc = await this.getDoc<ScreenerSettingsDoc>('config', 'screener_settings');
       if (doc) {
-        return {
+        const res: ScreenerSettingsDoc = {
           obImpulseMultiplier: doc.obImpulseMultiplier ?? DEFAULT_SCREENER_SETTINGS.obImpulseMultiplier,
           obMinImpulseBodyPercent: doc.obMinImpulseBodyPercent ?? DEFAULT_SCREENER_SETTINGS.obMinImpulseBodyPercent,
           obProximityBufferPercent: doc.obProximityBufferPercent ?? DEFAULT_SCREENER_SETTINGS.obProximityBufferPercent,
@@ -1563,6 +1591,7 @@ export class FirestoreService implements OnModuleInit {
           throttleMs: doc.throttleMs ?? DEFAULT_SCREENER_SETTINGS.throttleMs,
           updatedAt: doc.updatedAt,
         };
+        return res;
       }
     } catch (err: any) {
       this.logger.warn(`Could not read screener settings from Firestore: ${err.message}. Using defaults.`);
@@ -1574,6 +1603,7 @@ export class FirestoreService implements OnModuleInit {
   /**
    * Helper: Save or update screener settings in Firestore (config/screener_settings).
    */
+  @CachePut({ key: 'config:screener_settings', value: (res) => res?.data })
   public async saveScreenerSettings(
     settings: Partial<ScreenerSettingsDoc>,
   ): Promise<{ success: boolean; data: ScreenerSettingsDoc; writeTime: string }> {

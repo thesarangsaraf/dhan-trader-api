@@ -1306,15 +1306,11 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   }
 
   startMonitor() {
-    if (this.monitorTimer) clearInterval(this.monitorTimer);
-
-    this.monitorTimer = setInterval(() => {
-      this.checkAndTick().catch(() => {});
-    }, this.config.pollIntervalMs);
-
-    if (this.monitorTimer && typeof this.monitorTimer.unref === 'function') {
-      this.monitorTimer.unref();
+    if (this.monitorTimer) {
+      clearInterval(this.monitorTimer);
+      this.monitorTimer = null;
     }
+    // Background polling disabled: price evaluations and checks are executed strictly on-demand
   }
 
   async checkAndTick() {

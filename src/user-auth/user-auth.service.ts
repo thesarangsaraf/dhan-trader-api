@@ -160,10 +160,17 @@ export class UserAuthService implements OnModuleInit {
     const docId = (username || '').trim().toLowerCase();
     if (!docId) return null;
 
+    if (this.inMemoryUsers.has(docId)) {
+      return this.inMemoryUsers.get(docId)!;
+    }
+
     if (this.firestoreService.isReady()) {
       try {
         const user = await this.firestoreService.getDoc<StoredUserDoc>('users', docId);
-        if (user) return user;
+        if (user) {
+          this.inMemoryUsers.set(docId, user);
+          return user;
+        }
 
         // When Firestore is connected and ready, if document is not in 'users', user does not exist.
         return null;
@@ -196,13 +203,19 @@ export class UserAuthService implements OnModuleInit {
       try {
         const docs = await this.firestoreService.listDocuments('users', 100);
         if (docs && docs.length > 0) {
-          return docs.map(({ data }) => ({
-            username: data.username || data.id,
-            role: data.role || UserRole.TRADER,
-            createdAt: data.createdAt || new Date().toISOString(),
-            updatedAt: data.updatedAt || new Date().toISOString(),
-            sessionCount: (data.refreshTokens || []).length,
-          }));
+          return docs.map(({ data }) => {
+            const docId = (data.username || data.id || '').toLowerCase();
+            if (docId) {
+              this.inMemoryUsers.set(docId, data as StoredUserDoc);
+            }
+            return {
+              username: data.username || data.id,
+              role: data.role || UserRole.TRADER,
+              createdAt: data.createdAt || new Date().toISOString(),
+              updatedAt: data.updatedAt || new Date().toISOString(),
+              sessionCount: (data.refreshTokens || []).length,
+            };
+          });
         }
       } catch (err: any) {
         this.logger.warn(`Could not list users from Firestore: ${err.message}`);
@@ -421,30 +434,31 @@ export class UserAuthService implements OnModuleInit {
     let matchedUser: StoredUserDoc | null = null;
     let matchedSession: StoredRefreshToken | null = null;
 
-    // Search in Firestore
-    if (this.firestoreService.isReady()) {
+    // 1. Search in-memory users cache first (zero database reads if user session is cached)
+    for (const u of this.inMemoryUsers.values()) {
+      const session = (u.refreshTokens || []).find((s) => s.token === dto.refreshToken);
+      if (session) {
+        matchedUser = u;
+        matchedSession = session;
+        break;
+      }
+    }
+
+    // 2. If not found in memory, query Firestore and populate cache
+    if (!matchedUser && this.firestoreService.isReady()) {
       try {
         const docs = await this.firestoreService.listDocuments('users', 100);
         for (const { data } of docs) {
+          const docId = (data.username || data.id || '').toLowerCase();
+          if (docId) this.inMemoryUsers.set(docId, data as StoredUserDoc);
           const session = (data.refreshTokens || []).find((s: StoredRefreshToken) => s.token === dto.refreshToken);
-          if (session) {
+          if (session && !matchedUser) {
             matchedUser = data as StoredUserDoc;
             matchedSession = session;
-            break;
           }
         }
       } catch (err: any) {
         this.logger.warn(`Could not search refresh token in Firestore: ${err.message}`);
-      }
-    } else {
-      // Fallback to in-memory ONLY when Firestore is not ready
-      for (const u of this.inMemoryUsers.values()) {
-        const session = (u.refreshTokens || []).find((s) => s.token === dto.refreshToken);
-        if (session) {
-          matchedUser = u;
-          matchedSession = session;
-          break;
-        }
       }
     }
 
@@ -482,11 +496,29 @@ export class UserAuthService implements OnModuleInit {
    */
   public async logout(refreshToken?: string) {
     if (refreshToken) {
-      // 1. If Firestore is ready, find and update user document in Firestore
+      // 1. Search in-memory cache first to avoid unnecessary Firestore collection scans
+      let foundUser: StoredUserDoc | null = null;
+      for (const u of this.inMemoryUsers.values()) {
+        const hasToken = (u.refreshTokens || []).some((s) => s.token === refreshToken);
+        if (hasToken) {
+          foundUser = u;
+          break;
+        }
+      }
+
+      if (foundUser) {
+        foundUser.refreshTokens = (foundUser.refreshTokens || []).filter((s) => s.token !== refreshToken);
+        await this.saveUser(foundUser);
+        return { success: true, message: 'Logged out successfully' };
+      }
+
+      // 2. If not found in memory, query Firestore
       if (this.firestoreService.isReady()) {
         try {
           const docs = await this.firestoreService.listDocuments('users', 100);
           for (const { data } of docs) {
+            const docId = (data.username || data.id || '').toLowerCase();
+            if (docId) this.inMemoryUsers.set(docId, data as StoredUserDoc);
             const hasToken = ((data as StoredUserDoc).refreshTokens || []).some((s) => s.token === refreshToken);
             if (hasToken) {
               const updatedUser = data as StoredUserDoc;
@@ -497,18 +529,6 @@ export class UserAuthService implements OnModuleInit {
           }
         } catch (err: any) {
           this.logger.warn(`Could not remove refresh token from Firestore during logout: ${err.message}`);
-        }
-      }
-
-      // 2. Also remove from in-memory cache
-      for (const u of this.inMemoryUsers.values()) {
-        const hasToken = (u.refreshTokens || []).some((s) => s.token === refreshToken);
-        if (hasToken) {
-          u.refreshTokens = u.refreshTokens?.filter((s) => s.token !== refreshToken);
-          if (!this.firestoreService.isReady()) {
-            await this.saveUser(u);
-          }
-          break;
         }
       }
     }

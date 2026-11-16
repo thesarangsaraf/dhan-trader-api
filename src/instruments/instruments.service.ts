@@ -113,10 +113,16 @@ export class InstrumentsService implements OnModuleInit {
     @Optional() private readonly yahooService?: YahooFinanceService,
     @Optional() private readonly firestoreService?: FirestoreService,
   ) {
-    // Eagerly trigger mapping fetch strictly from Firestore database in background
-    this.loadFromFirestore().catch((err) => {
-      this.logger.warn(`Initial Firestore sec_id_to_name_mapping load deferred: ${err.message}`);
-    });
+    // Eagerly trigger mapping fetch strictly from Firestore database in background and store promise to prevent duplicate concurrent load
+    this.indexOptionsLoadingPromise = this.loadFromFirestore()
+      .then((res) => res.optionsCount)
+      .catch((err) => {
+        this.logger.warn(`Initial Firestore sec_id_to_name_mapping load deferred: ${err.message}`);
+        return 0;
+      })
+      .finally(() => {
+        this.indexOptionsLoadingPromise = null;
+      });
   }
 
   async onModuleInit() {
@@ -812,10 +818,13 @@ export class InstrumentsService implements OnModuleInit {
   /**
    * Retrieve current index lot sizes configuration backed by Firestore.
    */
-  public async getLotSizes(): Promise<IndexLotSizesConfig> {
+  public async getLotSizes(force = false): Promise<IndexLotSizesConfig> {
+    if (!force && this.lotSizes && Array.isArray(this.lotSizes.indices) && this.lotSizes.indices.length > 0) {
+      return { ...this.lotSizes };
+    }
     if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
       try {
-        const dbSizes = await this.firestoreService.getLotSizes();
+        const dbSizes = await this.firestoreService.getLotSizes(force);
         if (dbSizes) {
           this.lotSizes = dbSizes;
         }
@@ -830,15 +839,17 @@ export class InstrumentsService implements OnModuleInit {
    * Retrieve list of tradeable indices configured in Firestore for Conditional Alert Composer dropdown.
    * Enriches each index with live LTP from Dhan / Yahoo Finance.
    */
-  public async getConfiguredIndices(onlyEnabled = true): Promise<InstrumentItem[]> {
-    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-      try {
-        const dbSizes = await this.firestoreService.getLotSizes();
-        if (dbSizes) {
-          this.lotSizes = dbSizes;
+  public async getConfiguredIndices(onlyEnabled = true, force = false): Promise<InstrumentItem[]> {
+    if (force || !this.lotSizes || !Array.isArray(this.lotSizes.indices) || this.lotSizes.indices.length === 0) {
+      if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+        try {
+          const dbSizes = await this.firestoreService.getLotSizes(force);
+          if (dbSizes) {
+            this.lotSizes = dbSizes;
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     }
 
@@ -857,7 +868,7 @@ export class InstrumentsService implements OnModuleInit {
       defaultQuantityInOneLot?: number;
       stopLossPoints?: number;
     })[] = filtered.map((idx) => {
-      const defaultLotSize = idx.defaultLotSize ?? idx.defaultLots ?? 5;
+      const defaultLotSize = idx.defaultLotSize ?? idx.defaultLots ?? 0;
       const defaultQuantityInOneLot = idx.defaultQuantityInOneLot ?? idx.lotSize ?? 1;
       return {
         symbol: idx.symbol,
@@ -900,7 +911,7 @@ export class InstrumentsService implements OnModuleInit {
     }
 
     return filtered.map((idx) => {
-      const defaultLotSize = (idx as any).defaultLotSize ?? (idx as any).defaultLots ?? 5;
+      const defaultLotSize = (idx as any).defaultLotSize ?? (idx as any).defaultLots ?? 0;
       const defaultQuantityInOneLot = (idx as any).defaultQuantityInOneLot ?? idx.lotSize ?? 1;
       return {
         symbol: idx.symbol,

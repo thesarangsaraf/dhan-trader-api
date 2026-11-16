@@ -14,6 +14,8 @@ export interface DhanApiResponse<T = any> {
 @Injectable()
 export class DhanService {
   private isTokenLoadedFromDb = false;
+  private lastTokenDbCheckTime = 0;
+  private static readonly TOKEN_DB_CHECK_COOLDOWN_MS = 5 * 60 * 1000; // 5-minute cooldown between Firestore checks on 401
 
   constructor(
     private readonly config: ConfigService,
@@ -56,6 +58,7 @@ export class DhanService {
       this.config.clientId = clientId;
     }
     this.isTokenLoadedFromDb = true;
+    this.lastTokenDbCheckTime = 0;
   }
 
   getHeaders(): Record<string, string> {
@@ -104,16 +107,19 @@ export class DhanService {
         data = await response.text();
       }
 
-      // If token unauthorized or invalid, check if a newer active token exists in Firestore and retry once
+      // If token unauthorized or invalid, check if a newer active token exists in Firestore and retry once (with 5-minute cooldown)
+      const now = Date.now();
       if (
         (response.status === 401 || data?.errorCode === 'DH-901' || data?.errorCode === 'DH-906') &&
         !options.headers?.['x-retry'] &&
+        now - this.lastTokenDbCheckTime >= DhanService.TOKEN_DB_CHECK_COOLDOWN_MS &&
         this.firestoreService &&
         typeof this.firestoreService.isReady === 'function' &&
         this.firestoreService.isReady()
       ) {
+        this.lastTokenDbCheckTime = now;
         try {
-          const stored = await this.firestoreService.getDhanToken();
+          const stored = await this.firestoreService.getDhanToken(true);
           if (stored?.accessToken && stored.accessToken !== this.config.accessToken) {
             const storedPayload = decodeJwtPayload(stored.accessToken);
             const nowSec = Math.floor(Date.now() / 1000);
