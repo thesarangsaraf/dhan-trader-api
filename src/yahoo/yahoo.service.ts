@@ -34,6 +34,8 @@ export interface ChartCandlesResponse {
 export class YahooFinanceService {
   private readonly cache = new Map<string, { price: number; timestamp: number }>();
   private readonly cacheTtlMs = 3000; // 3 seconds TTL to avoid spamming Yahoo
+  private readonly candleCache = new Map<string, { data: ChartCandlesResponse; timestamp: number }>();
+  private readonly candleCacheTtlMs = 60000; // 60 seconds TTL for candle charts & scans
 
   private readonly INDEX_MAP: Record<string, string> = {
     'NIFTY 50': '^NSEI',
@@ -236,12 +238,20 @@ export class YahooFinanceService {
       range = `${options.period1}-${options.period2}`;
     } else {
       if (!range) {
-        if (interval === '1m') range = '5d';
-        else if (interval === '2m' || interval === '5m') range = '5d';
+        if (interval === '1m' || interval === '2m' || interval === '5m') range = '5d';
         else if (interval === '15m' || interval === '30m' || interval === '60m' || interval === '1h') range = '1mo';
+        else if (interval === '1d') range = '1y';
+        else if (interval === '1wk') range = '2y';
         else range = '1y';
       }
       url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
+    }
+
+    const cacheKey = `${yahooSymbol}_${interval}_${range || ''}_${options.period1 || 0}_${options.period2 || 0}_${options.limit || 0}`;
+    const now = Date.now();
+    const cachedCandles = this.candleCache.get(cacheKey);
+    if (cachedCandles && now - cachedCandles.timestamp < this.candleCacheTtlMs) {
+      return cachedCandles.data;
     }
 
     const controller = new AbortController();
@@ -313,11 +323,11 @@ export class YahooFinanceService {
       ? candles[candles.length - 1].close
       : (meta.regularMarketPrice ?? 0);
 
-    return {
+    const responsePayload: ChartCandlesResponse = {
       symbol: rawSymbol,
       yahooSymbol,
       interval,
-      range,
+      range: range || '1y',
       period1: options.period1,
       period2: options.period2,
       currency: meta.currency || 'INR',
@@ -326,5 +336,48 @@ export class YahooFinanceService {
       count: candles.length,
       candles,
     };
+
+    this.candleCache.set(cacheKey, { data: responsePayload, timestamp: now });
+    return responsePayload;
+  }
+
+  /**
+   * Batch fetch candles for multiple symbols with concurrency throttling to prevent rate limiting.
+   */
+  async getCandlesBatch(
+    requests: Array<{
+      symbol: string;
+      interval?: string;
+      range?: string;
+      limit?: number;
+    }>,
+    options: { batchSize?: number; throttleMs?: number } = {},
+  ): Promise<Map<string, ChartCandlesResponse>> {
+    const batchSize = Math.max(1, options.batchSize || 5);
+    const throttleMs = Math.max(0, options.throttleMs || 150);
+    const results = new Map<string, ChartCandlesResponse>();
+
+    for (let i = 0; i < requests.length; i += batchSize) {
+      const slice = requests.slice(i, i + batchSize);
+      const settled = await Promise.allSettled(
+        slice.map(async (req) => {
+          const candles = await this.getCandles(req);
+          return { symbol: req.symbol, candles };
+        }),
+      );
+
+      for (const item of settled) {
+        if (item.status === 'fulfilled') {
+          results.set(item.value.symbol, item.value.candles);
+          results.set(item.value.symbol.toUpperCase(), item.value.candles);
+        }
+      }
+
+      if (i + batchSize < requests.length && throttleMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, throttleMs));
+      }
+    }
+
+    return results;
   }
 }

@@ -195,6 +195,74 @@ export const DEFAULT_LOT_SIZES: IndexLotSizesConfig = {
   indices: [...DEFAULT_INDICES],
 };
 
+export interface WatchlistStockItem {
+  symbol: string;        // NSE Trading Symbol (e.g. "RELIANCE", "TCS", "HDFCBANK")
+  name: string;          // Human-readable company name (e.g. "Reliance Industries Ltd")
+  sector?: string;       // Sector / Industry (e.g. "Energy", "IT", "Banking")
+  enabled: boolean;      // Whether active during screener execution
+  order?: number;        // Display order
+}
+
+export interface ScreenerWatchlistDoc {
+  symbols: WatchlistStockItem[]; // Configurable list of stocks
+  updatedAt: string;             // ISO-8601 IST timestamp
+  version: number;               // Schema version (e.g., 1)
+}
+
+export interface ScreenerSettingsDoc {
+  obImpulseMultiplier: number;        // Impulse candle body >= X times average candle body (default: 1.8)
+  obMinImpulseBodyPercent: number;     // Minimum % move for impulse candle body (default: 0.8%)
+  obProximityBufferPercent: number;    // Proximity to OB zone entry to trigger setup (default: 1.0%)
+  obLookbackCandles: number;           // Number of candles to search for fresh Order Block (default: 30)
+  sweepLookbackCandles: number;        // Lookback window to locate key swing high/low (default: 20)
+  sweepMinWickRatio: number;           // Minimum rejection wick ratio of total candle range (default: 0.4 / 40%)
+  batchSize: number;                   // Number of concurrent Yahoo Finance candle requests (default: 5)
+  throttleMs: number;                  // Throttle delay between batches in milliseconds (default: 150)
+  updatedAt?: string;
+}
+
+export const DEFAULT_SCREENER_SETTINGS: ScreenerSettingsDoc = {
+  obImpulseMultiplier: 1.8,
+  obMinImpulseBodyPercent: 0.8,
+  obProximityBufferPercent: 1.0,
+  obLookbackCandles: 30,
+  sweepLookbackCandles: 20,
+  sweepMinWickRatio: 0.4,
+  batchSize: 5,
+  throttleMs: 150,
+};
+
+export const DEFAULT_LARGE_CAP_STOCKS: WatchlistStockItem[] = [
+  { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', sector: 'Energy', enabled: true, order: 1 },
+  { symbol: 'TCS', name: 'Tata Consultancy Services Ltd', sector: 'IT', enabled: true, order: 2 },
+  { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', sector: 'Banking', enabled: true, order: 3 },
+  { symbol: 'INFY', name: 'Infosys Ltd', sector: 'IT', enabled: true, order: 4 },
+  { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd', sector: 'Banking', enabled: true, order: 5 },
+  { symbol: 'BHARTIARTL', name: 'Bharti Airtel Ltd', sector: 'Telecom', enabled: true, order: 6 },
+  { symbol: 'SBIN', name: 'State Bank of India', sector: 'Banking', enabled: true, order: 7 },
+  { symbol: 'ITC', name: 'ITC Ltd', sector: 'FMCG', enabled: true, order: 8 },
+  { symbol: 'LT', name: 'Larsen & Toubro Ltd', sector: 'Construction', enabled: true, order: 9 },
+  { symbol: 'HINDUNILVR', name: 'Hindustan Unilever Ltd', sector: 'FMCG', enabled: true, order: 10 },
+  { symbol: 'TATAMOTORS', name: 'Tata Motors Ltd', sector: 'Automobile', enabled: true, order: 11 },
+  { symbol: 'AXISBANK', name: 'Axis Bank Ltd', sector: 'Banking', enabled: true, order: 12 },
+  { symbol: 'MARUTI', name: 'Maruti Suzuki India Ltd', sector: 'Automobile', enabled: true, order: 13 },
+  { symbol: 'SUNPHARMA', name: 'Sun Pharmaceutical Industries Ltd', sector: 'Healthcare', enabled: true, order: 14 },
+  { symbol: 'BAJFINANCE', name: 'Bajaj Finance Ltd', sector: 'Financial Services', enabled: true, order: 15 },
+  { symbol: 'TITAN', name: 'Titan Company Ltd', sector: 'Consumer Goods', enabled: true, order: 16 },
+  { symbol: 'KOTAKBANK', name: 'Kotak Mahindra Bank Ltd', sector: 'Banking', enabled: true, order: 17 },
+  { symbol: 'TATASTEEL', name: 'Tata Steel Ltd', sector: 'Metals', enabled: true, order: 18 },
+  { symbol: 'NTPC', name: 'NTPC Ltd', sector: 'Power', enabled: true, order: 19 },
+  { symbol: 'POWERGRID', name: 'Power Grid Corporation of India Ltd', sector: 'Power', enabled: true, order: 20 },
+  { symbol: 'M&M', name: 'Mahindra & Mahindra Ltd', sector: 'Automobile', enabled: true, order: 21 },
+  { symbol: 'ADANIENT', name: 'Adani Enterprises Ltd', sector: 'Conglomerate', enabled: true, order: 22 },
+  { symbol: 'ASIANPAINT', name: 'Asian Paints Ltd', sector: 'Consumer Goods', enabled: true, order: 23 },
+  { symbol: 'ULTRACEMCO', name: 'UltraTech Cement Ltd', sector: 'Materials', enabled: true, order: 24 },
+  { symbol: 'COALINDIA', name: 'Coal India Ltd', sector: 'Mining', enabled: true, order: 25 },
+  { symbol: 'BAJAJFINSV', name: 'Bajaj Finserv Ltd', sector: 'Financial Services', enabled: true, order: 26 },
+  { symbol: 'WIPRO', name: 'Wipro Ltd', sector: 'IT', enabled: true, order: 27 },
+  { symbol: 'TECHM', name: 'Tech Mahindra Ltd', sector: 'IT', enabled: true, order: 28 },
+];
+
 export interface FirestoreTestResult {
   success: boolean;
   message: string;
@@ -1464,6 +1532,149 @@ export class FirestoreService implements OnModuleInit {
     }
 
     return cleanInput === storedPassword;
+  }
+
+  /**
+   * Helper: Retrieve stock screener watchlist from Firestore (config/screener_watchlist).
+   * Auto-seeds with top 28 large-cap NSE stocks if not yet configured.
+   */
+  public async getScreenerWatchlist(): Promise<ScreenerWatchlistDoc> {
+    const fallback: ScreenerWatchlistDoc = {
+      symbols: [...DEFAULT_LARGE_CAP_STOCKS],
+      updatedAt: new Date().toISOString(),
+      version: 1,
+    };
+
+    if (!this.isReady()) {
+      return fallback;
+    }
+
+    try {
+      const doc = await this.getDoc<ScreenerWatchlistDoc>('config', 'screener_watchlist');
+      if (doc && Array.isArray(doc.symbols) && doc.symbols.length > 0) {
+        return doc;
+      }
+
+      // Auto-seed if document doesn't exist yet
+      this.logger.log('🌱 Auto-seeding initial large-cap NSE stock watchlist in Firestore (config/screener_watchlist)');
+      await this.setDoc('config', 'screener_watchlist', fallback, true);
+      return fallback;
+    } catch (err: any) {
+      this.logger.warn(`Could not read screener watchlist from Firestore: ${err.message}. Using default universe.`);
+      return fallback;
+    }
+  }
+
+  /**
+   * Helper: Save or update screener watchlist in Firestore (config/screener_watchlist).
+   */
+  public async saveScreenerWatchlist(
+    watchlist: Partial<ScreenerWatchlistDoc> | WatchlistStockItem[],
+  ): Promise<{ success: boolean; data: ScreenerWatchlistDoc; writeTime: string }> {
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Check credentials.');
+    }
+
+    let symbols: WatchlistStockItem[] = [];
+    if (Array.isArray(watchlist)) {
+      symbols = watchlist;
+    } else if (watchlist && Array.isArray(watchlist.symbols)) {
+      symbols = watchlist.symbols;
+    }
+
+    // Clean and validate symbols (remove any .NS suffix if user provided it, uppercase)
+    const cleanedSymbols = symbols.map((item, idx) => ({
+      symbol: (item.symbol || '').replace(/\.NS$/i, '').trim().toUpperCase(),
+      name: (item.name || item.symbol || '').trim(),
+      sector: item.sector || undefined,
+      enabled: item.enabled !== false,
+      order: item.order ?? idx + 1,
+    })).filter((s) => s.symbol.length > 0);
+
+    const docPayload: ScreenerWatchlistDoc = {
+      symbols: cleanedSymbols,
+      updatedAt: new Date().toISOString(),
+      version: 1,
+    };
+
+    const res = await this.setDoc('config', 'screener_watchlist', docPayload, false);
+    this.logger.log(`⚙️ Saved ${cleanedSymbols.length} screener watchlist stocks to Firestore (config/screener_watchlist)`);
+
+    return {
+      success: true,
+      data: docPayload,
+      writeTime: res.writeTime,
+    };
+  }
+
+  /**
+   * Helper: Reset screener watchlist back to default large-cap NSE list in Firestore.
+   */
+  public async resetScreenerWatchlist(): Promise<{ success: boolean; data: ScreenerWatchlistDoc; writeTime: string }> {
+    return this.saveScreenerWatchlist(DEFAULT_LARGE_CAP_STOCKS);
+  }
+
+  /**
+   * Helper: Retrieve configurable screener strategy parameters from Firestore (config/screener_settings).
+   */
+  public async getScreenerSettings(): Promise<ScreenerSettingsDoc> {
+    if (!this.isReady()) {
+      return { ...DEFAULT_SCREENER_SETTINGS };
+    }
+
+    try {
+      const doc = await this.getDoc<ScreenerSettingsDoc>('config', 'screener_settings');
+      if (doc) {
+        return {
+          obImpulseMultiplier: doc.obImpulseMultiplier ?? DEFAULT_SCREENER_SETTINGS.obImpulseMultiplier,
+          obMinImpulseBodyPercent: doc.obMinImpulseBodyPercent ?? DEFAULT_SCREENER_SETTINGS.obMinImpulseBodyPercent,
+          obProximityBufferPercent: doc.obProximityBufferPercent ?? DEFAULT_SCREENER_SETTINGS.obProximityBufferPercent,
+          obLookbackCandles: doc.obLookbackCandles ?? DEFAULT_SCREENER_SETTINGS.obLookbackCandles,
+          sweepLookbackCandles: doc.sweepLookbackCandles ?? DEFAULT_SCREENER_SETTINGS.sweepLookbackCandles,
+          sweepMinWickRatio: doc.sweepMinWickRatio ?? DEFAULT_SCREENER_SETTINGS.sweepMinWickRatio,
+          batchSize: doc.batchSize ?? DEFAULT_SCREENER_SETTINGS.batchSize,
+          throttleMs: doc.throttleMs ?? DEFAULT_SCREENER_SETTINGS.throttleMs,
+          updatedAt: doc.updatedAt,
+        };
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not read screener settings from Firestore: ${err.message}. Using defaults.`);
+    }
+
+    return { ...DEFAULT_SCREENER_SETTINGS };
+  }
+
+  /**
+   * Helper: Save or update screener settings in Firestore (config/screener_settings).
+   */
+  public async saveScreenerSettings(
+    settings: Partial<ScreenerSettingsDoc>,
+  ): Promise<{ success: boolean; data: ScreenerSettingsDoc; writeTime: string }> {
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Check credentials.');
+    }
+
+    const current = await this.getScreenerSettings();
+    const payload: ScreenerSettingsDoc = {
+      obImpulseMultiplier: settings.obImpulseMultiplier !== undefined ? Number(settings.obImpulseMultiplier) : current.obImpulseMultiplier,
+      obMinImpulseBodyPercent: settings.obMinImpulseBodyPercent !== undefined ? Number(settings.obMinImpulseBodyPercent) : current.obMinImpulseBodyPercent,
+      obProximityBufferPercent: settings.obProximityBufferPercent !== undefined ? Number(settings.obProximityBufferPercent) : current.obProximityBufferPercent,
+      obLookbackCandles: settings.obLookbackCandles !== undefined ? Number(settings.obLookbackCandles) : current.obLookbackCandles,
+      sweepLookbackCandles: settings.sweepLookbackCandles !== undefined ? Number(settings.sweepLookbackCandles) : current.sweepLookbackCandles,
+      sweepMinWickRatio: settings.sweepMinWickRatio !== undefined ? Number(settings.sweepMinWickRatio) : current.sweepMinWickRatio,
+      batchSize: settings.batchSize !== undefined ? Number(settings.batchSize) : current.batchSize,
+      throttleMs: settings.throttleMs !== undefined ? Number(settings.throttleMs) : current.throttleMs,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const res = await this.setDoc('config', 'screener_settings', payload, true);
+    this.logger.log(`⚙️ Saved screener strategy settings to Firestore (config/screener_settings)`);
+
+    return {
+      success: true,
+      data: payload,
+      writeTime: res.writeTime,
+    };
   }
 
   /**
