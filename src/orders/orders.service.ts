@@ -64,21 +64,52 @@ export class OrdersService {
     }
 
     const rawPositions = Array.isArray(posResult.data) ? posResult.data : [];
-    const positionsList = rawPositions.map((p: any) => ({
-      positionId: p.positionId || `POS-${p.securityId}`,
-      symbol: p.tradingSymbol || p.symbol || `SEC-${p.securityId}`,
-      securityId: String(p.securityId || ''),
-      exchangeSegment: p.exchangeSegment || 'NSE_EQ',
-      productType: p.productType || 'INTRADAY',
-      netQty: p.netQty !== undefined ? p.netQty : ((p.buyQty || 0) - (p.sellQty || 0)),
-      buyQty: p.buyQty || 0,
-      sellQty: p.sellQty || 0,
-      buyAvg: p.buyAvg || p.costPrice || 0,
-      sellAvg: p.sellAvg || 0,
-      ltp: p.ltp || p.lastPrice || 0,
-      realizedPnL: p.realizedProfit !== undefined ? p.realizedProfit : (p.realizedPnL || 0),
-      unrealizedPnL: p.unrealizedProfit !== undefined ? p.unrealizedProfit : (p.unrealizedPnL || 0),
-    }));
+    const positionsList = rawPositions.map((p: any) => {
+      const netQty = p.netQty !== undefined ? p.netQty : ((p.buyQty || 0) - (p.sellQty || 0));
+      const buyAvg = parseFloat(String(p.buyAvg ?? p.costPrice ?? 0)) || 0;
+      const sellAvg = parseFloat(String(p.sellAvg ?? 0)) || 0;
+      const costPrice = parseFloat(String(p.costPrice ?? buyAvg)) || buyAvg;
+
+      // Extract or derive Entry & Exit price from Dhan response
+      let entryPrice: number | undefined = p.entryPrice ? parseFloat(String(p.entryPrice)) : undefined;
+      if (!entryPrice || entryPrice <= 0) {
+        if (netQty < 0) {
+          entryPrice = sellAvg > 0 ? sellAvg : (buyAvg > 0 ? buyAvg : undefined);
+        } else {
+          entryPrice = buyAvg > 0 ? buyAvg : (costPrice > 0 ? costPrice : undefined);
+        }
+      }
+
+      let exitPrice: number | undefined = p.exitPrice ? parseFloat(String(p.exitPrice)) : undefined;
+      if (!exitPrice || exitPrice <= 0) {
+        if (netQty === 0) {
+          exitPrice = sellAvg > 0 ? sellAvg : undefined;
+        } else if (netQty > 0 && p.sellQty > 0 && sellAvg > 0) {
+          exitPrice = sellAvg;
+        } else if (netQty < 0 && p.buyQty > 0 && buyAvg > 0) {
+          exitPrice = buyAvg;
+        }
+      }
+
+      return {
+        positionId: p.positionId || `POS-${p.securityId}`,
+        symbol: p.tradingSymbol || p.symbol || `SEC-${p.securityId}`,
+        securityId: String(p.securityId || ''),
+        exchangeSegment: p.exchangeSegment || 'NSE_EQ',
+        productType: p.productType || 'INTRADAY',
+        netQty,
+        buyQty: p.buyQty || 0,
+        sellQty: p.sellQty || 0,
+        buyAvg,
+        sellAvg,
+        costPrice,
+        entryPrice: entryPrice && entryPrice > 0 ? entryPrice : undefined,
+        exitPrice: exitPrice && exitPrice > 0 ? exitPrice : undefined,
+        ltp: parseFloat(String(p.ltp ?? p.lastPrice ?? 0)) || 0,
+        realizedPnL: p.realizedProfit !== undefined ? p.realizedProfit : (p.realizedPnL || 0),
+        unrealizedPnL: p.unrealizedProfit !== undefined ? p.unrealizedProfit : (p.unrealizedPnL || 0),
+      };
+    });
 
     let fundInfo: any = null;
 
