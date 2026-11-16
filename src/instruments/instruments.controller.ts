@@ -6,6 +6,8 @@ import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
 import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
 import { QueryEquitiesDto } from './dto/query-equities.dto';
 import { QueryOptionsDto } from './dto/query-options.dto';
+import { Roles } from '../user-auth/roles.decorator';
+import { UserRole } from '../user-auth/dto/create-user.dto';
 
 @ApiTags('Instruments')
 @Controller('api/instruments')
@@ -26,19 +28,23 @@ export class InstrumentsController {
   }
 
   @Put('lot-sizes')
+  @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Update index lot sizes configuration in Firestore',
+    summary: 'Update index lot sizes configuration in Firestore (Admin only)',
     description: 'Updates and persists lot sizes in Firestore database collection (config/lot_sizes) and updates in-memory calculation engine.',
   })
   @ApiResponse({ status: 200, description: 'Lot sizes successfully updated' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update lot sizes' })
   async updateLotSizes(@Body() dto: UpdateLotSizesDto) {
     return this.instrumentsService.updateLotSizes(dto);
   }
 
   @Post('lot-sizes/reset')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Reset index lot sizes configuration to defaults' })
+  @ApiOperation({ summary: 'Reset index lot sizes configuration to defaults (Admin only)' })
   @ApiResponse({ status: 200, description: 'Lot sizes reset to standard defaults' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset lot sizes' })
   async resetLotSizes() {
     return this.instrumentsService.resetLotSizes();
   }
@@ -54,12 +60,14 @@ export class InstrumentsController {
   }
 
   @Post('sync')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Sync NSE security master & index options into Firestore collections',
+    summary: 'Sync NSE security master & index options into Firestore collections (Admin only)',
     description: 'Syncs cash equities to sec_id_to_name_mapping and traded index options to index_options.',
   })
   @ApiResponse({ status: 200, description: 'Master data successfully synced to Firestore' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync instruments' })
   async syncMaster(@Body() dto?: SyncInstrumentsDto) {
     if (dto?.csvContent) {
       return this.instrumentsService.syncCsv(dto.csvContent);
@@ -68,67 +76,79 @@ export class InstrumentsController {
   }
 
   @Post('sync/equities')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Sync NSE cash equities & benchmark indices into Firestore collection (sec_id_to_name_mapping)',
+    summary: 'Sync NSE cash equities & benchmark indices into Firestore collection (sec_id_to_name_mapping) (Admin only)',
     description: 'Uploads and organizes all NSE equities into balanced chunks and indices into sec_id_to_name_mapping. Guarantees zero option contracts are saved in this collection.',
   })
   @ApiResponse({ status: 200, description: 'Equities and indices successfully synced to sec_id_to_name_mapping' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync equities' })
   async syncEquities(@Body() dto?: SyncInstrumentsDto) {
     return this.instrumentsService.syncEquities(dto);
   }
 
   @Post('sync/options')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Sync traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX) into Firestore collection (index_options)',
+    summary: 'Sync traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX) into Firestore collection (index_options) (Admin only)',
     description: 'Uploads option contracts strictly for the 4 traded indices into collection index_options in chunks of 500. Excludes stock options and non-traded indices.',
   })
   @ApiResponse({ status: 200, description: 'Traded index options successfully synced to index_options' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync options' })
   async syncOptions(@Body() dto?: SyncInstrumentsDto) {
     return this.instrumentsService.syncOptions(dto);
   }
 
   @Post('flush-and-reload')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Flush all master data from Firestore and reload fresh from Dhan',
+    summary: 'Flush all master data from Firestore and reload fresh from Dhan (Admin only)',
     description: 'Completely wipes both sec_id_to_name_mapping and index_options Firestore collections and re-downloads fresh scrip master from Dhan API.',
   })
   @ApiResponse({ status: 200, description: 'Master data successfully flushed and reloaded' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can flush and reload master data' })
   async flushAndReload(@Body() dto?: SyncInstrumentsDto) {
     return this.instrumentsService.flushAndReload(dto);
   }
 
   @Post('flush-and-reload/equities')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Flush and reload cash equities & benchmark indices from Dhan',
+    summary: 'Flush and reload cash equities & benchmark indices from Dhan (Admin only)',
     description: 'Completely wipes sec_id_to_name_mapping from Firestore and re-downloads fresh cash equities from Dhan API.',
   })
   @ApiResponse({ status: 200, description: 'Cash equities successfully flushed and reloaded' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can flush and reload equities' })
   async flushAndReloadEquities(@Body() dto?: SyncInstrumentsDto) {
     return this.instrumentsService.flushAndReloadEquities(dto);
   }
 
   @Post('flush-and-reload/options')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Flush and reload traded index options from Dhan',
+    summary: 'Flush and reload traded index options from Dhan (Admin only)',
     description: 'Completely wipes index_options from Firestore and re-downloads fresh option contracts from Dhan API.',
   })
   @ApiResponse({ status: 200, description: 'Traded index options successfully flushed and reloaded' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can flush and reload options' })
   async flushAndReloadOptions(@Body() dto?: SyncInstrumentsDto) {
     return this.instrumentsService.flushAndReloadOptions(dto);
   }
 
   @Post('sync/csv')
+  @Roles(UserRole.ADMIN)
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Upload and sync NSE security master from raw CSV content into Firestore',
+    summary: 'Upload and sync NSE security master from raw CSV content into Firestore (Admin only)',
     description: 'Parses raw Dhan api-scrip-master.csv text, filters strictly to NSE contracts, and writes divided documents.',
   })
   @ApiResponse({ status: 200, description: 'CSV data parsed and synced to Firestore' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can upload CSV' })
   async syncCsvPost(@Body('csvContent') csvContent: string) {
     return this.instrumentsService.syncCsv(csvContent);
   }

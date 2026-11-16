@@ -66,6 +66,8 @@ test('UserAuthService (NestJS)', async (t) => {
     },
   };
 
+  process.env.SARANG_PASSWORD = 'admin123';
+  process.env.ADMIN_PASSWORD = 'admin123';
   const service = new UserAuthService(mockFirestoreService);
   await service.onModuleInit();
 

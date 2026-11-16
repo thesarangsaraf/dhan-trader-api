@@ -3,6 +3,8 @@ import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/
 import { OrdersService } from './orders.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { GetTradeHistoryDto } from './dto/get-trade-history.dto';
+import { Roles } from '../user-auth/roles.decorator';
+import { UserRole } from '../user-auth/dto/create-user.dto';
 
 @ApiTags('Orders', 'Trades')
 @Controller('api')
@@ -20,19 +22,23 @@ export class OrdersController {
   }
 
   @Post('orders')
+  @Roles(UserRole.ADMIN)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Place a real live order on Dhan HQ API' })
+  @ApiOperation({ summary: 'Place a real live order on Dhan HQ API (Admin only)' })
   @ApiResponse({ status: 201, description: 'Order placed successfully on Dhan' })
   @ApiResponse({ status: 400, description: 'Dhan rejection or validation failure' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can place orders' })
   async placeOrder(@Body() dto: PlaceOrderDto) {
     return this.ordersService.placeOrder(dto);
   }
 
   @Delete('orders/:id')
-  @ApiOperation({ summary: 'Cancel an order on Dhan HQ API' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Cancel an order on Dhan HQ API (Admin only)' })
   @ApiParam({ name: 'id', description: 'Dhan Order ID' })
   @ApiResponse({ status: 200, description: 'Order cancelled' })
   @ApiResponse({ status: 400, description: 'Cancellation failed' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can cancel orders' })
   async cancelOrder(@Param('id') id: string) {
     return this.ordersService.cancelOrder(id);
   }

@@ -5,6 +5,8 @@ import { ScreenerScanDto } from './dto/screener-scan.dto';
 import { UpdateWatchlistDto } from './dto/update-watchlist.dto';
 import { UserAuthGuard } from '../user-auth/user-auth.guard';
 import { Public } from '../user-auth/public.decorator';
+import { Roles } from '../user-auth/roles.decorator';
+import { UserRole } from '../user-auth/dto/create-user.dto';
 
 @ApiTags('Screener')
 @ApiBearerAuth()
@@ -21,15 +23,19 @@ export class ScreenerController {
   }
 
   @Put('watchlist')
-  @ApiOperation({ summary: 'Update stock universe watchlist in Firestore' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update stock universe watchlist in Firestore (Admin only)' })
   @ApiResponse({ status: 200, description: 'Updated watchlist' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update watchlist' })
   async updateWatchlist(@Body() dto: UpdateWatchlistDto) {
     return this.screenerService.updateWatchlist(dto);
   }
 
   @Post('watchlist/reset')
-  @ApiOperation({ summary: 'Reset watchlist back to the default 28 large-cap NSE stocks' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reset watchlist back to the default 28 large-cap NSE stocks (Admin only)' })
   @ApiResponse({ status: 200, description: 'Reset watchlist' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset watchlist' })
   async resetWatchlist() {
     return this.screenerService.resetWatchlist();
   }
@@ -42,8 +48,10 @@ export class ScreenerController {
   }
 
   @Put('settings')
-  @ApiOperation({ summary: 'Update configurable strategy parameters in Firestore' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update configurable strategy parameters in Firestore (Admin only)' })
   @ApiResponse({ status: 200, description: 'Updated strategy parameters' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update screener settings' })
   async updateSettings(@Body() dto: any) {
     return this.screenerService.updateSettings(dto);
   }

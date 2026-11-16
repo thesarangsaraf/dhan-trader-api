@@ -74,10 +74,14 @@ This document provides definitive instructions, architecture patterns, constrain
    - Never hardcode static lot multipliers without consulting `FirestoreService.getLotSizes()` or `InstrumentsService.getLotSizes()`.
    - Modifiable via REST API (`GET /api/instruments/lot-sizes`, `PUT /api/instruments/lot-sizes`, `POST /api/instruments/lot-sizes/reset`) and through the UI Settings Page (`/settings`).
 
-9. **Strict Zero Static Fallback & Zero Hardcoded Data Policy**:
+9. **Strict Zero Static Fallback & Zero Hardcoded Data Policy (Always Real Data & Zero Default Passwords)**:
    - **Never author, commit, or inject static fallback data or hardcoded credentials anywhere in the backend API or frontend UI codebase.**
-   - All authorization credentials, option contracts, index prices, lot sizes, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
-   - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. mock orders, fake prices, or default passwords in source code).
+   - **Strict Zero Default Password Policy (CRITICAL)**:
+     - Never keep, seed, or hardcode default passwords (such as `admin123`) or default credentials in source code, constructors, fallback maps, DTO examples, or initializers.
+     - All user accounts and credentials must originate strictly and dynamically from Google Cloud Firestore collection `users`.
+     - When logging in or changing passwords, the backend must authenticate strictly against real user records stored in Google Cloud Firestore. Never fall back to in-memory static users.
+   - All authorization credentials, option contracts, index prices, lot sizes, user accounts, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
+   - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. mock orders, fake prices, simulated responses, or in-memory default passwords).
    - **Zero Secrets / Passwords in UI & Responses (CRITICAL)**:
      - Never expose, return, or hint at sensitive credentials (such as passwords, password hashes, salts, PINs, or tokens) in UI placeholders, helper text, error messages, labels, or documentation examples.
      - Login pages and dialogs must NEVER show default credentials chips or helper text (e.g. never display `admin / admin123` or default credentials anywhere). Placeholders must remain strictly generic (e.g., `"Enter username"`, `"Enter password"`).

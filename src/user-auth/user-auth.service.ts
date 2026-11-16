@@ -50,41 +50,15 @@ export class UserAuthService implements OnModuleInit {
   private readonly logger = new Logger(UserAuthService.name);
   private inMemoryUsers: Map<string, StoredUserDoc> = new Map();
 
-  private readonly defaultAdminUsername = process.env.ADMIN_USERNAME || 'admin';
-  private readonly defaultAdminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-
-  constructor(private readonly firestoreService: FirestoreService) {
-    this.seedInMemoryDefaults();
-  }
-
-  private seedInMemoryDefaults() {
-    const now = new Date().toISOString();
-    // Default sarang superuser
-    this.inMemoryUsers.set('sarang', {
-      username: 'sarang',
-      passwordHash: PasswordUtil.hashPassword('admin123'),
-      role: UserRole.ADMIN,
-      refreshTokens: [],
-      createdAt: now,
-      updatedAt: now,
-    });
-    // Default admin user
-    this.inMemoryUsers.set(this.defaultAdminUsername.toLowerCase(), {
-      username: this.defaultAdminUsername,
-      passwordHash: PasswordUtil.hashPassword(this.defaultAdminPassword),
-      role: UserRole.ADMIN,
-      refreshTokens: [],
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
+  constructor(private readonly firestoreService: FirestoreService) {}
 
   async onModuleInit() {
     await this.initUsers();
   }
 
   /**
-   * Initializes superuser 'sarang' and default 'admin' in Firestore collection 'users'.
+   * Initializes superuser 'sarang' and any configured admin users in Firestore collection 'users'.
+   * Never injects hardcoded fallback passwords. All credentials originate from Firestore or explicit env vars.
    */
   public async initUsers(): Promise<void> {
     try {
@@ -97,56 +71,46 @@ export class UserAuthService implements OnModuleInit {
 
       // 1. Ensure superuser 'sarang' exists
       const sarangDoc = await this.firestoreService.getDoc<StoredUserDoc>('users', 'sarang');
-      const isInitialSetup = !sarangDoc || !sarangDoc.passwordHash;
-      if (isInitialSetup) {
+      if (sarangDoc && sarangDoc.passwordHash) {
+        this.inMemoryUsers.set('sarang', sarangDoc);
+      } else if (process.env.SARANG_PASSWORD && process.env.SARANG_PASSWORD.trim()) {
         const sarangUser: StoredUserDoc = {
           username: 'sarang',
-          passwordHash: PasswordUtil.hashPassword(process.env.SARANG_PASSWORD || 'admin123'),
+          passwordHash: PasswordUtil.hashPassword(process.env.SARANG_PASSWORD.trim()),
           role: UserRole.ADMIN,
           refreshTokens: [],
           createdAt: now,
           updatedAt: now,
         };
         await this.firestoreService.setDoc('users', 'sarang', sarangUser, true);
-        this.logger.log(`🔐 Auto-seeded superuser [sarang] in Firestore (users/sarang)`);
+        this.inMemoryUsers.set('sarang', sarangUser);
+        this.logger.log(`🔐 Initialized superuser [sarang] in Firestore from environment configuration`);
+      } else {
+        this.logger.warn(
+          `⚠️ Superuser 'sarang' not found in Firestore and SARANG_PASSWORD is not set. Please ensure user exists in Firestore.`,
+        );
       }
 
-      // 2. Default 'admin' user initialization:
-      // Only seed 'admin' during the initial system setup if it does not already exist.
-      // Once the system is initialized (sarang exists), if 'admin' is absent,
-      // it means it was deleted by the user! Never resurrect deleted users.
-      const adminDocId = this.defaultAdminUsername.toLowerCase();
-      const adminDoc = await this.firestoreService.getDoc<StoredUserDoc>('users', adminDocId);
-      if (isInitialSetup && (!adminDoc || !adminDoc.passwordHash)) {
-        // Check if legacy config/auth_user exists to preserve password
-        const legacyAuth = await this.firestoreService.getDoc<StoredUserDoc>('config', 'auth_user');
+      // 2. Load admin user if present in Firestore or configured via environment on initial setup
+      const adminUsername = (process.env.ADMIN_USERNAME || 'admin').toLowerCase();
+      const adminDoc = await this.firestoreService.getDoc<StoredUserDoc>('users', adminUsername);
+      if (adminDoc && adminDoc.passwordHash) {
+        this.inMemoryUsers.set(adminUsername, adminDoc);
+      } else if (!sarangDoc && process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.trim()) {
+        // Initial first-time system setup only when sarang does not exist and ADMIN_PASSWORD is set in env
         const adminUser: StoredUserDoc = {
-          username: this.defaultAdminUsername,
-          passwordHash: legacyAuth?.passwordHash || PasswordUtil.hashPassword(this.defaultAdminPassword),
+          username: adminUsername,
+          passwordHash: PasswordUtil.hashPassword(process.env.ADMIN_PASSWORD.trim()),
           role: UserRole.ADMIN,
-          refreshTokens: legacyAuth?.refreshTokens || [],
-          createdAt: legacyAuth?.createdAt || now,
+          refreshTokens: [],
+          createdAt: now,
           updatedAt: now,
         };
-        await this.firestoreService.setDoc('users', adminDocId, adminUser, true);
-        if (legacyAuth) {
-          try {
-            await this.firestoreService.deleteDoc('config', 'auth_user');
-          } catch (e: any) {
-            this.logger.warn(`Could not clean up legacy config/auth_user: ${e.message}`);
-          }
-        }
-        this.logger.log(`👤 Initialized admin user [${this.defaultAdminUsername}] in Firestore (users/${adminDocId})`);
-      } else if (!adminDoc) {
-        // If adminDoc does not exist in Firestore on an already initialized system,
-        // ensure in-memory cache drops it too so it stays deleted across restarts.
-        this.inMemoryUsers.delete(adminDocId);
-        // Also ensure any lingering legacy config/auth_user is purged
-        try {
-          await this.firestoreService.deleteDoc('config', 'auth_user');
-        } catch {
-          // ignore
-        }
+        await this.firestoreService.setDoc('users', adminUsername, adminUser, true);
+        this.inMemoryUsers.set(adminUsername, adminUser);
+        this.logger.log(`👤 Initialized admin user [${adminUsername}] in Firestore from environment`);
+      } else {
+        this.inMemoryUsers.delete(adminUsername);
       }
     } catch (err: any) {
       this.logger.warn(`Could not initialize users in Firestore: ${err.message}`);
@@ -156,11 +120,11 @@ export class UserAuthService implements OnModuleInit {
   /**
    * Retrieves user document from Firestore 'users' collection or in-memory fallback.
    */
-  public async getUser(username: string): Promise<StoredUserDoc | null> {
+  public async getUser(username: string, force = false): Promise<StoredUserDoc | null> {
     const docId = (username || '').trim().toLowerCase();
     if (!docId) return null;
 
-    if (this.inMemoryUsers.has(docId)) {
+    if (!force && this.inMemoryUsers.has(docId)) {
       return this.inMemoryUsers.get(docId)!;
     }
 
@@ -173,6 +137,7 @@ export class UserAuthService implements OnModuleInit {
         }
 
         // When Firestore is connected and ready, if document is not in 'users', user does not exist.
+        this.inMemoryUsers.delete(docId);
         return null;
       } catch (err: any) {
         this.logger.warn(`Could not fetch user [${docId}] from Firestore: ${err.message}`);
@@ -334,7 +299,7 @@ export class UserAuthService implements OnModuleInit {
     if (this.firestoreService.isReady()) {
       await this.firestoreService.deleteDoc('users', docId);
       // If deleting the admin user, permanently purge legacy config/auth_user document as well
-      if (docId === this.defaultAdminUsername.toLowerCase()) {
+      if (docId === 'admin') {
         try {
           await this.firestoreService.deleteDoc('config', 'auth_user');
         } catch (e: any) {
@@ -369,7 +334,7 @@ export class UserAuthService implements OnModuleInit {
       throw new UnauthorizedException('Username and password are required');
     }
 
-    const user = await this.getUser(cleanUsername);
+    const user = await this.getUser(cleanUsername, true);
     if (!user) {
       throw new UnauthorizedException('Invalid username or password');
     }
@@ -539,7 +504,7 @@ export class UserAuthService implements OnModuleInit {
    * Changes password for currently authenticated user.
    */
   public async changePassword(username: string, dto: ChangePasswordDto) {
-    const user = await this.getUser(username);
+    const user = await this.getUser(username, true);
     if (!user) {
       throw new BadRequestException('User record not found');
     }

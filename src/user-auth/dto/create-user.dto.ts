@@ -17,7 +17,7 @@ export class CreateUserDto {
   })
   username: string;
 
-  @ApiProperty({ description: 'Initial password for the user (min 6 chars)', example: 'SecurePass123' })
+  @ApiProperty({ description: 'Initial password for the user (min 6 chars)', example: '••••••••' })
   @IsString()
   @IsNotEmpty()
   @MinLength(6)

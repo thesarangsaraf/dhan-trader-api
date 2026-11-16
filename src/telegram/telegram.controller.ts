@@ -4,6 +4,8 @@ import { TelegramService } from './telegram.service';
 import { ConfigService } from '../config/config.service';
 import { FirestoreService } from '../firestore/firestore.service';
 import { UpdateTelegramDto } from './dto/update-telegram.dto';
+import { Roles } from '../user-auth/roles.decorator';
+import { UserRole } from '../user-auth/dto/create-user.dto';
 
 @ApiTags('Telegram')
 @Controller('api/telegram')
@@ -29,8 +31,10 @@ export class TelegramController {
   }
 
   @Post('update')
-  @ApiOperation({ summary: 'Update Telegram credentials dynamically and save to Firestore' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Update Telegram credentials dynamically and save to Firestore (Admin only)' })
   @ApiResponse({ status: 200, description: 'Credentials updated' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update Telegram credentials' })
   async updateCredentials(@Body() dto: UpdateTelegramDto) {
     if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
       await this.firestoreService.saveTelegramConfig({

@@ -1,4 +1,6 @@
 process.env.NODE_ENV = 'test';
+process.env.SARANG_PASSWORD = 'admin123';
+process.env.ADMIN_PASSWORD = 'admin123';
 import 'reflect-metadata';
 import test from 'node:test';
 import assert from 'node:assert';
@@ -1283,6 +1285,163 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       { authorization: `Bearer ${token}` },
     );
     assert.strictEqual(deleteTraderRes.status, 200);
+  });
+
+  await t.test('Role-based Order Placement: only admin users can place/cancel orders or conditional alerts', async () => {
+    // 1. Login as sarang (superuser / admin)
+    const sarangLogin = await makeMockRequest('POST', '/api/user-auth/login', {
+      username: 'sarang',
+      password: 'admin123',
+    });
+    assert.strictEqual(sarangLogin.status, 200);
+    const adminToken = sarangLogin.body.accessToken;
+
+    // 2. Create trader user
+    await makeMockRequest(
+      'POST',
+      '/api/user-auth/users',
+      { username: 'test_trader_order', password: 'password123', role: 'trader' },
+      { authorization: `Bearer ${adminToken}` },
+    );
+
+    // 3. Login as test_trader_order
+    const traderLogin = await makeMockRequest('POST', '/api/user-auth/login', {
+      username: 'test_trader_order',
+      password: 'password123',
+    });
+    assert.strictEqual(traderLogin.status, 200);
+    const traderToken = traderLogin.body.accessToken;
+
+    // 4. Trader attempts POST /api/orders -> 403 Forbidden
+    const traderOrderRes = await makeMockRequest(
+      'POST',
+      '/api/orders',
+      {
+        symbol: 'NIFTY 24500 CE',
+        securityId: '45021',
+        exchangeSegment: 'NSE_FNO',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 50,
+      },
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderOrderRes.status, 403);
+    assert.ok(traderOrderRes.body.message.includes('Access denied'));
+
+    // 5. Trader attempts DELETE /api/orders/:id -> 403 Forbidden
+    const traderCancelRes = await makeMockRequest(
+      'DELETE',
+      '/api/orders/ORD-12345',
+      undefined,
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderCancelRes.status, 403);
+    assert.ok(traderCancelRes.body.message.includes('Access denied'));
+
+    // 6. Trader attempts POST /api/alerts/conditional-order -> 403 Forbidden
+    const traderCondAlertRes = await makeMockRequest(
+      'POST',
+      '/api/alerts/conditional-order',
+      {
+        instrument: 'NIFTY 50',
+        targetPrice: 25000,
+        conditionalOrder: {
+          symbol: 'NIFTY 25000 CE',
+          securityId: '45021',
+          exchangeSegment: 'NSE_FNO',
+          transactionType: 'BUY',
+          quantity: 50,
+        },
+      },
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderCondAlertRes.status, 403);
+    assert.ok(traderCondAlertRes.body.message.includes('Access denied'));
+
+    // 7. Trader attempts POST /api/alerts with conditionalOrder -> 403 Forbidden
+    const traderAlertWithOrderRes = await makeMockRequest(
+      'POST',
+      '/api/alerts',
+      {
+        instrument: 'NIFTY 50',
+        targetPrice: 25000,
+        conditionalOrder: {
+          symbol: 'NIFTY 25000 CE',
+          securityId: '45021',
+          exchangeSegment: 'NSE_FNO',
+          transactionType: 'BUY',
+          quantity: 50,
+        },
+      },
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderAlertWithOrderRes.status, 403);
+
+    // 8. Create a generic admin user (not named sarang)
+    await makeMockRequest(
+      'POST',
+      '/api/user-auth/users',
+      { username: 'custom_admin', password: 'adminPassword123', role: 'admin' },
+      { authorization: `Bearer ${adminToken}` },
+    );
+    const customAdminLogin = await makeMockRequest('POST', '/api/user-auth/login', {
+      username: 'custom_admin',
+      password: 'adminPassword123',
+    });
+    assert.strictEqual(customAdminLogin.status, 200);
+    const customAdminToken = customAdminLogin.body.accessToken;
+
+    // 9. Generic admin user (custom_admin) can place orders -> Success 201
+    const adminOrderRes = await makeMockRequest(
+      'POST',
+      '/api/orders',
+      {
+        symbol: 'NIFTY 24500 CE',
+        securityId: '45021',
+        exchangeSegment: 'NSE_FNO',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 50,
+      },
+      { authorization: `Bearer ${customAdminToken}` },
+    );
+    assert.strictEqual(adminOrderRes.status, 201);
+    assert.strictEqual(adminOrderRes.body.success, true);
+
+    // 10. Generic admin user (custom_admin) can cancel orders -> Success 200
+    const adminCancelRes = await makeMockRequest(
+      'DELETE',
+      '/api/orders/ORD-12345',
+      undefined,
+      { authorization: `Bearer ${customAdminToken}` },
+    );
+    assert.strictEqual(adminCancelRes.status, 200);
+
+    // 11. Trader is blocked from sensitive modifications (e.g. updating lot sizes) -> 403
+    const traderLotUpdateRes = await makeMockRequest(
+      'PUT',
+      '/api/instruments/lot-sizes',
+      { nifty50: 75 },
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderLotUpdateRes.status, 403);
+
+    // 12. Clean up created users
+    await makeMockRequest(
+      'DELETE',
+      '/api/user-auth/users/test_trader_order',
+      undefined,
+      { authorization: `Bearer ${adminToken}` },
+    );
+    await makeMockRequest(
+      'DELETE',
+      '/api/user-auth/users/custom_admin',
+      undefined,
+      { authorization: `Bearer ${adminToken}` },
+    );
   });
 
   await app.close();
