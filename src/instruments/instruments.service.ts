@@ -31,6 +31,7 @@ export interface InstrumentItem {
 export interface OptionContractDetails {
   symbol: string;
   tradingSymbol: string;
+  customSymbol?: string;
   instrumentName: string;
   strikePrice: number;
   optionType: 'CE' | 'PE';
@@ -809,9 +810,19 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
-   * Retrieve current index lot sizes configuration.
+   * Retrieve current index lot sizes configuration backed by Firestore.
    */
-  public getLotSizes(): IndexLotSizesConfig {
+  public async getLotSizes(): Promise<IndexLotSizesConfig> {
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      try {
+        const dbSizes = await this.firestoreService.getLotSizes();
+        if (dbSizes) {
+          this.lotSizes = dbSizes;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not load lot sizes from Firestore: ${err.message}`);
+      }
+    }
     return { ...this.lotSizes };
   }
 
@@ -820,13 +831,14 @@ export class InstrumentsService implements OnModuleInit {
    * Enriches each index with live LTP from Dhan / Yahoo Finance.
    */
   public async getConfiguredIndices(onlyEnabled = true): Promise<InstrumentItem[]> {
-    if (!this.lotSizes?.indices || this.lotSizes.indices.length === 0) {
-      if (this.firestoreService && this.firestoreService.isReady()) {
-        try {
-          this.lotSizes = await this.firestoreService.getLotSizes();
-        } catch {
-          // ignore
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      try {
+        const dbSizes = await this.firestoreService.getLotSizes();
+        if (dbSizes) {
+          this.lotSizes = dbSizes;
         }
+      } catch {
+        // ignore
       }
     }
 
@@ -1473,11 +1485,12 @@ export class InstrumentsService implements OnModuleInit {
     }
 
     const raw = dto.instrument.trim().toUpperCase();
+    const configuredLotSize = this.getLotSizeForInstrument(raw);
     let normalizedName = 'NIFTY 50';
     let baseSymbol = 'NIFTY';
     let securityId = '13';
     let exchangeSegment = 'NSE_FNO';
-    let lotSize = this.lotSizes.nifty50;
+    let lotSize = configuredLotSize || this.lotSizes.nifty50;
     let defaultStep = 50;
 
     if (raw.includes('BANK')) {
@@ -1626,14 +1639,15 @@ export class InstrumentsService implements OnModuleInit {
           ? {
               symbol: realCall.customSymbol || realCall.tradingSymbol,
               tradingSymbol: realCall.tradingSymbol,
-              instrumentName: normalizedName,
+              customSymbol: realCall.customSymbol || realCall.tradingSymbol,
+              instrumentName: realCall.customSymbol || normalizedName,
               strikePrice: realCall.strikePrice,
               optionType: 'CE',
               expiryDate: realCall.expiryDate,
               expiryType,
               securityId: String(realCall.securityId), // REAL DHAN SECURITY ID FROM DATABASE
               exchangeSegment: realCall.exchange || 'NSE_FNO',
-              lotSize: realCall.lotSize || lotSize,
+              lotSize: configuredLotSize || realCall.lotSize || lotSize,
               ltp: 0,
               moneyness: strike < atmStrike ? 'ITM' : strike === atmStrike ? 'ATM' : 'OTM',
             }
@@ -1643,14 +1657,15 @@ export class InstrumentsService implements OnModuleInit {
           ? {
               symbol: realPut.customSymbol || realPut.tradingSymbol,
               tradingSymbol: realPut.tradingSymbol,
-              instrumentName: normalizedName,
+              customSymbol: realPut.customSymbol || realPut.tradingSymbol,
+              instrumentName: realPut.customSymbol || normalizedName,
               strikePrice: realPut.strikePrice,
               optionType: 'PE',
               expiryDate: realPut.expiryDate,
               expiryType,
               securityId: String(realPut.securityId), // REAL DHAN SECURITY ID FROM DATABASE
               exchangeSegment: realPut.exchange || 'NSE_FNO',
-              lotSize: realPut.lotSize || lotSize,
+              lotSize: configuredLotSize || realPut.lotSize || lotSize,
               ltp: 0,
               moneyness: strike < atmStrike ? 'OTM' : strike === atmStrike ? 'ATM' : 'ITM',
             }

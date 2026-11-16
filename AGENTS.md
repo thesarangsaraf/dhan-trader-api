@@ -76,11 +76,11 @@ This document provides definitive instructions, architecture patterns, constrain
 
 9. **Strict Zero Static Fallback & Zero Hardcoded Data Policy**:
    - **Never author, commit, or inject static fallback data or hardcoded credentials anywhere in the backend API or frontend UI codebase.**
-   - All authorization credentials, trade passwords, option contracts, index prices, lot sizes, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
-   - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. `password.trim() === '3646'`, mock orders, fake prices, or default passwords in source code).
+   - All authorization credentials, option contracts, index prices, lot sizes, and application settings must originate strictly and dynamically from Google Cloud Firestore or the live Dhan HQ API.
+   - If required data, security configurations, or database connections are unavailable, **throw an explicit error or fail the operation cleanly**. Never introduce fallback values (e.g. mock orders, fake prices, or default passwords in source code).
    - **Zero Secrets / Passwords in UI & Responses (CRITICAL)**:
      - Never expose, return, or hint at sensitive credentials (such as passwords, password hashes, salts, PINs, or tokens) in UI placeholders, helper text, error messages, labels, or documentation examples.
-     - Login pages and dialogs must NEVER show default credentials chips or helper text (e.g. never display `admin / admin123` or default credentials anywhere). Placeholders must remain strictly generic (e.g., `"Enter username"`, `"Enter password"`, `"Enter trade password"`).
+     - Login pages and dialogs must NEVER show default credentials chips or helper text (e.g. never display `admin / admin123` or default credentials anywhere). Placeholders must remain strictly generic (e.g., `"Enter username"`, `"Enter password"`).
 
 10. **User Authentication & Persistent Session Architecture (Firestore `users`)**:
     - **Dual-Token System**:

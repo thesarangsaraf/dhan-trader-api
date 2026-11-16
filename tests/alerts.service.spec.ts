@@ -90,7 +90,6 @@ test('AlertsService (NestJS)', async (t) => {
 
   const mockFirestoreService = {
     isReady: () => true,
-    verifyTradePassword: async (pwd: string) => pwd === '3646',
   };
 
   moduleRef = await Test.createTestingModule({
@@ -164,54 +163,12 @@ test('AlertsService (NestJS)', async (t) => {
   });
 
   await t.test('creates and executes alert with conditional order', async () => {
-    // 1. Fails when password is missing
-    let passErr: any = null;
-    try {
-      await service.createConditionalAlert({
-        instrument: 'NIFTY 50',
-        targetPrice: 24520.0,
-        remarks: 'No password attempt',
-        conditionalOrder: {
-          symbol: 'NIFTY 24500 CE',
-          quantity: 50,
-          transactionType: 'BUY',
-          orderType: 'MARKET',
-        },
-      });
-    } catch (err: any) {
-      passErr = err;
-    }
-    assert.ok(passErr, 'Must fail when password is not supplied');
-    assert.strictEqual(passErr.status, 401);
-
-    // 2. Fails when password is wrong
-    let wrongErr: any = null;
-    try {
-      await service.createConditionalAlert({
-        instrument: 'NIFTY 50',
-        targetPrice: 24520.0,
-        password: '0000',
-        remarks: 'Wrong password attempt',
-        conditionalOrder: {
-          symbol: 'NIFTY 24500 CE',
-          quantity: 50,
-          transactionType: 'BUY',
-          orderType: 'MARKET',
-        },
-      });
-    } catch (err: any) {
-      wrongErr = err;
-    }
-    assert.ok(wrongErr, 'Must fail when password is wrong');
-    assert.strictEqual(wrongErr.status, 401);
-
-    // 3. Succeeds with correct trade password (3646)
+    // 1. Succeeds directly when placing conditional order
     const res = await service.createConditionalAlert({
       instrument: 'NIFTY 50',
       targetPrice: 24520.0,
       operator: 'GREATER_THAN_OR_EQUAL',
       remarks: 'Conditional buy on breakout',
-      password: '3646',
       conditionalOrder: {
         symbol: 'NIFTY 24500 CE',
         quantity: 50,
@@ -259,7 +216,6 @@ test('AlertsService (NestJS)', async (t) => {
       instrument: 'NIFTY 50',
       targetPrice: 25000.0, // below 25030.0 -> LESS_THAN
       remarks: 'NIFTY 25000 breakdown with 5 lots',
-      password: '3646',
       conditionalOrder: {
         symbol: 'NIFTY 25000 CE',
         quantity: 5, // user provided 5 lots
@@ -312,7 +268,6 @@ test('AlertsService (NestJS)', async (t) => {
         targetPrice: 25017.0,
         operator: 'LESS_THAN',
         remarks: 'NIFTY 25017 entry buying 25000 CE',
-        password: '3646',
         conditionalOrder: {
           symbol: 'NIFTY 25000 CE',
           quantity: 5,
@@ -391,7 +346,6 @@ test('AlertsService (NestJS)', async (t) => {
         instrument: 'NIFTY 50',
         targetPrice: 25017.0,
         remarks: 'Entry test',
-        password: '3646',
         conditionalOrder: {
           symbol: 'NIFTY 25000 CE',
           quantity: 50,
@@ -421,7 +375,6 @@ test('AlertsService (NestJS)', async (t) => {
       instrument: 'NIFTY BANK',
       targetPrice: 51850.0,
       operator: 'GREATER_THAN',
-      password: '3646',
       conditionalOrder: {
         symbol: 'BANKNIFTY 52000 CE',
         quantity: 30,
@@ -441,7 +394,6 @@ test('AlertsService (NestJS)', async (t) => {
       instrument: 'NIFTY BANK',
       targetPrice: 51850.0,
       operator: 'LESS_THAN',
-      password: '3646',
       conditionalOrder: {
         symbol: 'BANKNIFTY 51500 PE',
         quantity: 30,

@@ -36,18 +36,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly firestoreService?: FirestoreService,
   ) {}
 
-  /**
-   * Verify trade authorization password strictly against Firestore config/security.
-   * Strict Zero Static Fallback Policy: Never defaults to a hardcoded password.
-   */
-  async verifyTradePassword(password: string): Promise<boolean> {
-    if (!password || !password.trim()) return false;
-    if (!this.firestoreService) {
-      throw new InternalServerErrorException('Firestore security service is unavailable for trade password verification.');
-    }
-    return this.firestoreService.verifyTradePassword(password);
-  }
-
   onModuleInit() {
     this.startMonitor();
     this.syncWithDhan().catch(() => {});
@@ -842,17 +830,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
     if (rawOrders.length === 0) {
       throw new BadRequestException('At least one conditional order must be provided in conditionalOrder or conditionalOrders');
-    }
-
-    // Require and verify order authorization password stored in Firestore config/security
-    if (!dto.isStopLossAlert) {
-      if (!dto.password || !dto.password.trim()) {
-        throw new UnauthorizedException('Order authorization password is required to place an alert with order.');
-      }
-      const isValid = await this.verifyTradePassword(dto.password);
-      if (!isValid) {
-        throw new UnauthorizedException('Invalid order authorization password. Please provide the correct password.');
-      }
     }
 
     // Validate and enrich each order

@@ -91,44 +91,6 @@
         ]
       }
     },
-    "/api/firestore/trade-security": {
-      "get": {
-        "operationId": "FirestoreController_getTradeSecurityStatus",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Security config status"
-          }
-        },
-        "summary": "Get trade security configuration status from Firestore (config/security)",
-        "tags": [
-          "Firestore"
-        ]
-      },
-      "post": {
-        "operationId": "FirestoreController_updateTradeSecurity",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTradeSecurityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Trade security password saved"
-          }
-        },
-        "summary": "Update trade security / order authorization password in Firestore (config/security)",
-        "tags": [
-          "Firestore"
-        ]
-      }
-    },
     "/api/telegram/status": {
       "get": {
         "operationId": "TelegramController_getStatus",
@@ -468,38 +430,9 @@
           },
           "400": {
             "description": "Validation failed"
-          },
-          "401": {
-            "description": "Order authorization password incorrect or missing"
           }
         },
         "summary": "Place Dhan alert with conditional order (Dhan HQ v2 /alerts/orders + Local Engine)",
-        "tags": [
-          "Alerts"
-        ]
-      }
-    },
-    "/api/alerts/verify-order-password": {
-      "post": {
-        "description": "Verifies the user-entered password before placing an alert with conditional order.",
-        "operationId": "AlertsController_verifyOrderPassword",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyOrderPasswordDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Verification result"
-          }
-        },
-        "summary": "Verify order authorization password against Firestore config/security",
         "tags": [
           "Alerts"
         ]
@@ -1392,19 +1325,6 @@
   "servers": [],
   "components": {
     "schemas": {
-      "UpdateTradeSecurityDto": {
-        "type": "object",
-        "properties": {
-          "password": {
-            "type": "string",
-            "description": "New trade / order authorization password to store in Firestore config/security",
-            "example": "••••"
-          }
-        },
-        "required": [
-          "password"
-        ]
-      },
       "UpdateTelegramDto": {
         "type": "object",
         "properties": {
@@ -1632,11 +1552,6 @@
             "type": "string",
             "description": "Expiration date in YYYY-MM-DD format for Dhan conditional trigger",
             "example": "2026-12-31"
-          },
-          "password": {
-            "type": "string",
-            "description": "Order authorization password required when placing alerts with attached orders",
-            "example": "••••"
           }
         },
         "required": [
@@ -1749,11 +1664,6 @@
               }
             ]
           },
-          "password": {
-            "type": "string",
-            "description": "Order authorization password verified against Firestore config/security",
-            "example": "••••"
-          },
           "isStopLossAlert": {
             "type": "boolean",
             "description": "Internal flag indicating automated stop loss child alert"
@@ -1766,19 +1676,6 @@
         "required": [
           "instrument",
           "targetPrice"
-        ]
-      },
-      "VerifyOrderPasswordDto": {
-        "type": "object",
-        "properties": {
-          "password": {
-            "type": "string",
-            "description": "Order authorization password to verify against Firestore config/security",
-            "example": "••••"
-          }
-        },
-        "required": [
-          "password"
         ]
       },
       "UpdateAlertDto": {

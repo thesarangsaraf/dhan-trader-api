@@ -18,22 +18,33 @@ export class OrdersService {
     const apiResult = await this.dhanService.getOrders();
 
     if (apiResult.ok && Array.isArray(apiResult.data)) {
-      return apiResult.data.map((ord: any) => ({
-        orderId: String(ord.orderId || ord.order_id || ord.dhanOrderId || ''),
-        dhanClientId: ord.dhanClientId,
-        symbol: ord.tradingSymbol || ord.symbol || `${ord.securityId || ''}`,
-        securityId: String(ord.securityId || ''),
-        exchangeSegment: ord.exchangeSegment || 'NSE_EQ',
-        transactionType: (ord.transactionType || 'BUY').toUpperCase(),
-        orderType: (ord.orderType || 'MARKET').toUpperCase(),
-        productType: (ord.productType || 'INTRADAY').toUpperCase(),
-        quantity: parseInt(ord.quantity || ord.orderQty || 0, 10),
-        price: parseFloat(ord.price || 0),
-        triggerPrice: parseFloat(ord.triggerPrice || 0),
-        status: (ord.orderStatus || ord.status || 'PENDING').toUpperCase(),
-        createTime: ord.createTime || ord.orderTimestamp || new Date().toISOString(),
-        updateTime: ord.updateTime || new Date().toISOString(),
-      }));
+      return apiResult.data.map((ord: any) => {
+        const secId = String(ord.securityId || '');
+        const matched = this.instrumentsService?.findBySecurityId(secId);
+        const customSymbol = (typeof matched === 'string' ? matched : (matched?.customSymbol || matched?.symbol || matched?.name))
+          || ord.customSymbol
+          || ord.tradingSymbol
+          || ord.symbol;
+
+        return {
+          orderId: String(ord.orderId || ord.order_id || ord.dhanOrderId || ''),
+          dhanClientId: ord.dhanClientId,
+          symbol: customSymbol || `${ord.securityId || ''}`,
+          customSymbol: customSymbol || undefined,
+          tradingSymbol: ord.tradingSymbol || ord.symbol || undefined,
+          securityId: secId,
+          exchangeSegment: ord.exchangeSegment || 'NSE_EQ',
+          transactionType: (ord.transactionType || 'BUY').toUpperCase(),
+          orderType: (ord.orderType || 'MARKET').toUpperCase(),
+          productType: (ord.productType || 'INTRADAY').toUpperCase(),
+          quantity: parseInt(ord.quantity || ord.orderQty || 0, 10),
+          price: parseFloat(ord.price || 0),
+          triggerPrice: parseFloat(ord.triggerPrice || 0),
+          status: (ord.orderStatus || ord.status || 'PENDING').toUpperCase(),
+          createTime: ord.createTime || ord.orderTimestamp || new Date().toISOString(),
+          updateTime: ord.updateTime || new Date().toISOString(),
+        };
+      });
     }
 
     if (!apiResult.ok) {
@@ -65,6 +76,13 @@ export class OrdersService {
 
     const rawPositions = Array.isArray(posResult.data) ? posResult.data : [];
     const positionsList = rawPositions.map((p: any) => {
+      const secId = String(p.securityId || '');
+      const matched = this.instrumentsService?.findBySecurityId(secId);
+      const customSymbol = (typeof matched === 'string' ? matched : (matched?.customSymbol || matched?.symbol || matched?.name))
+        || p.customSymbol
+        || p.tradingSymbol
+        || p.symbol;
+
       const netQty = p.netQty !== undefined ? p.netQty : ((p.buyQty || 0) - (p.sellQty || 0));
       const buyAvg = parseFloat(String(p.buyAvg ?? p.costPrice ?? 0)) || 0;
       const sellAvg = parseFloat(String(p.sellAvg ?? 0)) || 0;
@@ -93,8 +111,10 @@ export class OrdersService {
 
       return {
         positionId: p.positionId || `POS-${p.securityId}`,
-        symbol: p.tradingSymbol || p.symbol || `SEC-${p.securityId}`,
-        securityId: String(p.securityId || ''),
+        symbol: customSymbol || `SEC-${p.securityId}`,
+        customSymbol: customSymbol || undefined,
+        tradingSymbol: p.tradingSymbol || p.symbol || undefined,
+        securityId: secId,
         exchangeSegment: p.exchangeSegment || 'NSE_EQ',
         productType: p.productType || 'INTRADAY',
         netQty,
@@ -282,10 +302,13 @@ export class OrdersService {
         throw new BadGatewayException('Dhan API response did not contain an order ID');
       }
 
+      const customSymbol = dto.customSymbol || dto.symbol;
       const liveOrder = {
         orderId: liveOrderId,
         dhanClientId: this.dhanService['config'].clientId,
-        symbol: dto.symbol.toUpperCase(),
+        symbol: customSymbol.toUpperCase(),
+        customSymbol: customSymbol.toUpperCase(),
+        tradingSymbol: dto.tradingSymbol || dto.symbol,
         securityId: String(dto.securityId),
         exchangeSegment: dto.exchangeSegment || 'NSE_FNO',
         transactionType: dto.transactionType.toUpperCase(),
@@ -524,6 +547,8 @@ export class OrdersService {
         exchangeOrderId: t.exchangeOrderId ? String(t.exchangeOrderId) : undefined,
         exchangeTradeId: t.exchangeTradeId ? String(t.exchangeTradeId) : undefined,
         symbol: humanName,
+        customSymbol: humanName,
+        tradingSymbol: t.tradingSymbol || t.symbol,
         securityId: secId,
         exchangeSegment: t.exchangeSegment || 'NSE_EQ',
         transactionType: (t.transactionType || 'BUY').toUpperCase() as 'BUY' | 'SELL',
@@ -599,7 +624,9 @@ export class OrdersService {
 
             pairedResults.push({
               tradeId: `PAIR-${pairCounter++}`,
-              symbol: fill.symbol,
+              symbol: fill.customSymbol || fill.symbol,
+              customSymbol: fill.customSymbol || fill.symbol,
+              tradingSymbol: fill.tradingSymbol || fill.symbol,
               securityId: fill.securityId,
               quantity: matchedQty,
               buyPrice: fillPrice,
@@ -652,7 +679,9 @@ export class OrdersService {
 
             pairedResults.push({
               tradeId: `PAIR-${pairCounter++}`,
-              symbol: fill.symbol,
+              symbol: fill.customSymbol || fill.symbol,
+              customSymbol: fill.customSymbol || fill.symbol,
+              tradingSymbol: fill.tradingSymbol || fill.symbol,
               securityId: fill.securityId,
               quantity: matchedQty,
               buyPrice: buyItem.price,
@@ -692,7 +721,9 @@ export class OrdersService {
       for (const buyItem of buyQueue) {
         pairedResults.push({
           tradeId: `PAIR-${pairCounter++}`,
-          symbol: buyItem.fill.symbol,
+          symbol: buyItem.fill.customSymbol || buyItem.fill.symbol,
+          customSymbol: buyItem.fill.customSymbol || buyItem.fill.symbol,
+          tradingSymbol: buyItem.fill.tradingSymbol || buyItem.fill.symbol,
           securityId: buyItem.fill.securityId,
           quantity: buyItem.qty,
           buyPrice: buyItem.price,
@@ -711,7 +742,9 @@ export class OrdersService {
       for (const sellItem of sellQueue) {
         pairedResults.push({
           tradeId: `PAIR-${pairCounter++}`,
-          symbol: sellItem.fill.symbol,
+          symbol: sellItem.fill.customSymbol || sellItem.fill.symbol,
+          customSymbol: sellItem.fill.customSymbol || sellItem.fill.symbol,
+          tradingSymbol: sellItem.fill.tradingSymbol || sellItem.fill.symbol,
           securityId: sellItem.fill.securityId,
           quantity: sellItem.qty,
           buyPrice: null,

@@ -122,7 +122,7 @@ export class TelegramService implements OnModuleInit {
       headerTitle = 'DHAN ORDER EXPIRED';
     }
 
-    const symbol = o.tradingSymbol || o.symbol || (o.securityId ? `Security #${o.securityId}` : 'N/A');
+    const symbol = o.customSymbol || o.tradingSymbol || o.symbol || (o.securityId ? `Security #${o.securityId}` : 'N/A');
     const orderType = (o.orderType || 'MARKET').toUpperCase();
     let productType = (o.productType || 'INTRADAY').toUpperCase();
     if (productType === 'INTRADAY') productType = 'INTRADAY (MIS)';

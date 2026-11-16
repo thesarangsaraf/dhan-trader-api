@@ -18,10 +18,10 @@ export class InstrumentsController {
     description: 'Retrieves current lot sizes for NIFTY 50, BANK NIFTY, MIDCAP NIFTY, and SENSEX backed by Firestore.',
   })
   @ApiResponse({ status: 200, description: 'Index lot sizes configuration' })
-  getLotSizes() {
+  async getLotSizes() {
     return {
       success: true,
-      data: this.instrumentsService.getLotSizes(),
+      data: await this.instrumentsService.getLotSizes(),
     };
   }
 

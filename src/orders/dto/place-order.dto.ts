@@ -7,6 +7,16 @@ export class PlaceOrderDto {
   @IsString()
   symbol: string;
 
+  @ApiProperty({ description: 'NSE Custom symbol', example: 'NIFTY 28 NOV 24500 CALL', required: false })
+  @IsOptional()
+  @IsString()
+  customSymbol?: string;
+
+  @ApiProperty({ description: 'Trading symbol', example: 'NIFTY 24500 CE', required: false })
+  @IsOptional()
+  @IsString()
+  tradingSymbol?: string;
+
   @ApiProperty({ description: 'Dhan security ID', example: '45021' })
   @IsNotEmpty()
   @IsString()
