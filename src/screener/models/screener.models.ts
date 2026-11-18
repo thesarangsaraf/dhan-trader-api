@@ -1,41 +1,60 @@
-export type ScreenerStrategyType =
-  | 'DEMAND_ORDER_BLOCK'
-  | 'SUPPLY_ORDER_BLOCK'
-  | 'BULLISH_LIQUIDITY_SWEEP'
-  | 'BEARISH_LIQUIDITY_SWEEP';
+export type ScreenerScanMode = 'live' | 'historical';
 
 export type ScreenerSignalType = 'BUY' | 'SELL';
 
-export interface ScreenerMatch {
-  symbol: string;             // NSE Symbol without .NS (e.g., RELIANCE)
-  name: string;               // Company Name
-  cmp: number;                // Current Market Price (₹)
-  strategy: ScreenerStrategyType;
-  strategyLabel: string;      // Human-readable (e.g., "Demand OB (Bullish)")
-  signalType: ScreenerSignalType;
-  entryPrice: number;         // Suggested Entry (₹)
-  stopLossPrice: number;      // Suggested Stop Loss (₹)
-  riskPoints: number;         // |Entry - StopLoss| (₹)
-  riskPercent: number;        // (Risk / Entry) * 100
-  timeframe: string;          // e.g. 15m, 1h, 1d, 1wk
-  matchedAt: string;          // ISO timestamp
-  candleTime?: number;        // Time of setup candle
-  details?: {
-    zoneHigh?: number;
-    zoneLow?: number;
-    impulseTime?: number;
-    swingLevel?: number;
-    wickPercent?: number;
-    notes?: string;
-  };
+export type LiquidityLevelType = 'PDL' | 'PDH' | 'DAY_LOW' | 'DAY_HIGH';
+
+export interface ScreenerCandle {
+  time: number; // UNIX epoch seconds (strictly ascending, deduplicated)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface ScreenerInstrumentItem {
+  symbol: string;
+  symbolName?: string;
+  displayName: string;
+  name: string;
+  exchId?: string;
+  securityId?: string;
+  exchangeSegment?: string;
+  lotSize?: number;
+  smFreezeQty?: number;
+  strikeStep?: number;
+  expiryFlag?: string;
+  stopLossPoints?: number;
+}
+
+export interface LiquiditySweepSignal {
+  id: string;                     // Unique ID per signal, e.g. NIFTY_1763440500_BUY
+  symbol: string;                 // Official Dhan symbolName (e.g., NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX)
+  displayName?: string;           // Official Dhan friendly displayName (e.g., Nifty 50, Nifty Bank, Nifty Midcap Select, Sensex)
+  name: string;                   // Friendly displayName
+  signalType: ScreenerSignalType; // 'BUY' | 'SELL'
+  levelType: LiquidityLevelType;  // 'PDL' | 'PDH' | 'DAY_LOW' | 'DAY_HIGH'
+  levelPrice: number;             // Exact swept liquidity level price
+  sweepPrice: number;             // Extreme low (BUY) or high (SELL) of the sweep
+  sweepTimestamp: number;         // UNIX epoch seconds of the sweep candle
+  confirmationClosePrice: number; // Close price of the green/red confirmation candle
+  confirmationTimestamp: number;  // UNIX epoch seconds of the confirmation candle
+  sessionDate: string;            // IST trading date YYYY-MM-DD
+  timeframe: '5m';
+  candles: ScreenerCandle[];      // Complete 5m OHLC session bars (09:15 to 15:30 IST)
 }
 
 export interface ScreenerScanResponse {
-  timeframe: string;
+  mode: ScreenerScanMode;
+  timeframe: '5m';
+  startDate?: string;
+  endDate?: string;
   scannedAt: string;
+  instrumentsScanned: Array<{ symbol: string; displayName: string; name: string }>;
   totalScanned: number;
-  totalMatches: number;
-  bullishMatches: number;
-  bearishMatches: number;
-  matches: ScreenerMatch[];
+  totalRecommendations: number;
+  bullishCount: number;
+  bearishCount: number;
+  recommendations: LiquiditySweepSignal[];
 }

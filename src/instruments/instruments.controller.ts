@@ -14,49 +14,97 @@ import { UserRole } from '../user-auth/dto/create-user.dto';
 export class InstrumentsController {
   constructor(private readonly instrumentsService: InstrumentsService) {}
 
+  @Get('traded-instruments')
+  @ApiOperation({
+    summary: 'Get traded instruments master data from Firestore (master_data/traded_instruments)',
+    description: 'Retrieves configured tradeable instruments with official Dhan Scrip Master fields (displayName, lotSize, smFreezeQty, strikeStep, expiryFlag, etc.) and user preferences.',
+  })
+  @ApiResponse({ status: 200, description: 'Traded instruments master configuration' })
+  async getTradedInstruments() {
+    return {
+      success: true,
+      data: await this.instrumentsService.getTradedInstruments(),
+    };
+  }
+
+  @Put('traded-instruments')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Update traded instruments configuration in Firestore (master_data/traded_instruments) (Admin only)',
+    description: 'Persists updated user preferences (preferredLots, stopLossPoints, order) while preserving NSE-fixed lotSize and official Dhan fields in master_data/traded_instruments.',
+  })
+  @ApiResponse({ status: 200, description: 'Traded instruments successfully updated' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update traded instruments' })
+  async updateTradedInstruments(@Body() dto: UpdateLotSizesDto) {
+    return this.instrumentsService.updateTradedInstruments(dto);
+  }
+
+  @Post('traded-instruments/sync-json')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Fast sync master_data/traded_instruments from static backend JSON file (Admin only)',
+    description: 'Syncs official Dhan fields for the 4 traded indices from the static backend JSON file without downloading the full Dhan CSV. Preserves user preferences unless resetPreferences=true.',
+  })
+  @ApiResponse({ status: 200, description: 'Traded instruments synced from static master JSON' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync traded instruments' })
+  async syncTradedInstrumentsFromJson(@Body() body?: { resetPreferences?: boolean }) {
+    return this.instrumentsService.syncTradedInstrumentsFromJson(Boolean(body?.resetPreferences));
+  }
+
+  @Post('traded-instruments/reset')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Reset traded instruments to static master JSON defaults (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Traded instruments reset to static master JSON defaults' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset traded instruments' })
+  async resetTradedInstruments() {
+    return this.instrumentsService.resetTradedInstruments();
+  }
+
   @Get('lot-sizes')
   @ApiOperation({
-    summary: 'Get database-driven index lot sizes configuration',
-    description: 'Retrieves current lot sizes for NIFTY 50, BANK NIFTY, MIDCAP NIFTY, and SENSEX backed by Firestore.',
+    summary: 'Get traded instruments configuration (compatibility alias for /api/instruments/traded-instruments)',
+    description: 'Retrieves current traded instruments master data backed by Firestore master_data/traded_instruments.',
   })
-  @ApiResponse({ status: 200, description: 'Index lot sizes configuration' })
+  @ApiResponse({ status: 200, description: 'Traded instruments configuration' })
   async getLotSizes() {
     return {
       success: true,
-      data: await this.instrumentsService.getLotSizes(),
+      data: await this.instrumentsService.getTradedInstruments(),
     };
   }
 
   @Put('lot-sizes')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Update index lot sizes configuration in Firestore (Admin only)',
-    description: 'Updates and persists lot sizes in Firestore database collection (config/lot_sizes) and updates in-memory calculation engine.',
+    summary: 'Update traded instruments configuration (compatibility alias) (Admin only)',
+    description: 'Updates and persists traded instruments in Firestore (master_data/traded_instruments).',
   })
-  @ApiResponse({ status: 200, description: 'Lot sizes successfully updated' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update lot sizes' })
+  @ApiResponse({ status: 200, description: 'Traded instruments successfully updated' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update traded instruments' })
   async updateLotSizes(@Body() dto: UpdateLotSizesDto) {
-    return this.instrumentsService.updateLotSizes(dto);
+    return this.instrumentsService.updateTradedInstruments(dto);
   }
 
   @Post('lot-sizes/reset')
   @Roles(UserRole.ADMIN)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Reset index lot sizes configuration to defaults (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Lot sizes reset to standard defaults' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset lot sizes' })
+  @ApiOperation({ summary: 'Reset traded instruments configuration to static master JSON defaults (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Traded instruments reset to static master JSON defaults' })
+  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset traded instruments' })
   async resetLotSizes() {
-    return this.instrumentsService.resetLotSizes();
+    return this.instrumentsService.resetTradedInstruments();
   }
 
   @Get('indices')
   @ApiOperation({
-    summary: 'Get list of tradeable indices configured in Firestore for Conditional Alert Composer',
-    description: 'Retrieves enabled benchmark and sectoral indices backed by Firestore with live LTP and database-driven lot sizes.',
+    summary: 'Get list of all tradeable indices configured in Firestore for Conditional Alert Composer',
+    description: 'Retrieves all master data indices backed by Firestore with live LTP and database-driven NSE lot sizes.',
   })
   @ApiResponse({ status: 200, description: 'List of tradeable indices with live LTP and lot size configurations' })
   async getConfiguredIndices() {
-    return this.instrumentsService.getConfiguredIndices(true);
+    return this.instrumentsService.getConfiguredIndices();
   }
 
   @Post('sync')

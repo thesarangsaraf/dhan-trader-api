@@ -10,13 +10,6 @@ import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
 import { ConditionalOrderDto } from './dto/conditional-order.dto';
 
-export const POPULAR_NSE_INDICES = [
-  { name: 'NIFTY 50', securityId: '13', exchangeSegment: 'IDX_I' },
-  { name: 'BANK NIFTY', securityId: '25', exchangeSegment: 'IDX_I' },
-  { name: 'SENSEX', securityId: '51', exchangeSegment: 'IDX_I' },
-  { name: 'MIDCAP NIFTY', securityId: '442', exchangeSegment: 'IDX_I' },
-];
-
 @Injectable()
 export class AlertsService implements OnModuleInit, OnModuleDestroy {
   public alerts: any[] = [];
@@ -373,9 +366,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 2. Check popular indices fallback
+    // 2. Check DB-configured traded instruments
     if (secId) {
-      const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+      const matchedIndex = this.getDbConfiguredIndices().find((i) => i.securityId === secId);
       if (matchedIndex) return matchedIndex.name;
     }
 
@@ -432,8 +425,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 2. Check popular indices fallback
-    const matchedIndex = POPULAR_NSE_INDICES.find((i) => i.securityId === secId);
+    // 2. Check DB-configured traded instruments
+    const matchedIndex = this.getDbConfiguredIndices().find((i) => i.securityId === secId);
     if (matchedIndex) {
       return {
         securityId: secId,
@@ -442,15 +435,26 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         symbol: matchedIndex.name,
         tradingSymbol: matchedIndex.name,
         exchangeSegment: matchedIndex.exchangeSegment,
-        lotSize: 1,
+        lotSize: 0,
       };
     }
 
     return null;
   }
 
+  private getDbConfiguredIndices(): Array<{ name: string; securityId: string; exchangeSegment: string }> {
+    if (this.instrumentsService && typeof this.instrumentsService.getConfiguredIndicesSync === 'function') {
+      return this.instrumentsService.getConfiguredIndicesSync().map((idx) => ({
+        name: idx.displayName || idx.name || idx.symbol,
+        securityId: idx.securityId,
+        exchangeSegment: idx.exchangeSegment,
+      }));
+    }
+    return [];
+  }
+
   getIndices() {
-    return POPULAR_NSE_INDICES.map((idx) => ({
+    return this.getDbConfiguredIndices().map((idx) => ({
       ...idx,
       currentPrice: this.getCurrentPrice(idx.name, idx.securityId, idx.exchangeSegment),
     }));
@@ -776,11 +780,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const matchedIndex = POPULAR_NSE_INDICES.find(
+    const matchedIndex = this.getDbConfiguredIndices().find(
       (i) =>
         i.name.toUpperCase() === instUpper ||
-        (i.name === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
-        (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
+        (i.name.toUpperCase() === 'NIFTY BANK' && instUpper === 'BANK NIFTY') ||
+        (i.name.toUpperCase() === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
+        (i.name.toUpperCase().includes('MIDCAP') && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY' || instUpper === 'MIDCAP NIFTY')),
     );
 
     if (!secId && this.instrumentsService) {
@@ -989,11 +994,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const matchedIndex = POPULAR_NSE_INDICES.find(
+    const matchedIndex = this.getDbConfiguredIndices().find(
       (i) =>
         i.name.toUpperCase() === instUpper ||
-        (i.name === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
-        (i.name === 'MIDCAP NIFTY' && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY')),
+        (i.name.toUpperCase() === 'NIFTY BANK' && instUpper === 'BANK NIFTY') ||
+        (i.name.toUpperCase() === 'BANK NIFTY' && instUpper === 'NIFTY BANK') ||
+        (i.name.toUpperCase().includes('MIDCAP') && (instUpper === 'MIDCP NIFTY' || instUpper === 'MIDCPNIFTY' || instUpper === 'MIDCAP NIFTY')),
     );
 
     let exSegment = dto.exchangeSegment;
@@ -1398,9 +1404,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
       // Dynamically get tradeable indices configured in Firestore / InstrumentsService
       const monitoredIndices: Array<{ name: string; symbol?: string; securityId: string; exchangeSegment: string }> =
-        this.instrumentsService && typeof this.instrumentsService.getConfiguredIndicesSync === 'function'
-          ? this.instrumentsService.getConfiguredIndicesSync(true)
-          : POPULAR_NSE_INDICES;
+        this.getDbConfiguredIndices();
 
       for (const idx of monitoredIndices) {
         if (!segmentsMap[idx.exchangeSegment]) {

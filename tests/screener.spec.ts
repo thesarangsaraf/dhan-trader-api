@@ -2,207 +2,304 @@ process.env.NODE_ENV = 'test';
 import test from 'node:test';
 import assert from 'node:assert';
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { ScreenerController } from '../src/screener/screener.controller';
 import { ScreenerService } from '../src/screener/screener.service';
-import { FirestoreService, DEFAULT_SCREENER_SETTINGS, DEFAULT_LARGE_CAP_STOCKS } from '../src/firestore/firestore.service';
+import { FirestoreService, DEFAULT_INDICES, DEFAULT_LOT_SIZES } from '../src/firestore/firestore.service';
 import { YahooFinanceService, CandleData } from '../src/yahoo/yahoo.service';
-import { OrderBlockStrategy } from '../src/screener/strategies/order-block.strategy';
 import { LiquiditySweepStrategy } from '../src/screener/strategies/liquidity-sweep.strategy';
 
-test('Screener Module & Technical Strategies (NestJS)', async (t) => {
-  // --- UNIT TESTS FOR STRATEGY ENGINES ---
+/** Helper to create UNIX epoch seconds for an IST date & time (e.g. '2026-11-17', '09:15') */
+function istUnix(dateStr: string, hhmm: string): number {
+  return Math.floor(Date.parse(`${dateStr}T${hhmm}:00+05:30`) / 1000);
+}
 
-  await t.test('OrderBlockStrategy detects Bullish Demand Zone setup', () => {
-    // Construct series: baseline candles, last bearish candle (OB), strong upward impulse, then pullback testing OB High
-    const candles: CandleData[] = [
-      { time: 100, open: 2500, high: 2510, low: 2495, close: 2505, volume: 100 },
-      { time: 200, open: 2505, high: 2515, low: 2500, close: 2510, volume: 100 },
-      { time: 300, open: 2510, high: 2515, low: 2502, close: 2508, volume: 100 },
-      { time: 400, open: 2508, high: 2512, low: 2501, close: 2506, volume: 100 },
-      { time: 500, open: 2506, high: 2510, low: 2500, close: 2504, volume: 100 },
-      { time: 600, open: 2504, high: 2508, low: 2498, close: 2502, volume: 100 },
-      { time: 700, open: 2502, high: 2505, low: 2495, close: 2500, volume: 100 },
-      { time: 800, open: 2500, high: 2502, low: 2490, close: 2495, volume: 100 },
-      // Index 8: The last bearish candle before impulse (OB Candle: Low=2480, High=2495)
-      { time: 900, open: 2495, high: 2495, low: 2480, close: 2482, volume: 150 },
-      // Index 9: Strong upward impulse candle (+60 pts move, huge body)
-      { time: 1000, open: 2482, high: 2545, low: 2482, close: 2542, volume: 800 },
-      // Index 10: Continuation higher
-      { time: 1100, open: 2542, high: 2560, low: 2535, close: 2555, volume: 400 },
-      // Index 11-13: Pullback toward OB High (2495) without breaching OB Low (2480)
-      { time: 1200, open: 2555, high: 2555, low: 2520, close: 2525, volume: 200 },
-      { time: 1300, open: 2525, high: 2530, low: 2505, close: 2510, volume: 180 },
-      // Index 14: Current testing candle near 2496 (testing OB High 2495)
-      { time: 1400, open: 2510, high: 2512, low: 2490, close: 2496, volume: 250 },
+test('Liquidity Sweep & Reversal Screener (5m, Configured Indices)', async (t) => {
+  // --- UNIT TESTS FOR LIQUIDITY SWEEP STRATEGY ---
+
+  await t.test('Pattern A (BUY): detects single-candle PDL sweep & green close confirmation', () => {
+    const day = '2026-11-17';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 24550, high: 24700, low: 24500, close: 24620, volume: 1000 },
+    ];
+    const fiveMinCandles: CandleData[] = [
+      { time: istUnix(day, '09:15'), open: 24560, high: 24580, low: 24530, close: 24540, volume: 100 },
+      { time: istUnix(day, '09:20'), open: 24540, high: 24550, low: 24510, close: 24515, volume: 120 },
+      // Sweep candle & green confirmation candle: sweeps below PDL 24500 (low 24482) & closes green above 24500 (24525)
+      { time: istUnix(day, '09:25'), open: 24505, high: 24530, low: 24482, close: 24525, volume: 300 },
     ];
 
-    const match = OrderBlockStrategy.evaluate(
-      candles,
-      'RELIANCE',
-      'Reliance Industries Ltd',
-      '15m',
-      DEFAULT_SCREENER_SETTINGS,
+    const signals = LiquiditySweepStrategy.scanHistorical(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinCandles,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
     );
 
-    assert.ok(match, 'Expected Bullish Demand Order Block match');
-    assert.strictEqual(match.symbol, 'RELIANCE');
-    assert.strictEqual(match.strategy, 'DEMAND_ORDER_BLOCK');
-    assert.strictEqual(match.signalType, 'BUY');
-    assert.strictEqual(match.entryPrice, 2495); // High of the last bearish candle before impulse
-    assert.strictEqual(match.stopLossPrice, 2480); // Low of the OB candle
-    assert.strictEqual(match.riskPoints, 15);
+    assert.strictEqual(signals.length, 1);
+    assert.strictEqual(signals[0].signalType, 'BUY');
+    assert.strictEqual(signals[0].levelType, 'PDL');
+    assert.strictEqual(signals[0].levelPrice, 24500);
+    assert.strictEqual(signals[0].sweepPrice, 24482);
+    assert.strictEqual(signals[0].sweepTimestamp, istUnix(day, '09:25'));
+    assert.strictEqual(signals[0].confirmationClosePrice, 24525);
+    assert.strictEqual(signals[0].confirmationTimestamp, istUnix(day, '09:25'));
+    assert.strictEqual(signals[0].id, `NIFTY_50_${istUnix(day, '09:25')}_BUY`);
+    assert.strictEqual(signals[0].candles.length, 3);
   });
 
-  await t.test('OrderBlockStrategy detects Bearish Supply Zone setup', () => {
-    // Construct series: baseline candles, last bullish candle (Supply OB), strong downward impulse, rally back testing OB Low
-    const candles: CandleData[] = [
-      { time: 100, open: 1500, high: 1510, low: 1495, close: 1505, volume: 100 },
-      { time: 200, open: 1505, high: 1515, low: 1500, close: 1510, volume: 100 },
-      { time: 300, open: 1510, high: 1518, low: 1505, close: 1515, volume: 100 },
-      { time: 400, open: 1515, high: 1520, low: 1510, close: 1518, volume: 100 },
-      { time: 500, open: 1518, high: 1525, low: 1512, close: 1520, volume: 100 },
-      { time: 600, open: 1520, high: 1525, low: 1515, close: 1522, volume: 100 },
-      { time: 700, open: 1522, high: 1528, low: 1518, close: 1525, volume: 100 },
-      { time: 800, open: 1525, high: 1530, low: 1520, close: 1528, volume: 100 },
-      // Index 8: Last bullish candle before drop (Supply OB: Low=1525, High=1545)
-      { time: 900, open: 1528, high: 1545, low: 1525, close: 1542, volume: 150 },
-      // Index 9: Strong downward impulse (-50 pts drop)
-      { time: 1000, open: 1542, high: 1542, low: 1488, close: 1490, volume: 800 },
-      // Index 10: Follow through lower
-      { time: 1100, open: 1490, high: 1495, low: 1470, close: 1475, volume: 400 },
-      // Index 11-13: Rally back up toward OB Low (1525)
-      { time: 1200, open: 1475, high: 1500, low: 1472, close: 1498, volume: 200 },
-      { time: 1300, open: 1498, high: 1518, low: 1495, close: 1515, volume: 180 },
-      // Index 14: Retesting supply at 1524 (near OB Low 1525)
-      { time: 1400, open: 1515, high: 1526, low: 1512, close: 1524, volume: 250 },
+  await t.test('Pattern A (BUY): detects 2-candle PDL sweep (push down red bar -> next green confirmation close above PDL)', () => {
+    const day = '2026-11-17';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 24550, high: 24700, low: 24500, close: 24620, volume: 1000 },
+    ];
+    const fiveMinCandles: CandleData[] = [
+      { time: istUnix(day, '09:15'), open: 24560, high: 24580, low: 24520, close: 24530, volume: 100 },
+      // Bar 1 (09:20): pushes down below PDL 24500 and closes red at 24490
+      { time: istUnix(day, '09:20'), open: 24530, high: 24535, low: 24475, close: 24490, volume: 200 },
+      // Bar 2 (09:25): green reversal candle closes back above PDL 24500 at 24518
+      { time: istUnix(day, '09:25'), open: 24490, high: 24522, low: 24488, close: 24518, volume: 250 },
+      // Bar 3 (09:30): continuation green candle — must NOT re-trigger
+      { time: istUnix(day, '09:30'), open: 24518, high: 24550, low: 24515, close: 24545, volume: 180 },
     ];
 
-    const match = OrderBlockStrategy.evaluate(
-      candles,
-      'INFY',
-      'Infosys Ltd',
-      '15m',
-      DEFAULT_SCREENER_SETTINGS,
+    const signals = LiquiditySweepStrategy.scanHistorical(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinCandles,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
     );
 
-    assert.ok(match, 'Expected Bearish Supply Order Block match');
-    assert.strictEqual(match.symbol, 'INFY');
-    assert.strictEqual(match.strategy, 'SUPPLY_ORDER_BLOCK');
-    assert.strictEqual(match.signalType, 'SELL');
-    assert.strictEqual(match.entryPrice, 1525); // Low of the last bullish candle before impulse
-    assert.strictEqual(match.stopLossPrice, 1545); // High of the OB candle
-    assert.strictEqual(match.riskPoints, 20);
+    assert.strictEqual(signals.length, 1);
+    assert.strictEqual(signals[0].signalType, 'BUY');
+    assert.strictEqual(signals[0].levelType, 'PDL');
+    assert.strictEqual(signals[0].levelPrice, 24500);
+    assert.strictEqual(signals[0].sweepPrice, 24475);
+    assert.strictEqual(signals[0].sweepTimestamp, istUnix(day, '09:20'));
+    assert.strictEqual(signals[0].confirmationClosePrice, 24518);
+    assert.strictEqual(signals[0].confirmationTimestamp, istUnix(day, '09:25'));
   });
 
-  await t.test('OrderBlockStrategy rejects mitigated (violated) Order Blocks', () => {
-    // If intervening price broke below Demand OB Low (2480), it must NOT match
-    const candles: CandleData[] = [
-      { time: 100, open: 2500, high: 2510, low: 2495, close: 2505, volume: 100 },
-      { time: 200, open: 2505, high: 2515, low: 2500, close: 2510, volume: 100 },
-      { time: 300, open: 2510, high: 2515, low: 2502, close: 2508, volume: 100 },
-      { time: 400, open: 2508, high: 2512, low: 2501, close: 2506, volume: 100 },
-      { time: 500, open: 2506, high: 2510, low: 2500, close: 2504, volume: 100 },
-      { time: 600, open: 2504, high: 2508, low: 2498, close: 2502, volume: 100 },
-      { time: 700, open: 2502, high: 2505, low: 2495, close: 2500, volume: 100 },
-      { time: 800, open: 2500, high: 2502, low: 2490, close: 2495, volume: 100 },
-      { time: 900, open: 2495, high: 2495, low: 2480, close: 2482, volume: 150 },
-      { time: 1000, open: 2482, high: 2545, low: 2482, close: 2542, volume: 800 },
-      { time: 1100, open: 2542, high: 2560, low: 2535, close: 2555, volume: 400 },
-      // Index 12: VIOLATION candle breaking down to 2470 (below 2480 OB Low)
-      { time: 1200, open: 2555, high: 2555, low: 2470, close: 2475, volume: 500 },
-      { time: 1300, open: 2475, high: 2500, low: 2475, close: 2490, volume: 180 },
-      { time: 1400, open: 2490, high: 2498, low: 2488, close: 2495, volume: 250 },
+  await t.test('Pattern B (SELL): detects PDH sweep & red close confirmation and multiple independent BUY+SELL signals in one session', () => {
+    const day = '2026-11-17';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 52000, high: 52500, low: 51800, close: 52200, volume: 1000 },
+    ];
+    const fiveMinCandles: CandleData[] = [
+      // 09:15 opening candle
+      { time: istUnix(day, '09:15'), open: 51900, high: 52000, low: 51850, close: 51920, volume: 100 },
+      // 09:20 Morning PDL sweep (low 51770 < 51800) + green close 51860 > 51800 -> Signal 1: BUY (PDL)
+      { time: istUnix(day, '09:20'), open: 51820, high: 51880, low: 51770, close: 51860, volume: 300 },
+      // Rally up
+      { time: istUnix(day, '11:00'), open: 52200, high: 52450, low: 52180, close: 52430, volume: 200 },
+      // 11:05 Push above PDH 52500 (high 52545), closes green at 52520
+      { time: istUnix(day, '11:05'), open: 52430, high: 52545, low: 52420, close: 52520, volume: 350 },
+      // 11:10 Red reversal candle closes below PDH 52500 at 52465 -> Signal 2: SELL (PDH)
+      { time: istUnix(day, '11:10'), open: 52520, high: 52530, low: 52450, close: 52465, volume: 400 },
     ];
 
-    const match = OrderBlockStrategy.evaluate(
-      candles,
-      'RELIANCE',
-      'Reliance Industries Ltd',
-      '15m',
-      DEFAULT_SCREENER_SETTINGS,
+    const signals = LiquiditySweepStrategy.scanHistorical(
+      'BANK NIFTY',
+      'Bank Nifty Index',
+      fiveMinCandles,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
     );
 
-    assert.strictEqual(match, null, 'Mitigated Order Block should not return a setup');
+    assert.strictEqual(signals.length, 2, 'Should emit two independent signals in the same session');
+    assert.strictEqual(signals[0].signalType, 'BUY');
+    assert.strictEqual(signals[0].levelType, 'PDL');
+    assert.strictEqual(signals[0].levelPrice, 51800);
+
+    assert.strictEqual(signals[1].signalType, 'SELL');
+    assert.strictEqual(signals[1].levelType, 'PDH');
+    assert.strictEqual(signals[1].levelPrice, 52500);
+    assert.strictEqual(signals[1].sweepPrice, 52545);
+    assert.strictEqual(signals[1].sweepTimestamp, istUnix(day, '11:05'));
+    assert.strictEqual(signals[1].confirmationClosePrice, 52465);
+    assert.strictEqual(signals[1].confirmationTimestamp, istUnix(day, '11:10'));
+    assert.notStrictEqual(signals[0].id, signals[1].id);
   });
 
-  await t.test('LiquiditySweepStrategy detects Bullish Liquidity Sweep (sell-side stop run)', () => {
-    // Key swing low formed at 1000 (Index 4: low=1000).
-    // Later at index 14, price wicks down to 990 (sweeping 1000) and closes at 1010 with large lower wick.
-    const candles: CandleData[] = [
-      { time: 100, open: 1020, high: 1030, low: 1015, close: 1025, volume: 100 },
-      { time: 200, open: 1025, high: 1035, low: 1010, close: 1012, volume: 100 },
-      { time: 300, open: 1012, high: 1018, low: 1005, close: 1008, volume: 100 },
-      // Index 3: Swing Low at 1000
-      { time: 400, open: 1008, high: 1015, low: 1000, close: 1006, volume: 150 },
-      { time: 500, open: 1006, high: 1025, low: 1004, close: 1022, volume: 200 },
-      { time: 600, open: 1022, high: 1030, low: 1018, close: 1025, volume: 120 },
-      { time: 700, open: 1025, high: 1032, low: 1020, close: 1028, volume: 100 },
-      { time: 800, open: 1028, high: 1035, low: 1022, close: 1025, volume: 100 },
-      { time: 900, open: 1025, high: 1030, low: 1015, close: 1018, volume: 100 },
-      { time: 1000, open: 1018, high: 1020, low: 1008, close: 1010, volume: 110 },
-      { time: 1100, open: 1010, high: 1015, low: 1005, close: 1008, volume: 120 },
-      { time: 1200, open: 1008, high: 1012, low: 1003, close: 1005, volume: 130 },
-      { time: 1300, open: 1005, high: 1010, low: 1002, close: 1004, volume: 140 },
-      // Index 13: Sweep Rejection Candle: low=990 (< 1000), close=1012 (> 1000), high=1015
-      // Lower wick: min(1004, 1012) - 990 = 1004 - 990 = 14. Total range = 1015 - 990 = 25. Wick ratio = 14/25 = 56%
-      { time: 1400, open: 1004, high: 1015, low: 990, close: 1012, volume: 500 },
+  await t.test('Edge Case: opening candle ignored for Intraday High/Low sweeps, but allowed for PDH/PDL sweeps', () => {
+    const day = '2026-11-17';
+    // Prior day range 24000-24500. Opening candle sweeps PDL 24000 and closes green at 24040 -> SHOULD trigger PDL BUY.
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 24200, high: 24500, low: 24000, close: 24100, volume: 1000 },
+    ];
+    const fiveMinWithPdlSweepOnOpen: CandleData[] = [
+      { time: istUnix(day, '09:15'), open: 24010, high: 24060, low: 23980, close: 24040, volume: 500 },
     ];
 
-    const match = LiquiditySweepStrategy.evaluate(
-      candles,
-      'TCS',
-      'Tata Consultancy Services Ltd',
-      '15m',
-      DEFAULT_SCREENER_SETTINGS,
+    const pdlSignals = LiquiditySweepStrategy.scanHistorical(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinWithPdlSweepOnOpen,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
     );
+    assert.strictEqual(pdlSignals.length, 1);
+    assert.strictEqual(pdlSignals[0].levelType, 'PDL');
+    assert.strictEqual(pdlSignals[0].signalType, 'BUY');
 
-    assert.ok(match, 'Expected Bullish Liquidity Sweep match');
-    assert.strictEqual(match.symbol, 'TCS');
-    assert.strictEqual(match.strategy, 'BULLISH_LIQUIDITY_SWEEP');
-    assert.strictEqual(match.signalType, 'BUY');
-    assert.strictEqual(match.entryPrice, 1015); // High of sweep candle
-    assert.strictEqual(match.stopLossPrice, 990); // Low of sweep candle
-    assert.strictEqual(match.riskPoints, 25);
+    // Now test opening candle with NO PDH/PDL breach: must NOT trigger DAY_LOW or DAY_HIGH
+    const fiveMinInsidePriorRange: CandleData[] = [
+      { time: istUnix(day, '09:15'), open: 24200, high: 24250, low: 24180, close: 24230, volume: 500 },
+    ];
+    const openOnlySignals = LiquiditySweepStrategy.scanHistorical(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinInsidePriorRange,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
+    );
+    assert.strictEqual(openOnlySignals.length, 0);
   });
 
-  await t.test('LiquiditySweepStrategy detects Bearish Liquidity Sweep (buy-side stop run)', () => {
-    // Key swing high formed at 500 (Index 3: high=500).
-    // Later at index 13, price wicks up to 510 (sweeping 500) and closes at 492 with large upper wick.
-    const candles: CandleData[] = [
-      { time: 100, open: 480, high: 490, low: 475, close: 485, volume: 100 },
-      { time: 200, open: 485, high: 495, low: 482, close: 492, volume: 100 },
-      // Index 2: Swing High at 500
-      { time: 300, open: 492, high: 500, low: 488, close: 495, volume: 200 },
-      { time: 400, open: 495, high: 497, low: 478, close: 482, volume: 150 },
-      { time: 500, open: 482, high: 485, low: 475, close: 478, volume: 100 },
-      { time: 600, open: 478, high: 482, low: 472, close: 475, volume: 100 },
-      { time: 700, open: 475, high: 480, low: 470, close: 473, volume: 100 },
-      { time: 800, open: 473, high: 478, low: 468, close: 472, volume: 100 },
-      { time: 900, open: 472, high: 485, low: 470, close: 482, volume: 120 },
-      { time: 1000, open: 482, high: 492, low: 480, close: 490, volume: 130 },
-      { time: 1100, open: 490, high: 496, low: 488, close: 492, volume: 140 },
-      { time: 1200, open: 492, high: 498, low: 490, close: 495, volume: 150 },
-      // Index 12: Sweep Rejection Candle: high=510 (> 500), close=492 (< 500), low=488
-      // Upper wick: 510 - max(495, 492) = 510 - 495 = 15. Total range = 510 - 488 = 22. Wick ratio = 15/22 = 68%
-      { time: 1300, open: 495, high: 510, low: 488, close: 492, volume: 600 },
-      { time: 1400, open: 492, high: 494, low: 485, close: 487, volume: 200 },
+  await t.test('Edge Case: zero lookahead bias — running Intraday Low/High computed strictly from prior candles', () => {
+    const day = '2026-11-17';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 24500, high: 25500, low: 23500, close: 24500, volume: 1000 },
+    ];
+    const fiveMinCandles: CandleData[] = [
+      // 09:15 establishes initial Day Low = 24400, Day High = 24500
+      { time: istUnix(day, '09:15'), open: 24450, high: 24500, low: 24400, close: 24480, volume: 100 },
+      // 09:20 sweeps below Day Low 24400 (low 24385) and closes green at 24420 -> BUY on DAY_LOW 24400
+      { time: istUnix(day, '09:20'), open: 24405, high: 24430, low: 24385, close: 24420, volume: 200 },
+      // 09:25 later drops way lower to 24200 — must NOT retroactively alter 09:20's prior Day Low (24400)
+      { time: istUnix(day, '09:25'), open: 24420, high: 24420, low: 24200, close: 24220, volume: 300 },
+      // 09:30 sweeps above prior Day High 24500 (high 24525) and closes red at 24470 -> SELL on DAY_HIGH 24500
+      { time: istUnix(day, '09:30'), open: 24495, high: 24525, low: 24460, close: 24470, volume: 350 },
     ];
 
-    const match = LiquiditySweepStrategy.evaluate(
-      candles,
-      'SBIN',
-      'State Bank of India',
-      '15m',
-      DEFAULT_SCREENER_SETTINGS,
+    const signals = LiquiditySweepStrategy.scanHistorical(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinCandles,
+      dailyCandles,
+      day,
+      day,
+      istUnix(day, '15:35'),
     );
 
-    assert.ok(match, 'Expected Bearish Liquidity Sweep match');
-    assert.strictEqual(match.symbol, 'SBIN');
-    assert.strictEqual(match.strategy, 'BEARISH_LIQUIDITY_SWEEP');
-    assert.strictEqual(match.signalType, 'SELL');
-    assert.strictEqual(match.entryPrice, 488); // Low of sweep candle
-    assert.strictEqual(match.stopLossPrice, 510); // High of sweep candle
-    assert.strictEqual(match.riskPoints, 22);
+    assert.strictEqual(signals.length, 2);
+    assert.strictEqual(signals[0].signalType, 'BUY');
+    assert.strictEqual(signals[0].levelType, 'DAY_LOW');
+    assert.strictEqual(signals[0].levelPrice, 24400);
+
+    assert.strictEqual(signals[1].signalType, 'SELL');
+    assert.strictEqual(signals[1].levelType, 'DAY_HIGH');
+    assert.strictEqual(signals[1].levelPrice, 24500);
+  });
+
+  await t.test('Live mode evaluates ONLY the latest 3 closed 5m candles and excludes stale morning sweeps & unclosed forming candle', () => {
+    const day = '2026-11-17';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-16', '09:15'), open: 24550, high: 24700, low: 24500, close: 24620, volume: 1000 },
+    ];
+    const fiveMinCandles: CandleData[] = [
+      // 09:15
+      { time: istUnix(day, '09:15'), open: 24550, high: 24600, low: 24510, close: 24540, volume: 100 },
+      // 09:20 STALE PDL sweep (index 1, 5 closed candles ago -> must be IGNORED in live mode)
+      { time: istUnix(day, '09:20'), open: 24505, high: 24530, low: 24480, close: 24520, volume: 200 },
+      // 09:25
+      { time: istUnix(day, '09:25'), open: 24520, high: 24560, low: 24515, close: 24550, volume: 100 },
+      // 09:30
+      { time: istUnix(day, '09:30'), open: 24550, high: 24590, low: 24540, close: 24580, volume: 100 },
+      // 09:35 (3rd latest closed)
+      { time: istUnix(day, '09:35'), open: 24580, high: 24650, low: 24570, close: 24640, volume: 100 },
+      // 09:40 (2nd latest closed)
+      { time: istUnix(day, '09:40'), open: 24640, high: 24690, low: 24630, close: 24685, volume: 100 },
+      // 09:45 (latest closed): sweeps PDH 24700 (high 24722) & closes red at 24680 -> SHOULD fire
+      { time: istUnix(day, '09:45'), open: 24695, high: 24722, low: 24675, close: 24680, volume: 300 },
+      // 09:50 (still forming at nowSec = 09:52:00 IST -> must be EXCLUDED)
+      { time: istUnix(day, '09:50'), open: 24680, high: 24735, low: 24670, close: 24675, volume: 50 },
+    ];
+
+    const nowSec = istUnix(day, '09:52'); // 09:45 bar closed at 09:50; 09:50 bar closes at 09:55 (unclosed)
+    const signals = LiquiditySweepStrategy.scanLive(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fiveMinCandles,
+      dailyCandles,
+      nowSec,
+    );
+
+    assert.strictEqual(signals.length, 1, 'Only the fresh 09:45 SELL sweep should fire (stale 09:20 & unclosed 09:50 excluded)');
+    assert.strictEqual(signals[0].signalType, 'SELL');
+    assert.strictEqual(signals[0].levelType, 'PDH');
+    assert.strictEqual(signals[0].confirmationTimestamp, istUnix(day, '09:45'));
+  });
+
+  await t.test('Live mode returns complete 09:15 to 15:30 session candles even when sweep fires near market close', () => {
+    const day = '2026-11-18';
+    const dailyCandles: CandleData[] = [
+      { time: istUnix('2026-11-17', '09:15'), open: 24550, high: 24700, low: 24500, close: 24620, volume: 1000 },
+    ];
+    const openUnix = istUnix(day, '09:15');
+    // Build a complete 75-candle session from 09:15 to 15:25 IST
+    const fullDayCandles: CandleData[] = [];
+    for (let i = 0; i < 74; i++) {
+      fullDayCandles.push({
+        time: openUnix + i * 300,
+        open: 24580,
+        high: 24640,
+        low: 24540,
+        close: 24600,
+        volume: 100,
+      });
+    }
+    // Final candle at 15:25 sweeps PDH 24700 and reverses red below 24700
+    const closeBarTime = openUnix + 74 * 300;
+    fullDayCandles.push({
+      time: closeBarTime,
+      open: 24695,
+      high: 24720,
+      low: 24670,
+      close: 24680,
+      volume: 400,
+    });
+
+    const signals = LiquiditySweepStrategy.scanLive(
+      'NIFTY 50',
+      'Nifty 50 Index',
+      fullDayCandles,
+      dailyCandles,
+      istUnix(day, '19:00'),
+    );
+
+    assert.strictEqual(signals.length, 1);
+    assert.strictEqual(signals[0].candles.length, 75, 'Must include all 75 candles from 09:15 to 15:25');
+    assert.strictEqual(signals[0].candles[0].time, openUnix, 'Chart must start at 09:15 IST, not 12:00 PM');
+    assert.strictEqual(signals[0].candles[signals[0].candles.length - 1].time, closeBarTime);
+  });
+
+  await t.test('Timestamp normalization deduplicates and sorts candles strictly ascending in UNIX seconds', () => {
+    const raw: CandleData[] = [
+      { time: 1700000600.8, open: 102, high: 105, low: 101, close: 104, volume: 10 },
+      { time: 1700000300, open: 100, high: 103, low: 99, close: 102, volume: 10 },
+      { time: 1700000300, open: 999, high: 999, low: 999, close: 999, volume: 10 }, // duplicate timestamp
+      { time: 1700000900, open: 104, high: 106, low: 103, close: 105, volume: 10 },
+    ];
+
+    const normalized = LiquiditySweepStrategy.normalizeCandles(raw);
+    assert.strictEqual(normalized.length, 3);
+    assert.deepStrictEqual(
+      normalized.map((c) => c.time),
+      [1700000300, 1700000600, 1700000900],
+    );
   });
 
   // --- INTEGRATION TESTS FOR CONTROLLER & SERVICE ---
@@ -211,72 +308,55 @@ test('Screener Module & Technical Strategies (NestJS)', async (t) => {
   let controller: ScreenerController;
   let service: ScreenerService;
 
-  let mockWatchlistStore: any = null;
-  let mockSettingsStore: any = null;
-
   const mockFirestoreService = {
     isReady: () => true,
-    getScreenerWatchlist: async () => {
-      if (!mockWatchlistStore) {
-        mockWatchlistStore = {
-          symbols: [...DEFAULT_LARGE_CAP_STOCKS],
-          updatedAt: new Date().toISOString(),
-          version: 1,
-        };
-      }
-      return mockWatchlistStore;
-    },
-    saveScreenerWatchlist: async (symbols: any[]) => {
-      mockWatchlistStore = {
-        symbols,
-        updatedAt: new Date().toISOString(),
-        version: 1,
-      };
-      return { success: true, data: mockWatchlistStore, writeTime: new Date().toISOString() };
-    },
-    resetScreenerWatchlist: async () => {
-      mockWatchlistStore = {
-        symbols: [...DEFAULT_LARGE_CAP_STOCKS],
-        updatedAt: new Date().toISOString(),
-        version: 1,
-      };
-      return { success: true, data: mockWatchlistStore, writeTime: new Date().toISOString() };
-    },
-    getScreenerSettings: async () => mockSettingsStore || DEFAULT_SCREENER_SETTINGS,
-    saveScreenerSettings: async (settings: any) => {
-      mockSettingsStore = { ...DEFAULT_SCREENER_SETTINGS, ...settings };
-      return { success: true, data: mockSettingsStore, writeTime: new Date().toISOString() };
-    },
+    getTradedInstruments: async () => ({
+      ...DEFAULT_LOT_SIZES,
+      instruments: DEFAULT_INDICES.map((i) => ({ ...i })),
+      indices: DEFAULT_INDICES.map((i) => ({ ...i })),
+    }),
+    getLotSizes: async () => ({
+      ...DEFAULT_LOT_SIZES,
+      instruments: DEFAULT_INDICES.map((i) => ({ ...i })),
+      indices: DEFAULT_INDICES.map((i) => ({ ...i })),
+    }),
   };
 
+  const sampleDay = '2026-11-17';
   const mockYahooFinanceService = {
     getCandlesBatch: async (requests: any[]) => {
       const map = new Map<string, any>();
       for (const req of requests) {
-        // Return dummy candles for each requested ticker
-        map.set(req.symbol, {
-          symbol: req.symbol,
-          yahooSymbol: `${req.symbol}.NS`,
-          interval: req.interval || '15m',
-          lastPrice: 2500,
-          count: 20,
-          candles: [
-            { time: 100, open: 2500, high: 2510, low: 2495, close: 2505, volume: 100 },
-            { time: 200, open: 2505, high: 2515, low: 2500, close: 2510, volume: 100 },
-            { time: 300, open: 2510, high: 2515, low: 2502, close: 2508, volume: 100 },
-            { time: 400, open: 2508, high: 2512, low: 2501, close: 2506, volume: 100 },
-            { time: 500, open: 2506, high: 2510, low: 2500, close: 2504, volume: 100 },
-            { time: 600, open: 2504, high: 2508, low: 2498, close: 2502, volume: 100 },
-            { time: 700, open: 2502, high: 2505, low: 2495, close: 2500, volume: 100 },
-            { time: 800, open: 2500, high: 2502, low: 2490, close: 2495, volume: 100 },
-            { time: 900, open: 2495, high: 2495, low: 2480, close: 2482, volume: 150 },
-            { time: 1000, open: 2482, high: 2545, low: 2482, close: 2542, volume: 800 },
-            { time: 1100, open: 2542, high: 2560, low: 2535, close: 2555, volume: 400 },
-            { time: 1200, open: 2555, high: 2555, low: 2520, close: 2525, volume: 200 },
-            { time: 1300, open: 2525, high: 2530, low: 2505, close: 2510, volume: 180 },
-            { time: 1400, open: 2510, high: 2512, low: 2490, close: 2496, volume: 250 },
-          ],
-        });
+        if (req.interval === '1d') {
+          map.set(req.symbol, {
+            symbol: req.symbol,
+            yahooSymbol: '^NSEI',
+            interval: '1d',
+            candles: [
+              { time: istUnix('2026-11-16', '09:15'), open: 24550, high: 24700, low: 24500, close: 24600, volume: 10000 },
+            ],
+          });
+        } else {
+          // 5m candles with a fresh BUY PDL sweep for NIFTY only
+          const candles: CandleData[] =
+            req.symbol === 'NIFTY' || req.symbol === 'NIFTY 50'
+              ? [
+                  { time: istUnix(sampleDay, '09:15'), open: 24560, high: 24590, low: 24520, close: 24530, volume: 100 },
+                  { time: istUnix(sampleDay, '09:20'), open: 24530, high: 24540, low: 24480, close: 24492, volume: 200 },
+                  { time: istUnix(sampleDay, '09:25'), open: 24492, high: 24530, low: 24490, close: 24522, volume: 300 },
+                ]
+              : [
+                  { time: istUnix(sampleDay, '09:15'), open: 24580, high: 24610, low: 24560, close: 24590, volume: 100 },
+                  { time: istUnix(sampleDay, '09:20'), open: 24590, high: 24620, low: 24570, close: 24605, volume: 100 },
+                ];
+
+          map.set(req.symbol, {
+            symbol: req.symbol,
+            yahooSymbol: '^NSEI',
+            interval: '5m',
+            candles,
+          });
+        }
       }
       return map;
     },
@@ -294,37 +374,58 @@ test('Screener Module & Technical Strategies (NestJS)', async (t) => {
   controller = moduleRef.get<ScreenerController>(ScreenerController);
   service = moduleRef.get<ScreenerService>(ScreenerService);
 
-  await t.test('GET /api/screener/watchlist retrieves auto-seeded large-cap watchlist', async () => {
-    const res = await controller.getWatchlist();
-    assert.ok(res.symbols.length >= 28, 'Should return at least 28 seeded stocks');
-    assert.strictEqual(res.symbols[0].symbol, 'RELIANCE');
-    assert.strictEqual(res.symbols[1].symbol, 'TCS');
+  await t.test('GET /api/screener/instruments returns configured traded instruments with Dhan displayName', async () => {
+    const res = await controller.getInstruments();
+    assert.strictEqual(res.instruments.length, 4);
+    assert.deepStrictEqual(
+      res.instruments.map((i) => i.displayName),
+      ['Nifty 50', 'Nifty Bank', 'Nifty Midcap Select', 'Sensex'],
+    );
+    assert.deepStrictEqual(
+      res.instruments.map((i) => i.symbol),
+      ['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX'],
+    );
   });
 
-  await t.test('PUT /api/screener/watchlist updates and toggles stock universe', async () => {
-    const updatedList = [
-      { symbol: 'RELIANCE', name: 'Reliance Industries', enabled: true, order: 1 },
-      { symbol: 'TCS', name: 'Tata Consultancy Services', enabled: false, order: 2 },
-    ];
-    const res = await controller.updateWatchlist({ symbols: updatedList });
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(res.data.symbols.length, 2);
+  await t.test('POST /api/screener/scan executes Live mode across configured traded instruments and returns sweep signals with candles', async () => {
+    const res = await service.scan({ mode: 'live' }, istUnix(sampleDay, '09:35'));
+    assert.strictEqual(res.mode, 'live');
+    assert.strictEqual(res.timeframe, '5m');
+    assert.strictEqual(res.totalScanned, 4);
+    assert.strictEqual(res.totalRecommendations, 1);
+    assert.strictEqual(res.bullishCount, 1);
+    assert.strictEqual(res.bearishCount, 0);
+    assert.strictEqual(res.recommendations[0].symbol, 'NIFTY');
+    assert.strictEqual(res.recommendations[0].displayName, 'Nifty 50');
+    assert.strictEqual(res.recommendations[0].levelType, 'PDL');
+    assert.strictEqual(res.recommendations[0].levelPrice, 24500);
+    assert.strictEqual(res.recommendations[0].sweepPrice, 24480);
+    assert.strictEqual(res.recommendations[0].confirmationClosePrice, 24522);
+    assert.ok(Array.isArray(res.recommendations[0].candles) && res.recommendations[0].candles.length === 3);
   });
 
-  await t.test('POST /api/screener/watchlist/reset restores default universe', async () => {
-    const res = await controller.resetWatchlist();
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(res.data.symbols.length, 28);
+  await t.test('POST /api/screener/scan executes Historical mode for a selected date', async () => {
+    const res = await service.scan({ mode: 'historical', date: sampleDay }, istUnix('2026-11-18', '18:00'));
+    assert.strictEqual(res.mode, 'historical');
+    assert.strictEqual(res.startDate, sampleDay);
+    assert.strictEqual(res.endDate, sampleDay);
+    assert.strictEqual(res.totalRecommendations, 1);
+    assert.strictEqual(res.recommendations[0].sessionDate, sampleDay);
   });
 
-  await t.test('POST /api/screener/scan executes scan and returns technical setups', async () => {
-    const res = await controller.runScan({ timeframe: '15m', symbols: ['RELIANCE'] });
-    assert.strictEqual(res.timeframe, '15m');
-    assert.strictEqual(res.totalScanned, 1);
-    assert.ok(res.matches.length >= 1, 'Should find Demand OB match from mock candle data');
-    assert.strictEqual(res.matches[0].symbol, 'RELIANCE');
-    assert.strictEqual(res.matches[0].signalType, 'BUY');
-    assert.strictEqual(res.matches[0].entryPrice, 2495);
-    assert.strictEqual(res.matches[0].stopLossPrice, 2480);
+  await t.test('Historical mode rejects missing date, reversed range, and dates older than 59 days', async () => {
+    const refNow = istUnix('2026-11-18', '18:00');
+    await assert.rejects(
+      () => service.scan({ mode: 'historical' }, refNow),
+      BadRequestException,
+    );
+    await assert.rejects(
+      () => service.scan({ mode: 'historical', startDate: '2026-11-17', endDate: '2026-11-15' }, refNow),
+      BadRequestException,
+    );
+    await assert.rejects(
+      () => service.scan({ mode: 'historical', date: '2026-08-01' }, refNow),
+      BadRequestException,
+    );
   });
 });

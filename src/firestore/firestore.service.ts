@@ -6,6 +6,7 @@ import { JWT } from 'google-auth-library';
 import { ConfigService } from '../config/config.service';
 import { decodeJwtPayload, formatIST } from '../auth/jwt.util';
 import { Cacheable, CacheEvict, CachePut, defaultCacheStore } from '../cache';
+import tradedInstrumentsMaster from '../instruments/data/traded-instruments.master.json';
 
 export interface FirestoreStatus {
   configured: boolean;
@@ -89,83 +90,176 @@ export interface AppConfig {
   updatedAt?: string;
 }
 
-export interface IndexConfigItem {
-  symbol: string;
-  name: string;
-  securityId: string;
+export interface TradedInstrumentRecord {
+  // Official Dhan api-scrip-master-detailed.csv fields
+  exchId: string;
+  segment: string;
   exchangeSegment: string;
-  defaultLotSize: number;           // 1. Default lot size preferred for this index (e.g. 5 lots)
-  defaultQuantityInOneLot: number;  // 2. Default quantity in 1 lot size (e.g. 65 shares/lot)
-  stopLossPoints?: number;
-  enabled: boolean;
-  order?: number;
+  securityId: string;
+  isin: string;
+  instrument: string;
+  underlyingSecurityId: string;
+  underlyingSymbol: string;
+  symbolName: string;
+  displayName: string;
+  instrumentType: string;
+  series: string;
+  lotSize: number;
+  indexLotSize: number;
+  smExpiryDate: string;
+  strikePrice: string;
+  optionType: string;
+  tickSize: number;
+  expiryFlag: string;
+  expiryFlags?: string[];
+  bracketFlag: string;
+  coverFlag: string;
+  asmGsmFlag: string;
+  asmGsmCategory: string;
+  buySellIndicator: string;
+  buyCoMinMarginPer: number;
+  buyCoSlRangeMaxPerc: number;
+  buyCoSlRangeMinPerc: number;
+  buyBoMinMarginPer: number;
+  buyBoProfitRangeMaxPerc: number;
+  buyBoProfitRangeMinPerc: number;
+  mtfLeverage: number;
+  smUpperLimit: number;
+  smLowerLimit: number;
+  smFreezeQty: number;
+  // F&O option-derived metadata from Dhan OPTIDX rows
+  fnoExchangeSegment: string;
+  fnoUnderlyingSecurityId: string;
+  strikeStep: number;
+  optTickSize: number;
+  // User trading preferences (preserved across Dhan master syncs)
+  preferredLots: number;
+  stopLossPoints: number;
+  enabled?: boolean;
+  order: number;
 
-  // Backward compatibility aliases
-  lotSize?: number;                 // Alias for defaultQuantityInOneLot
-  defaultLots?: number;             // Alias for defaultLotSize
-  defaultQuantity?: number;         // defaultLotSize * defaultQuantityInOneLot
+  // Computed compatibility aliases for API consumers (not persisted to Firestore)
+  symbol?: string;
+  name?: string;
+  defaultLotSize?: number;
+  defaultQuantityInOneLot?: number;
+  defaultLots?: number;
+  defaultQuantity?: number;
 }
 
-export const DEFAULT_INDICES: IndexConfigItem[] = [
-  {
-    symbol: 'NIFTY 50',
-    name: 'Nifty 50 Index',
-    securityId: '13',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 65,
-    lotSize: 65,
-    defaultLots: 5,
-    defaultQuantity: 325,
-    stopLossPoints: 12,
-    enabled: true,
-    order: 1,
-  },
-  {
-    symbol: 'BANK NIFTY',
-    name: 'Bank Nifty Index',
-    securityId: '25',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 30,
-    lotSize: 30,
-    defaultLots: 5,
-    defaultQuantity: 150,
-    stopLossPoints: 20,
-    enabled: true,
-    order: 2,
-  },
-  {
-    symbol: 'MIDCAP NIFTY',
-    name: 'Nifty Midcap Select',
-    securityId: '442',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 120,
-    lotSize: 120,
-    defaultLots: 5,
-    defaultQuantity: 600,
-    stopLossPoints: 15,
-    enabled: true,
-    order: 3,
-  },
-  {
-    symbol: 'SENSEX',
-    name: 'BSE Sensex Index',
-    securityId: '51',
-    exchangeSegment: 'IDX_I',
-    defaultLotSize: 5,
-    defaultQuantityInOneLot: 20,
-    lotSize: 20,
-    defaultLots: 5,
-    defaultQuantity: 100,
-    stopLossPoints: 30,
-    enabled: true,
-    order: 4,
-  },
-];
+export type IndexConfigItem = TradedInstrumentRecord;
 
-export interface IndexLotSizesConfig {
+function enrichTradedInstrument(raw: TradedInstrumentRecord): TradedInstrumentRecord {
+  const lotSize = raw.lotSize !== undefined && raw.lotSize !== null ? Number(raw.lotSize) : 0;
+  const preferredLots = raw.preferredLots !== undefined && raw.preferredLots !== null ? Number(raw.preferredLots) : 0;
+  const stopLossPoints =
+    raw.stopLossPoints !== undefined && raw.stopLossPoints !== null
+      ? Number(raw.stopLossPoints)
+      : 0;
+  return {
+    ...raw,
+    lotSize,
+    preferredLots,
+    stopLossPoints,
+    order: raw.order !== undefined && raw.order !== null ? Number(raw.order) : 99,
+    // In-memory API compatibility aliases (sourced strictly from Firestore values — never invented)
+    symbol: raw.displayName,
+    name: raw.displayName,
+    defaultLotSize: preferredLots,
+    defaultQuantityInOneLot: lotSize,
+    defaultLots: preferredLots,
+    defaultQuantity: preferredLots * lotSize,
+  };
+}
+
+function stripToCleanFirestoreInstrument(raw: Partial<TradedInstrumentRecord>, fallback?: TradedInstrumentRecord): Omit<
+  TradedInstrumentRecord,
+  'symbol' | 'name' | 'defaultLotSize' | 'defaultQuantityInOneLot' | 'defaultLots' | 'defaultQuantity'
+> {
+  const base = fallback || ({} as TradedInstrumentRecord);
+  const lotSize = Number(raw.lotSize ?? raw.defaultQuantityInOneLot ?? base.lotSize ?? 0);
+  const preferredLots = Number(raw.preferredLots ?? raw.defaultLotSize ?? raw.defaultLots ?? base.preferredLots ?? 0);
+  return {
+    exchId: raw.exchId ?? base.exchId ?? '',
+    segment: raw.segment ?? base.segment ?? '',
+    exchangeSegment: raw.exchangeSegment ?? base.exchangeSegment ?? '',
+    securityId: String(raw.securityId ?? base.securityId ?? ''),
+    isin: raw.isin ?? base.isin ?? '',
+    instrument: raw.instrument ?? base.instrument ?? '',
+    underlyingSecurityId: String(raw.underlyingSecurityId ?? base.underlyingSecurityId ?? raw.securityId ?? ''),
+    underlyingSymbol: raw.underlyingSymbol ?? base.underlyingSymbol ?? '',
+    symbolName: raw.symbolName ?? base.symbolName ?? '',
+    displayName: raw.displayName ?? base.displayName ?? raw.symbolName ?? '',
+    instrumentType: raw.instrumentType ?? base.instrumentType ?? '',
+    series: raw.series ?? base.series ?? '',
+    lotSize,
+    indexLotSize: Number(raw.indexLotSize ?? base.indexLotSize ?? 0),
+    smExpiryDate: raw.smExpiryDate ?? base.smExpiryDate ?? '',
+    strikePrice: raw.strikePrice ?? base.strikePrice ?? '',
+    optionType: raw.optionType ?? base.optionType ?? '',
+    tickSize: Number(raw.tickSize ?? base.tickSize ?? 0),
+    expiryFlag: raw.expiryFlag ?? base.expiryFlag ?? '',
+    expiryFlags: Array.isArray(raw.expiryFlags) ? [...raw.expiryFlags] : (base.expiryFlags ? [...base.expiryFlags] : []),
+    bracketFlag: raw.bracketFlag ?? base.bracketFlag ?? '',
+    coverFlag: raw.coverFlag ?? base.coverFlag ?? '',
+    asmGsmFlag: raw.asmGsmFlag ?? base.asmGsmFlag ?? '',
+    asmGsmCategory: raw.asmGsmCategory ?? base.asmGsmCategory ?? '',
+    buySellIndicator: raw.buySellIndicator ?? base.buySellIndicator ?? '',
+    buyCoMinMarginPer: Number(raw.buyCoMinMarginPer ?? base.buyCoMinMarginPer ?? 0),
+    buyCoSlRangeMaxPerc: Number(raw.buyCoSlRangeMaxPerc ?? base.buyCoSlRangeMaxPerc ?? 0),
+    buyCoSlRangeMinPerc: Number(raw.buyCoSlRangeMinPerc ?? base.buyCoSlRangeMinPerc ?? 0),
+    buyBoMinMarginPer: Number(raw.buyBoMinMarginPer ?? base.buyBoMinMarginPer ?? 0),
+    buyBoProfitRangeMaxPerc: Number(raw.buyBoProfitRangeMaxPerc ?? base.buyBoProfitRangeMaxPerc ?? 0),
+    buyBoProfitRangeMinPerc: Number(raw.buyBoProfitRangeMinPerc ?? base.buyBoProfitRangeMinPerc ?? 0),
+    mtfLeverage: Number(raw.mtfLeverage ?? base.mtfLeverage ?? 0),
+    smUpperLimit: Number(raw.smUpperLimit ?? base.smUpperLimit ?? 0),
+    smLowerLimit: Number(raw.smLowerLimit ?? base.smLowerLimit ?? 0),
+    smFreezeQty: Number(raw.smFreezeQty ?? base.smFreezeQty ?? 0),
+    fnoExchangeSegment: raw.fnoExchangeSegment ?? base.fnoExchangeSegment ?? '',
+    fnoUnderlyingSecurityId: String(raw.fnoUnderlyingSecurityId ?? base.fnoUnderlyingSecurityId ?? ''),
+    strikeStep: Number(raw.strikeStep ?? base.strikeStep ?? 0),
+    optTickSize: Number(raw.optTickSize ?? base.optTickSize ?? 0),
+    preferredLots,
+    stopLossPoints: Number(raw.stopLossPoints ?? base.stopLossPoints ?? 0),
+    ...(raw.enabled !== undefined
+      ? { enabled: Boolean(raw.enabled) }
+      : base.enabled !== undefined
+      ? { enabled: Boolean(base.enabled) }
+      : {}),
+    order: Number(raw.order ?? base.order ?? 99),
+  };
+}
+
+/**
+ * Static master JSON seed records — used ONLY when explicitly syncing via "Sync from Master JSON".
+ * Never returned silently as fallback database data.
+ */
+export const DEFAULT_TRADED_INSTRUMENTS: TradedInstrumentRecord[] = (
+  (tradedInstrumentsMaster as any).instruments as TradedInstrumentRecord[]
+).map((item) => enrichTradedInstrument(item));
+
+export const DEFAULT_INDICES: IndexConfigItem[] = DEFAULT_TRADED_INSTRUMENTS;
+
+export const EMPTY_TRADED_INSTRUMENTS_CONFIG: TradedInstrumentsConfig = {
+  instruments: [],
+  indices: [],
+  nifty50: 0,
+  bankNifty: 0,
+  midcapNifty: 0,
+  sensex: 0,
+  nifty50Lots: 0,
+  bankNiftyLots: 0,
+  midcapNiftyLots: 0,
+  sensexLots: 0,
+};
+
+export interface TradedInstrumentsConfig {
+  source?: string;
+  instruments: TradedInstrumentRecord[];
+  updatedAt?: string;
+
+  // Compatibility aliases
+  indices?: TradedInstrumentRecord[];
   nifty50: number;
   bankNifty: number;
   midcapNifty: number;
@@ -174,89 +268,53 @@ export interface IndexLotSizesConfig {
   bankNiftyLots?: number;
   midcapNiftyLots?: number;
   sensexLots?: number;
-  indices?: IndexConfigItem[];
-  updatedAt?: string;
 }
 
-export const DEFAULT_LOT_SIZES: IndexLotSizesConfig = {
-  nifty50: 65,
-  bankNifty: 30,
-  midcapNifty: 120,
-  sensex: 20,
-  nifty50Lots: 5,
-  bankNiftyLots: 5,
-  midcapNiftyLots: 5,
-  sensexLots: 5,
-  indices: [...DEFAULT_INDICES],
-};
+export type IndexLotSizesConfig = TradedInstrumentsConfig;
 
-export interface WatchlistStockItem {
-  symbol: string;        // NSE Trading Symbol (e.g. "RELIANCE", "TCS", "HDFCBANK")
-  name: string;          // Human-readable company name (e.g. "Reliance Industries Ltd")
-  sector?: string;       // Sector / Industry (e.g. "Energy", "IT", "Banking")
-  enabled: boolean;      // Whether active during screener execution
-  order?: number;        // Display order
+function buildTradedInstrumentsResponse(
+  records: TradedInstrumentRecord[],
+  updatedAt?: string,
+  source?: string,
+): TradedInstrumentsConfig {
+  const enriched = records
+    .map((r) => enrichTradedInstrument(r))
+    .sort((a, b) => (a.order || 99) - (b.order || 99));
+
+  const findByKey = (secId: string, symMatch: string) =>
+    enriched.find(
+      (i) =>
+        String(i.securityId) === secId ||
+        String(i.symbolName || '').toUpperCase() === symMatch ||
+        String(i.displayName || '').toUpperCase().includes(symMatch),
+    );
+
+  const niftyItem = findByKey('13', 'NIFTY') || enriched[0];
+  const bankItem = findByKey('25', 'BANKNIFTY');
+  const midcapItem = findByKey('442', 'MIDCPNIFTY');
+  const sensexItem = findByKey('51', 'SENSEX');
+
+  return {
+    source: source || (tradedInstrumentsMaster as any).source || 'dhan-api-scrip-master-detailed.csv',
+    instruments: enriched,
+    indices: enriched,
+    nifty50: Number(niftyItem?.lotSize ?? 0),
+    bankNifty: Number(bankItem?.lotSize ?? 0),
+    midcapNifty: Number(midcapItem?.lotSize ?? 0),
+    sensex: Number(sensexItem?.lotSize ?? 0),
+    nifty50Lots: Number(niftyItem?.preferredLots ?? 0),
+    bankNiftyLots: Number(bankItem?.preferredLots ?? 0),
+    midcapNiftyLots: Number(midcapItem?.preferredLots ?? 0),
+    sensexLots: Number(sensexItem?.preferredLots ?? 0),
+    updatedAt,
+  };
 }
 
-export interface ScreenerWatchlistDoc {
-  symbols: WatchlistStockItem[]; // Configurable list of stocks
-  updatedAt: string;             // ISO-8601 IST timestamp
-  version: number;               // Schema version (e.g., 1)
-}
-
-export interface ScreenerSettingsDoc {
-  obImpulseMultiplier: number;        // Impulse candle body >= X times average candle body (default: 1.8)
-  obMinImpulseBodyPercent: number;     // Minimum % move for impulse candle body (default: 0.8%)
-  obProximityBufferPercent: number;    // Proximity to OB zone entry to trigger setup (default: 1.0%)
-  obLookbackCandles: number;           // Number of candles to search for fresh Order Block (default: 30)
-  sweepLookbackCandles: number;        // Lookback window to locate key swing high/low (default: 20)
-  sweepMinWickRatio: number;           // Minimum rejection wick ratio of total candle range (default: 0.4 / 40%)
-  batchSize: number;                   // Number of concurrent Yahoo Finance candle requests (default: 5)
-  throttleMs: number;                  // Throttle delay between batches in milliseconds (default: 150)
-  updatedAt?: string;
-}
-
-export const DEFAULT_SCREENER_SETTINGS: ScreenerSettingsDoc = {
-  obImpulseMultiplier: 1.8,
-  obMinImpulseBodyPercent: 0.8,
-  obProximityBufferPercent: 1.0,
-  obLookbackCandles: 30,
-  sweepLookbackCandles: 20,
-  sweepMinWickRatio: 0.4,
-  batchSize: 5,
-  throttleMs: 150,
-};
-
-export const DEFAULT_LARGE_CAP_STOCKS: WatchlistStockItem[] = [
-  { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', sector: 'Energy', enabled: true, order: 1 },
-  { symbol: 'TCS', name: 'Tata Consultancy Services Ltd', sector: 'IT', enabled: true, order: 2 },
-  { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', sector: 'Banking', enabled: true, order: 3 },
-  { symbol: 'INFY', name: 'Infosys Ltd', sector: 'IT', enabled: true, order: 4 },
-  { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd', sector: 'Banking', enabled: true, order: 5 },
-  { symbol: 'BHARTIARTL', name: 'Bharti Airtel Ltd', sector: 'Telecom', enabled: true, order: 6 },
-  { symbol: 'SBIN', name: 'State Bank of India', sector: 'Banking', enabled: true, order: 7 },
-  { symbol: 'ITC', name: 'ITC Ltd', sector: 'FMCG', enabled: true, order: 8 },
-  { symbol: 'LT', name: 'Larsen & Toubro Ltd', sector: 'Construction', enabled: true, order: 9 },
-  { symbol: 'HINDUNILVR', name: 'Hindustan Unilever Ltd', sector: 'FMCG', enabled: true, order: 10 },
-  { symbol: 'TATAMOTORS', name: 'Tata Motors Ltd', sector: 'Automobile', enabled: true, order: 11 },
-  { symbol: 'AXISBANK', name: 'Axis Bank Ltd', sector: 'Banking', enabled: true, order: 12 },
-  { symbol: 'MARUTI', name: 'Maruti Suzuki India Ltd', sector: 'Automobile', enabled: true, order: 13 },
-  { symbol: 'SUNPHARMA', name: 'Sun Pharmaceutical Industries Ltd', sector: 'Healthcare', enabled: true, order: 14 },
-  { symbol: 'BAJFINANCE', name: 'Bajaj Finance Ltd', sector: 'Financial Services', enabled: true, order: 15 },
-  { symbol: 'TITAN', name: 'Titan Company Ltd', sector: 'Consumer Goods', enabled: true, order: 16 },
-  { symbol: 'KOTAKBANK', name: 'Kotak Mahindra Bank Ltd', sector: 'Banking', enabled: true, order: 17 },
-  { symbol: 'TATASTEEL', name: 'Tata Steel Ltd', sector: 'Metals', enabled: true, order: 18 },
-  { symbol: 'NTPC', name: 'NTPC Ltd', sector: 'Power', enabled: true, order: 19 },
-  { symbol: 'POWERGRID', name: 'Power Grid Corporation of India Ltd', sector: 'Power', enabled: true, order: 20 },
-  { symbol: 'M&M', name: 'Mahindra & Mahindra Ltd', sector: 'Automobile', enabled: true, order: 21 },
-  { symbol: 'ADANIENT', name: 'Adani Enterprises Ltd', sector: 'Conglomerate', enabled: true, order: 22 },
-  { symbol: 'ASIANPAINT', name: 'Asian Paints Ltd', sector: 'Consumer Goods', enabled: true, order: 23 },
-  { symbol: 'ULTRACEMCO', name: 'UltraTech Cement Ltd', sector: 'Materials', enabled: true, order: 24 },
-  { symbol: 'COALINDIA', name: 'Coal India Ltd', sector: 'Mining', enabled: true, order: 25 },
-  { symbol: 'BAJAJFINSV', name: 'Bajaj Finserv Ltd', sector: 'Financial Services', enabled: true, order: 26 },
-  { symbol: 'WIPRO', name: 'Wipro Ltd', sector: 'IT', enabled: true, order: 27 },
-  { symbol: 'TECHM', name: 'Tech Mahindra Ltd', sector: 'IT', enabled: true, order: 28 },
-];
+export const DEFAULT_LOT_SIZES: TradedInstrumentsConfig = buildTradedInstrumentsResponse(
+  DEFAULT_TRADED_INSTRUMENTS,
+  (tradedInstrumentsMaster as any).generatedAt,
+  (tradedInstrumentsMaster as any).source,
+);
 
 export interface FirestoreTestResult {
   success: boolean;
@@ -875,7 +933,8 @@ export class FirestoreService implements OnModuleInit {
       throw new Error('Firestore is not initialized. Check credentials.');
     }
 
-    const colRef = this.collection('sec_id_to_name_mapping');
+    const metaDocRef = this.doc('master_data', 'sec_id_to_name_mapping');
+    const colRef = metaDocRef.collection('chunks');
     const now = new Date().toISOString();
     const docsToWrite: Record<string, any> = {};
 
@@ -1073,11 +1132,11 @@ export class FirestoreService implements OnModuleInit {
 
     const docIds = Object.keys(docsToWrite);
 
-    // 5. Clean up any stale documents from previous syncs that are no longer needed
+    // 5. Clean up any stale chunk documents from previous syncs that are no longer needed
     try {
       if (typeof colRef.listDocuments === 'function') {
         const existingDocs = await colRef.listDocuments();
-        const keepSet = new Set([...docIds, '_meta']);
+        const keepSet = new Set(docIds);
         const staleDocs = existingDocs.filter((d) => !keepSet.has(d.id));
         if (staleDocs.length > 0) {
           await Promise.all(staleDocs.map((d) => d.delete()));
@@ -1087,15 +1146,15 @@ export class FirestoreService implements OnModuleInit {
       // ignore cleanup error if unmocked
     }
 
-    // 6. Write all documents in parallel
+    // 6. Write all chunk documents into master_data/sec_id_to_name_mapping/chunks/*
     await Promise.all(
       docIds.map((docId) => colRef.doc(docId).set(docsToWrite[docId], { merge: false })),
     );
 
-    // 7. Write metadata document
+    // 7. Write metadata directly onto master_data/sec_id_to_name_mapping
     const totalInstruments = nseOptions.length + indices.length + equities.length;
     const metaDoc: SecIdMappingMetadata = {
-      collection: 'sec_id_to_name_mapping',
+      collection: 'master_data/sec_id_to_name_mapping',
       totalInstruments,
       totalOptions: nseOptions.length,
       totalIndices: indices.length,
@@ -1104,15 +1163,15 @@ export class FirestoreService implements OnModuleInit {
       documentIds: docIds,
       updatedAt: now,
     };
-    await colRef.doc('_meta').set(metaDoc, { merge: true });
+    await metaDocRef.set(metaDoc, { merge: false });
 
     this.logger.log(
-      `✅ Saved ${totalInstruments} NSE instruments into Firestore collection 'sec_id_to_name_mapping' across ${docIds.length} documents`,
+      `✅ Saved ${totalInstruments} NSE instruments into Firestore 'master_data/sec_id_to_name_mapping' across ${docIds.length} chunk documents`,
     );
 
     return {
       success: true,
-      collection: 'sec_id_to_name_mapping',
+      collection: 'master_data/sec_id_to_name_mapping',
       totalInstruments,
       totalOptions: nseOptions.length,
       totalIndices: indices.length,
@@ -1123,7 +1182,7 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
-   * Helper: Retrieve all NSE index options and scrip master items from Firestore collection 'sec_id_to_name_mapping'.
+   * Helper: Retrieve all NSE scrip master items from Firestore 'master_data/sec_id_to_name_mapping/chunks/*'.
    */
   public async getSecIdMapping(): Promise<{
     options: CachedIndexOption[];
@@ -1133,7 +1192,8 @@ export class FirestoreService implements OnModuleInit {
       return { options: [], scripMaster: [] };
     }
 
-    const snapshot = await this.collection('sec_id_to_name_mapping').get();
+    const chunksRef = this.doc('master_data', 'sec_id_to_name_mapping').collection('chunks');
+    const snapshot = await chunksRef.get();
     if (snapshot.empty) {
       return { options: [], scripMaster: [] };
     }
@@ -1161,252 +1221,265 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
-   * Helper: Retrieve metadata for collection 'sec_id_to_name_mapping' from Firestore.
+   * Helper: Retrieve metadata for 'master_data/sec_id_to_name_mapping' from Firestore.
    */
   @Cacheable({ key: 'meta:sec_id_mapping', condition: (force) => !force, clone: true })
   public async getSecIdMappingMetadata(force = false): Promise<SecIdMappingMetadata | null> {
     if (!this.isReady()) {
       return null;
     }
-    return this.getDoc<SecIdMappingMetadata>('sec_id_to_name_mapping', '_meta');
+    return this.getDoc<SecIdMappingMetadata>('master_data', 'sec_id_to_name_mapping');
   }
 
   /**
-   * Helper: Delete all documents in collection 'sec_id_to_name_mapping'.
+   * Helper: Delete all chunks and metadata under 'master_data/sec_id_to_name_mapping'.
+   * Never touches 'master_data/traded_instruments'.
    */
   @CacheEvict({ key: 'meta:sec_id_mapping' })
   public async deleteSecIdMapping(): Promise<{ success: boolean; deletedCount: number }> {
     if (!this.isReady()) {
       return { success: false, deletedCount: 0 };
     }
-    const snapshot = await this.collection('sec_id_to_name_mapping').get();
-    if (snapshot.empty) {
-      return { success: true, deletedCount: 0 };
+    const metaRef = this.doc('master_data', 'sec_id_to_name_mapping');
+    const chunksSnapshot = await metaRef.collection('chunks').get();
+    let deletedCount = 0;
+
+    if (!chunksSnapshot.empty) {
+      await Promise.all(chunksSnapshot.docs.map((d) => d.ref.delete()));
+      deletedCount += chunksSnapshot.docs.length;
     }
-    await Promise.all(snapshot.docs.map((d) => d.ref.delete()));
-    return { success: true, deletedCount: snapshot.docs.length };
+
+    const metaSnap = await metaRef.get();
+    if (metaSnap.exists) {
+      await metaRef.delete();
+      deletedCount += 1;
+    }
+
+    return { success: true, deletedCount };
   }
 
   /**
-   * Helper: Retrieve index lot sizes from Firestore database (config/lot_sizes).
-   * Falls back to standard defaults if not yet customized.
+   * Helper: Retrieve traded instruments master data strictly from Firestore ('master_data/traded_instruments').
+   * Never returns hardcoded defaults — if Firestore is offline or the document is absent, returns empty list.
    */
-  @Cacheable({ key: 'config:lot_sizes', condition: (force) => !force, clone: true })
-  public async getLotSizes(force = false): Promise<IndexLotSizesConfig> {
+  @Cacheable({ key: 'master_data:traded_instruments', condition: (force) => !force, clone: true })
+  public async getTradedInstruments(force = false): Promise<TradedInstrumentsConfig> {
     if (!this.isReady()) {
-      return { ...DEFAULT_LOT_SIZES, indices: DEFAULT_INDICES.map((i) => ({ ...i })) };
+      return { ...EMPTY_TRADED_INSTRUMENTS_CONFIG, instruments: [], indices: [] };
     }
-    const doc = await this.getDoc<any>('config', 'lot_sizes');
+
+    const doc = await this.getDoc<any>('master_data', 'traded_instruments');
     if (!doc) {
-      return { ...DEFAULT_LOT_SIZES, indices: DEFAULT_INDICES.map((i) => ({ ...i })) };
+      return { ...EMPTY_TRADED_INSTRUMENTS_CONFIG, instruments: [], indices: [] };
     }
 
-    // Extract clean indices list from Firestore
-    let indices: IndexConfigItem[] = [];
-    if (Array.isArray(doc.indices) && doc.indices.length > 0) {
-      indices = doc.indices.map((idx: any, orderIdx: number) => {
-        // 1. defaultLotSize = preferred number of lots by user
-        // 2. defaultQuantityInOneLot = quantity in 1 lot size
-        const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
-        const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
-        const rawLots = idx.defaultLotSize ?? idx.defaultLots;
-        const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
+    const rawList: any[] = Array.isArray(doc.instruments)
+      ? doc.instruments
+      : Array.isArray(doc.indices)
+      ? doc.indices
+      : [];
 
-        return {
-          symbol: idx.symbol,
-          name: idx.name,
-          securityId: idx.securityId,
-          exchangeSegment: idx.exchangeSegment,
-          defaultLotSize,
-          defaultQuantityInOneLot,
-          // Compatibility aliases:
-          lotSize: defaultQuantityInOneLot,
-          defaultLots: defaultLotSize,
-          defaultQuantity: defaultLotSize * defaultQuantityInOneLot,
-          stopLossPoints: idx.stopLossPoints,
-          enabled: idx.enabled !== false,
-          order: idx.order ?? orderIdx + 1,
-        };
+    if (rawList.length === 0) {
+      return {
+        ...EMPTY_TRADED_INSTRUMENTS_CONFIG,
+        instruments: [],
+        indices: [],
+        updatedAt: doc.updatedAt,
+        source: doc.source,
+      };
+    }
+
+    const normalized: TradedInstrumentRecord[] = rawList
+      .filter((item) => !String(item?.symbolName || item?.symbol || '').toUpperCase().includes('FIN'))
+      .map((item, idx) => {
+        const clean = stripToCleanFirestoreInstrument({
+          ...item,
+          order: item.order ?? idx + 1,
+        });
+        return enrichTradedInstrument(clean as TradedInstrumentRecord);
       });
-    } else {
-      indices = DEFAULT_INDICES.map((i) => ({ ...i }));
-    }
 
-    // Strictly filter out FINNIFTY from traded indices
-    indices = indices.filter((i) => !i.symbol.toUpperCase().includes('FIN'));
-
-    // Ensure SENSEX is present in traded indices
-    const hasSensex = indices.some((i) => i.symbol.toUpperCase().includes('SENSEX'));
-    if (!hasSensex) {
-      indices.push({
-        symbol: 'SENSEX',
-        name: 'BSE Sensex Index',
-        securityId: '51',
-        exchangeSegment: 'IDX_I',
-        defaultLotSize: 5,
-        defaultQuantityInOneLot: 20,
-        lotSize: 20,
-        defaultLots: 5,
-        defaultQuantity: 100,
-        stopLossPoints: 30,
-        enabled: true,
-        order: 4,
-      });
-    }
-    // Sort by order
-    indices.sort((a, b) => (a.order || 99) - (b.order || 99));
-
-    const niftyItem = indices.find((i) => i.symbol.toUpperCase().includes('NIFTY 50')) || indices[0];
-    const bankItem = indices.find((i) => i.symbol.toUpperCase().includes('BANK'));
-    const midcapItem = indices.find((i) => i.symbol.toUpperCase().includes('MIDCAP') || i.symbol.toUpperCase().includes('MIDCP'));
-    const sensexItem = indices.find((i) => i.symbol.toUpperCase().includes('SENSEX'));
-
-    const nifty50 = Number(niftyItem?.defaultQuantityInOneLot ?? niftyItem?.lotSize ?? 0);
-    const bankNifty = Number(bankItem?.defaultQuantityInOneLot ?? bankItem?.lotSize ?? 0);
-    const midcapNifty = Number(midcapItem?.defaultQuantityInOneLot ?? midcapItem?.lotSize ?? 0);
-    const sensex = Number(sensexItem?.defaultQuantityInOneLot ?? sensexItem?.lotSize ?? 0);
-
-    const nifty50Lots = Number(niftyItem?.defaultLotSize ?? niftyItem?.defaultLots ?? 0);
-    const bankNiftyLots = Number(bankItem?.defaultLotSize ?? bankItem?.defaultLots ?? 0);
-    const midcapNiftyLots = Number(midcapItem?.defaultLotSize ?? midcapItem?.defaultLots ?? 0);
-    const sensexLots = Number(sensexItem?.defaultLotSize ?? sensexItem?.defaultLots ?? 0);
-
-    const result: IndexLotSizesConfig = {
-      nifty50,
-      bankNifty,
-      midcapNifty,
-      sensex,
-      nifty50Lots,
-      bankNiftyLots,
-      midcapNiftyLots,
-      sensexLots,
-      indices,
-      updatedAt: doc.updatedAt,
-    };
-    return result;
+    return buildTradedInstrumentsResponse(normalized, doc.updatedAt, doc.source);
   }
 
   /**
-   * Helper: Save or update index lot sizes in Firestore database (config/lot_sizes).
-   * Stores strictly clean, standardized data:
-   * 1. defaultLotSize: default lot size for index (how much lot size preferred by user)
-   * 2. defaultQuantityInOneLot: default quantity in 1 lot size (how much quantity is there for 1 lot size)
+   * Backward-compatible alias for getTradedInstruments().
    */
-  @CachePut({ key: 'config:lot_sizes', value: (res) => res?.data })
-  public async saveLotSizes(
-    config: Partial<IndexLotSizesConfig>,
-  ): Promise<{ success: boolean; data: IndexLotSizesConfig; writeTime: string }> {
+  public async getLotSizes(force = false): Promise<TradedInstrumentsConfig> {
+    return this.getTradedInstruments(force);
+  }
+
+  /**
+   * Helper: Save or update traded instruments in Firestore ('master_data/traded_instruments').
+   * Persists ONLY official Dhan fields (preserving NSE-fixed lotSize unless allowMasterLotSizeUpdate=true)
+   * + user trading preferences (preferredLots, stopLossPoints, order).
+   */
+  @CachePut({ key: 'master_data:traded_instruments', value: (res) => res?.data })
+  public async saveTradedInstruments(
+    config: Partial<TradedInstrumentsConfig>,
+    options?: { allowMasterLotSizeUpdate?: boolean },
+  ): Promise<{ success: boolean; data: TradedInstrumentsConfig; writeTime: string }> {
     if (!this.isReady()) {
       throw new Error('Firestore is not initialized. Check credentials.');
     }
-    const current = await this.getLotSizes();
 
-    let targetIndices: IndexConfigItem[] = [];
-    if (config.indices && Array.isArray(config.indices) && config.indices.length > 0) {
-      targetIndices = config.indices
-        .filter((idx: any) => !String(idx?.symbol || '').toUpperCase().includes('FIN'))
-        .map((idx: any, orderIdx: number) => {
-          const rawQty = idx.defaultQuantityInOneLot ?? idx.lotSize;
-          const defaultQuantityInOneLot = rawQty !== undefined && rawQty !== null ? Number(rawQty) : 0;
-          const rawLots = idx.defaultLotSize ?? idx.defaultLots;
-          const defaultLotSize = rawLots !== undefined && rawLots !== null ? Number(rawLots) : 0;
-          return {
-            symbol: idx.symbol,
-            name: idx.name,
-            securityId: idx.securityId,
-            exchangeSegment: idx.exchangeSegment,
-            defaultLotSize,
-            defaultQuantityInOneLot,
-            stopLossPoints: idx.stopLossPoints,
-            enabled: idx.enabled !== false,
-            order: idx.order ?? orderIdx + 1,
-          };
+    const allowMasterLotSizeUpdate = Boolean(options?.allowMasterLotSizeUpdate);
+    const current = await this.getTradedInstruments();
+    const inputList = config.instruments || config.indices;
+    let cleanInstruments: Array<ReturnType<typeof stripToCleanFirestoreInstrument>> = [];
+
+    if (Array.isArray(inputList) && inputList.length > 0) {
+      cleanInstruments = inputList
+        .filter((item: any) => !String(item?.symbolName || item?.symbol || '').toUpperCase().includes('FIN'))
+        .map((item: any, idx: number) => {
+          const existingRecord = this.findInList(current.instruments, item);
+          const lockedLotSize =
+            !allowMasterLotSizeUpdate && existingRecord?.lotSize !== undefined
+              ? existingRecord.lotSize
+              : item.lotSize;
+          return stripToCleanFirestoreInstrument(
+            {
+              ...item,
+              lotSize: lockedLotSize,
+              order: item.order ?? existingRecord?.order ?? idx + 1,
+            },
+            existingRecord,
+          );
         });
-    } else {
-      // Build from current or partial inputs
-      targetIndices = (current.indices || DEFAULT_INDICES)
-        .filter((idx) => !idx.symbol.toUpperCase().includes('FIN'))
-        .map((idx, orderIdx) => {
-          const sym = idx.symbol.toUpperCase();
-          let qtyInOneLot = idx.defaultQuantityInOneLot;
-          let preferredLots = idx.defaultLotSize;
+    } else if (current.instruments && current.instruments.length > 0) {
+      cleanInstruments = current.instruments
+        .filter((item) => !String(item.symbolName || '').toUpperCase().includes('FIN'))
+        .map((item, idx) => {
+          const sym = String(item.symbolName || item.underlyingSymbol || '').toUpperCase();
+          let preferredLots = item.preferredLots;
 
-          if (sym.includes('BANK')) {
-            if (config.bankNifty !== undefined) qtyInOneLot = Number(config.bankNifty);
+          if (sym.includes('BANK') || item.securityId === '25') {
             if (config.bankNiftyLots !== undefined) preferredLots = Number(config.bankNiftyLots);
-          } else if (sym.includes('MIDCAP') || sym.includes('MIDCP')) {
-            if (config.midcapNifty !== undefined) qtyInOneLot = Number(config.midcapNifty);
+          } else if (sym.includes('MIDCP') || sym.includes('MIDCAP') || item.securityId === '442') {
             if (config.midcapNiftyLots !== undefined) preferredLots = Number(config.midcapNiftyLots);
-          } else if (sym.includes('SENSEX')) {
-            if (config.sensex !== undefined) qtyInOneLot = Number(config.sensex);
+          } else if (sym.includes('SENSEX') || item.securityId === '51') {
             if (config.sensexLots !== undefined) preferredLots = Number(config.sensexLots);
-          } else if (sym.includes('NIFTY')) {
-            if (config.nifty50 !== undefined) qtyInOneLot = Number(config.nifty50);
+          } else if (sym.includes('NIFTY') || item.securityId === '13') {
             if (config.nifty50Lots !== undefined) preferredLots = Number(config.nifty50Lots);
           }
 
-          return {
-            symbol: idx.symbol,
-            name: idx.name,
-            securityId: idx.securityId,
-            exchangeSegment: idx.exchangeSegment,
-            defaultLotSize: preferredLots,
-            defaultQuantityInOneLot: qtyInOneLot,
-            stopLossPoints: idx.stopLossPoints,
-            enabled: idx.enabled !== false,
-            order: idx.order ?? orderIdx + 1,
-          };
+          return stripToCleanFirestoreInstrument(
+            {
+              ...item,
+              preferredLots,
+              order: item.order ?? idx + 1,
+            },
+            item,
+          );
         });
+    } else {
+      throw new Error('No traded instruments found in Firestore (master_data/traded_instruments). Sync from Master JSON first.');
     }
 
-    // PURE CLEAN FIRESTORE DOCUMENT — Only standardized indices array with:
-    // 1. defaultLotSize
-    // 2. defaultQuantityInOneLot
+    const now = new Date().toISOString();
     const cleanFirestoreDoc = {
-      indices: targetIndices.map((i) => ({
-        symbol: i.symbol,
-        name: i.name,
-        securityId: i.securityId,
-        exchangeSegment: i.exchangeSegment,
-        defaultLotSize: i.defaultLotSize,
-        defaultQuantityInOneLot: i.defaultQuantityInOneLot,
-        stopLossPoints: i.stopLossPoints,
-        enabled: i.enabled !== false,
-        order: i.order,
-      })),
-      updatedAt: new Date().toISOString(),
+      source: config.source || (tradedInstrumentsMaster as any).source || 'dhan-api-scrip-master-detailed.csv',
+      instruments: cleanInstruments,
+      updatedAt: now,
     };
 
-    // Note: merge: false completely wipes previous messy/legacy properties in config/lot_sizes
-    const res = await this.setDoc('config', 'lot_sizes', cleanFirestoreDoc, false);
-    this.logger.log(`⚙️ Saved clean index lot sizes to Firestore (config/lot_sizes): ${targetIndices.map((i) => `${i.symbol}: ${i.defaultLotSize} lots (${i.defaultQuantityInOneLot}/lot)`).join(', ')}`);
+    const res = await this.setDoc('master_data', 'traded_instruments', cleanFirestoreDoc, false);
+    this.logger.log(
+      `⚙️ Saved ${cleanInstruments.length} traded instruments to Firestore (master_data/traded_instruments): ${cleanInstruments.map((i) => `${i.displayName}: ${i.preferredLots} lots (${i.lotSize}/lot)`).join(', ')}`,
+    );
 
-    // In-memory enriched return data with compatibility aliases
-    const enrichedIndices: IndexConfigItem[] = targetIndices.map((i) => ({
-      ...i,
-      lotSize: i.defaultQuantityInOneLot,
-      defaultLots: i.defaultLotSize,
-      defaultQuantity: i.defaultLotSize * i.defaultQuantityInOneLot,
-    }));
-
-    const resultData: IndexLotSizesConfig = {
-      indices: enrichedIndices,
-      nifty50: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultQuantityInOneLot ?? 0,
-      bankNifty: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultQuantityInOneLot ?? 0,
-      midcapNifty: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultQuantityInOneLot ?? 0,
-      sensex: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultQuantityInOneLot ?? 0,
-      nifty50Lots: targetIndices.find((i) => i.symbol.includes('NIFTY 50'))?.defaultLotSize ?? 0,
-      bankNiftyLots: targetIndices.find((i) => i.symbol.includes('BANK'))?.defaultLotSize ?? 0,
-      midcapNiftyLots: targetIndices.find((i) => i.symbol.includes('MIDCAP') || i.symbol.includes('MIDCP'))?.defaultLotSize ?? 0,
-      sensexLots: targetIndices.find((i) => i.symbol.includes('SENSEX'))?.defaultLotSize ?? 0,
-      updatedAt: cleanFirestoreDoc.updatedAt,
-    };
+    const resultData = buildTradedInstrumentsResponse(
+      cleanInstruments as TradedInstrumentRecord[],
+      now,
+      cleanFirestoreDoc.source,
+    );
 
     return {
       success: true,
       data: resultData,
       writeTime: res.writeTime,
     };
+  }
+
+  /**
+   * Backward-compatible alias for saveTradedInstruments().
+   */
+  public async saveLotSizes(
+    config: Partial<TradedInstrumentsConfig>,
+  ): Promise<{ success: boolean; data: TradedInstrumentsConfig; writeTime: string }> {
+    return this.saveTradedInstruments(config);
+  }
+
+  /**
+   * Fast sync of 'master_data/traded_instruments' directly from the static backend JSON file
+   * (traded-instruments.master.json) without downloading the full Dhan CSV.
+   * When preservePreferences=true (default), keeps existing user preferredLots, stopLossPoints, and order.
+   */
+  public async syncTradedInstrumentsFromMasterJson(
+    preservePreferences = true,
+  ): Promise<{ success: boolean; data: TradedInstrumentsConfig; writeTime: string; source: string }> {
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Check credentials.');
+    }
+
+    const existing = preservePreferences ? await this.getTradedInstruments(true) : null;
+    const masterItems = (tradedInstrumentsMaster as any).instruments as TradedInstrumentRecord[];
+
+    const merged = masterItems.map((masterItem) => {
+      if (!preservePreferences || !existing) {
+        return stripToCleanFirestoreInstrument(masterItem);
+      }
+      const prev = this.findInList(existing.instruments, masterItem);
+      if (!prev) {
+        return stripToCleanFirestoreInstrument(masterItem);
+      }
+      return stripToCleanFirestoreInstrument({
+        ...masterItem,
+        preferredLots: prev.preferredLots ?? masterItem.preferredLots,
+        stopLossPoints: prev.stopLossPoints ?? masterItem.stopLossPoints,
+        order: prev.order ?? masterItem.order,
+      });
+    });
+
+    const saveRes = await this.saveTradedInstruments(
+      {
+        source: 'static-master-json',
+        instruments: merged as TradedInstrumentRecord[],
+      },
+      { allowMasterLotSizeUpdate: true },
+    );
+
+    return {
+      ...saveRes,
+      source: 'static-master-json',
+    };
+  }
+
+  private findMasterJsonInstrument(item: any): TradedInstrumentRecord | undefined {
+    return this.findInList(DEFAULT_TRADED_INSTRUMENTS, item);
+  }
+
+  private findInList(list: TradedInstrumentRecord[], query: any): TradedInstrumentRecord | undefined {
+    if (!query || !Array.isArray(list)) return undefined;
+    const secId = String(query.securityId || '').trim();
+    if (secId) {
+      const bySecId = list.find((i) => String(i.securityId) === secId);
+      if (bySecId) return bySecId;
+    }
+    const sym = String(query.symbolName || query.underlyingSymbol || query.displayName || query.symbol || '').trim().toUpperCase();
+    if (!sym) return undefined;
+    return list.find((i) => {
+      const iSym = String(i.symbolName || '').toUpperCase();
+      const iDisp = String(i.displayName || '').toUpperCase();
+      return (
+        iSym === sym ||
+        iDisp === sym ||
+        (iSym === 'NIFTY' && (sym === 'NIFTY 50' || sym === 'NIFTY')) ||
+        (iSym === 'BANKNIFTY' && (sym === 'BANK NIFTY' || sym === 'NIFTY BANK')) ||
+        (iSym === 'MIDCPNIFTY' && (sym === 'MIDCAP NIFTY' || sym === 'NIFTY MIDCAP SELECT')) ||
+        (iSym === 'SENSEX' && sym.includes('SENSEX'))
+      );
+    });
   }
 
   /**
@@ -1482,154 +1555,6 @@ export class FirestoreService implements OnModuleInit {
     this.logger.log(`⚙️ Saved Application configuration to Firestore (config/app)`);
     return {
       success: true,
-      writeTime: res.writeTime,
-    };
-  }
-
-  /**
-   * Helper: Retrieve stock screener watchlist from Firestore (config/screener_watchlist).
-   * Auto-seeds with top 28 large-cap NSE stocks if not yet configured.
-   */
-  @Cacheable({ key: 'config:screener_watchlist', condition: (force) => !force, clone: true })
-  public async getScreenerWatchlist(force = false): Promise<ScreenerWatchlistDoc> {
-    const fallback: ScreenerWatchlistDoc = {
-      symbols: [...DEFAULT_LARGE_CAP_STOCKS],
-      updatedAt: new Date().toISOString(),
-      version: 1,
-    };
-
-    if (!this.isReady()) {
-      return fallback;
-    }
-
-    try {
-      const doc = await this.getDoc<ScreenerWatchlistDoc>('config', 'screener_watchlist');
-      if (doc && Array.isArray(doc.symbols) && doc.symbols.length > 0) {
-        return doc;
-      }
-
-      // Auto-seed if document doesn't exist yet
-      this.logger.log('🌱 Auto-seeding initial large-cap NSE stock watchlist in Firestore (config/screener_watchlist)');
-      await this.setDoc('config', 'screener_watchlist', fallback, true);
-      return fallback;
-    } catch (err: any) {
-      this.logger.warn(`Could not read screener watchlist from Firestore: ${err.message}. Using default universe.`);
-      return fallback;
-    }
-  }
-
-  /**
-   * Helper: Save or update screener watchlist in Firestore (config/screener_watchlist).
-   */
-  @CachePut({ key: 'config:screener_watchlist', value: (res) => res?.data })
-  public async saveScreenerWatchlist(
-    watchlist: Partial<ScreenerWatchlistDoc> | WatchlistStockItem[],
-  ): Promise<{ success: boolean; data: ScreenerWatchlistDoc; writeTime: string }> {
-    if (!this.isReady()) {
-      throw new Error('Firestore is not initialized. Check credentials.');
-    }
-
-    let symbols: WatchlistStockItem[] = [];
-    if (Array.isArray(watchlist)) {
-      symbols = watchlist;
-    } else if (watchlist && Array.isArray(watchlist.symbols)) {
-      symbols = watchlist.symbols;
-    }
-
-    // Clean and validate symbols (remove any .NS suffix if user provided it, uppercase)
-    const cleanedSymbols = symbols.map((item, idx) => ({
-      symbol: (item.symbol || '').replace(/\.NS$/i, '').trim().toUpperCase(),
-      name: (item.name || item.symbol || '').trim(),
-      sector: item.sector || undefined,
-      enabled: item.enabled !== false,
-      order: item.order ?? idx + 1,
-    })).filter((s) => s.symbol.length > 0);
-
-    const docPayload: ScreenerWatchlistDoc = {
-      symbols: cleanedSymbols,
-      updatedAt: new Date().toISOString(),
-      version: 1,
-    };
-
-    const res = await this.setDoc('config', 'screener_watchlist', docPayload, false);
-    this.logger.log(`⚙️ Saved ${cleanedSymbols.length} screener watchlist stocks to Firestore (config/screener_watchlist)`);
-
-    return {
-      success: true,
-      data: docPayload,
-      writeTime: res.writeTime,
-    };
-  }
-
-  /**
-   * Helper: Reset screener watchlist back to default large-cap NSE list in Firestore.
-   */
-  public async resetScreenerWatchlist(): Promise<{ success: boolean; data: ScreenerWatchlistDoc; writeTime: string }> {
-    return this.saveScreenerWatchlist(DEFAULT_LARGE_CAP_STOCKS);
-  }
-
-  /**
-   * Helper: Retrieve configurable screener strategy parameters from Firestore (config/screener_settings).
-   */
-  @Cacheable({ key: 'config:screener_settings', condition: (force) => !force, clone: true })
-  public async getScreenerSettings(force = false): Promise<ScreenerSettingsDoc> {
-    if (!this.isReady()) {
-      return { ...DEFAULT_SCREENER_SETTINGS };
-    }
-
-    try {
-      const doc = await this.getDoc<ScreenerSettingsDoc>('config', 'screener_settings');
-      if (doc) {
-        const res: ScreenerSettingsDoc = {
-          obImpulseMultiplier: doc.obImpulseMultiplier ?? DEFAULT_SCREENER_SETTINGS.obImpulseMultiplier,
-          obMinImpulseBodyPercent: doc.obMinImpulseBodyPercent ?? DEFAULT_SCREENER_SETTINGS.obMinImpulseBodyPercent,
-          obProximityBufferPercent: doc.obProximityBufferPercent ?? DEFAULT_SCREENER_SETTINGS.obProximityBufferPercent,
-          obLookbackCandles: doc.obLookbackCandles ?? DEFAULT_SCREENER_SETTINGS.obLookbackCandles,
-          sweepLookbackCandles: doc.sweepLookbackCandles ?? DEFAULT_SCREENER_SETTINGS.sweepLookbackCandles,
-          sweepMinWickRatio: doc.sweepMinWickRatio ?? DEFAULT_SCREENER_SETTINGS.sweepMinWickRatio,
-          batchSize: doc.batchSize ?? DEFAULT_SCREENER_SETTINGS.batchSize,
-          throttleMs: doc.throttleMs ?? DEFAULT_SCREENER_SETTINGS.throttleMs,
-          updatedAt: doc.updatedAt,
-        };
-        return res;
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not read screener settings from Firestore: ${err.message}. Using defaults.`);
-    }
-
-    return { ...DEFAULT_SCREENER_SETTINGS };
-  }
-
-  /**
-   * Helper: Save or update screener settings in Firestore (config/screener_settings).
-   */
-  @CachePut({ key: 'config:screener_settings', value: (res) => res?.data })
-  public async saveScreenerSettings(
-    settings: Partial<ScreenerSettingsDoc>,
-  ): Promise<{ success: boolean; data: ScreenerSettingsDoc; writeTime: string }> {
-    if (!this.isReady()) {
-      throw new Error('Firestore is not initialized. Check credentials.');
-    }
-
-    const current = await this.getScreenerSettings();
-    const payload: ScreenerSettingsDoc = {
-      obImpulseMultiplier: settings.obImpulseMultiplier !== undefined ? Number(settings.obImpulseMultiplier) : current.obImpulseMultiplier,
-      obMinImpulseBodyPercent: settings.obMinImpulseBodyPercent !== undefined ? Number(settings.obMinImpulseBodyPercent) : current.obMinImpulseBodyPercent,
-      obProximityBufferPercent: settings.obProximityBufferPercent !== undefined ? Number(settings.obProximityBufferPercent) : current.obProximityBufferPercent,
-      obLookbackCandles: settings.obLookbackCandles !== undefined ? Number(settings.obLookbackCandles) : current.obLookbackCandles,
-      sweepLookbackCandles: settings.sweepLookbackCandles !== undefined ? Number(settings.sweepLookbackCandles) : current.sweepLookbackCandles,
-      sweepMinWickRatio: settings.sweepMinWickRatio !== undefined ? Number(settings.sweepMinWickRatio) : current.sweepMinWickRatio,
-      batchSize: settings.batchSize !== undefined ? Number(settings.batchSize) : current.batchSize,
-      throttleMs: settings.throttleMs !== undefined ? Number(settings.throttleMs) : current.throttleMs,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const res = await this.setDoc('config', 'screener_settings', payload, true);
-    this.logger.log(`⚙️ Saved screener strategy settings to Firestore (config/screener_settings)`);
-
-    return {
-      success: true,
-      data: payload,
       writeTime: res.writeTime,
     };
   }

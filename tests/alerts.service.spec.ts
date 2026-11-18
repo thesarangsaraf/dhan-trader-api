@@ -55,6 +55,12 @@ test('AlertsService (NestJS)', async (t) => {
   };
 
   const mockInstrumentsService = {
+    getConfiguredIndicesSync: () => [
+      { symbol: 'NIFTY 50', name: 'NIFTY 50', displayName: 'NIFTY 50', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
+      { symbol: 'BANK NIFTY', name: 'BANK NIFTY', displayName: 'BANK NIFTY', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
+      { symbol: 'SENSEX', name: 'SENSEX', displayName: 'SENSEX', securityId: '51', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 20 },
+      { symbol: 'MIDCAP NIFTY', name: 'MIDCAP NIFTY', displayName: 'MIDCAP NIFTY', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
+    ],
     findBySymbol: (sym: string) => {
       if (sym.includes('24500')) return { symbol: sym, securityId: '45021', exchangeSegment: 'NSE_FNO' };
       if (sym.includes('25000')) return { symbol: sym, securityId: '40037', exchangeSegment: 'NSE_FNO', lotSize: 65 };

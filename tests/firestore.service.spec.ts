@@ -307,45 +307,53 @@ test('FirestoreService (NestJS)', async (t) => {
     service.setFirestoreInstance(mockDb);
   });
 
-  await t.test('saves, retrieves, and organizes sec_id_to_name_mapping by instrument', async () => {
+  await t.test('saves, retrieves, and organizes master_data/sec_id_to_name_mapping with chunks subcollection', async () => {
     const memoryDocs = new Map<string, any>();
-    const mappingDbMock: any = {
-      collection: (col: string) => ({
-        doc: (id: string) => ({
+    const makeCollection = (prefix: string): any => ({
+      doc: (id: string) => {
+        const docPath = `${prefix}/${id}`;
+        return {
+          id,
           set: async (data: any) => {
-            memoryDocs.set(`${col}/${id}`, data);
+            memoryDocs.set(docPath, data);
             return { writeTime: { toDate: () => new Date('2026-11-07T05:00:00.000Z') } };
           },
           get: async () => {
-            const data = memoryDocs.get(`${col}/${id}`);
+            const data = memoryDocs.get(docPath);
             return {
               exists: !!data,
               data: () => data,
             };
           },
           delete: async () => {
-            memoryDocs.delete(`${col}/${id}`);
+            memoryDocs.delete(docPath);
             return { writeTime: { toDate: () => new Date('2026-11-07T05:00:00.000Z') } };
           },
-        }),
-        get: async () => {
-          const docs: any[] = [];
-          for (const [k, v] of memoryDocs.entries()) {
-            if (k.startsWith(`${col}/`)) {
-              const docId = k.replace(`${col}/`, '');
-              docs.push({
-                id: docId,
-                ref: { delete: async () => memoryDocs.delete(k) },
-                data: () => v,
-              });
-            }
+          collection: (subCol: string) => makeCollection(`${docPath}/${subCol}`),
+        };
+      },
+      get: async () => {
+        const docs: any[] = [];
+        const matchPrefix = `${prefix}/`;
+        for (const [k, v] of memoryDocs.entries()) {
+          if (k.startsWith(matchPrefix) && !k.slice(matchPrefix.length).includes('/')) {
+            const docId = k.slice(matchPrefix.length);
+            docs.push({
+              id: docId,
+              ref: { delete: async () => memoryDocs.delete(k) },
+              data: () => v,
+            });
           }
-          return {
-            empty: docs.length === 0,
-            docs,
-          };
-        },
-      }),
+        }
+        return {
+          empty: docs.length === 0,
+          docs,
+        };
+      },
+    });
+
+    const mappingDbMock: any = {
+      collection: (col: string) => makeCollection(col),
     };
 
     service.setFirestoreInstance(mappingDbMock);
@@ -396,7 +404,7 @@ test('FirestoreService (NestJS)', async (t) => {
 
     const saveRes = await service.saveSecIdMapping(mockOptions, mockScrip);
     assert.strictEqual(saveRes.success, true);
-    assert.strictEqual(saveRes.collection, 'sec_id_to_name_mapping');
+    assert.strictEqual(saveRes.collection, 'master_data/sec_id_to_name_mapping');
     assert.strictEqual(saveRes.totalInstruments, 4);
     assert.strictEqual(saveRes.totalOptions, 2);
     assert.strictEqual(saveRes.totalIndices, 1);
@@ -408,7 +416,7 @@ test('FirestoreService (NestJS)', async (t) => {
 
     const meta = await service.getSecIdMappingMetadata();
     assert.strictEqual(meta?.totalInstruments, 4);
-    assert.strictEqual(meta?.collection, 'sec_id_to_name_mapping');
+    assert.strictEqual(meta?.collection, 'master_data/sec_id_to_name_mapping');
 
     const readRes = await service.getSecIdMapping();
     assert.strictEqual(readRes.options.length, 2);
@@ -421,28 +429,66 @@ test('FirestoreService (NestJS)', async (t) => {
     service.setFirestoreInstance(mockDb);
   });
 
-  await t.test('reads and saves index lot sizes in config/lot_sizes', async () => {
-    // 1. Get default/stored lot sizes
-    const lotSizes = await service.getLotSizes();
-    assert.strictEqual(lotSizes.nifty50, 65);
-    assert.strictEqual(lotSizes.bankNifty, 30);
-    assert.strictEqual(lotSizes.midcapNifty, 120);
-    assert.strictEqual(lotSizes.sensex, 20);
+  await t.test('reads, saves, and syncs traded instruments from static master JSON in master_data/traded_instruments', async () => {
+    const store = new Map<string, any>();
+    const masterDbMock: any = {
+      collection: (col: string) => ({
+        doc: (id: string) => ({
+          set: async (data: any) => {
+            store.set(`${col}/${id}`, data);
+            return { writeTime: { toDate: () => new Date('2026-11-18T14:20:00.000Z') } };
+          },
+          get: async () => {
+            const data = store.get(`${col}/${id}`);
+            return { exists: !!data, data: () => data };
+          },
+        }),
+      }),
+    };
+    service.setFirestoreInstance(masterDbMock);
 
-    // 2. Save custom lot sizes and lots
-    const saveRes = await service.saveLotSizes({
+    // 1. Empty Firestore returns NO hardcoded defaults (strict zero-defaults contract)
+    const emptyRes = await service.getTradedInstruments(true);
+    assert.strictEqual(emptyRes.instruments.length, 0);
+    assert.strictEqual(emptyRes.nifty50, 0);
+
+    // 2. Explicit sync from static master JSON populates master_data/traded_instruments with Dhan displayName
+    const initialSync = await service.syncTradedInstrumentsFromMasterJson(false);
+    assert.strictEqual(initialSync.success, true);
+    assert.strictEqual(initialSync.source, 'static-master-json');
+    assert.strictEqual(initialSync.data.instruments.length, 4);
+    assert.strictEqual(initialSync.data.instruments[0].displayName, 'Nifty 50');
+    assert.strictEqual(initialSync.data.instruments[0].symbolName, 'NIFTY');
+    assert.strictEqual(initialSync.data.instruments[0].lotSize, 65);
+    assert.strictEqual(initialSync.data.instruments[0].smFreezeQty, 1756);
+
+    // 3. Save preferred lots to master_data/traded_instruments; NSE-fixed lotSize must remain locked & enabled must not be persisted
+    const saveRes = await service.saveTradedInstruments({
       nifty50: 75,
       bankNifty: 35,
-      nifty50Lots: 10,
-      bankNiftyLots: 15,
+      nifty50Lots: 15,
+      bankNiftyLots: 10,
     });
     assert.strictEqual(saveRes.success, true);
-    assert.strictEqual(saveRes.data.nifty50, 75);
-    assert.strictEqual(saveRes.data.bankNifty, 35);
-    assert.strictEqual(saveRes.data.nifty50Lots, 10);
-    assert.strictEqual(saveRes.data.bankNiftyLots, 15);
-    assert.ok(Array.isArray(saveRes.data.indices));
-    assert.ok(saveRes.data.updatedAt);
+    assert.ok(store.has('master_data/traded_instruments'));
+    const persisted = store.get('master_data/traded_instruments');
+    assert.strictEqual(persisted.instruments[0].displayName, 'Nifty 50');
+    assert.strictEqual(persisted.instruments[0].lotSize, 65, 'NSE-fixed lotSize must remain locked');
+    assert.strictEqual(persisted.instruments[1].lotSize, 30, 'NSE-fixed lotSize must remain locked');
+    assert.strictEqual(persisted.instruments[0].preferredLots, 15);
+    assert.strictEqual(persisted.instruments[1].preferredLots, 10);
+    assert.strictEqual(persisted.instruments[0].enabled, undefined, 'Legacy enabled field must not be persisted');
+    assert.strictEqual(persisted.instruments[0].symbol, undefined, 'Legacy symbol field must not be persisted');
+    assert.strictEqual(persisted.instruments[0].name, undefined, 'Legacy name field must not be persisted');
+
+    // 4. Sync from static master JSON preserves user preferredLots (15) and official Dhan lotSize (65)
+    const syncRes = await service.syncTradedInstrumentsFromMasterJson(true);
+    assert.strictEqual(syncRes.success, true);
+    assert.strictEqual(syncRes.source, 'static-master-json');
+    assert.strictEqual(syncRes.data.instruments[0].lotSize, 65);
+    assert.strictEqual(syncRes.data.instruments[0].preferredLots, 15);
+
+    service.setFirestoreInstance(mockDb);
   });
 
   await t.test('reads and saves telegram and app configurations in config collection', async () => {

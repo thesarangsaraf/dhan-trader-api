@@ -679,7 +679,8 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       documentIds: ['nifty_50_options', 'indices', 'equities_chunk_01'],
       updatedAt: '2026-11-08T03:00:00.000Z',
     }),
-    getLotSizes: async () => ({
+    getTradedInstruments: async () => ({
+      source: 'static-master-json',
       nifty50: 65,
       bankNifty: 30,
       midcapNifty: 120,
@@ -688,22 +689,85 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       bankNiftyLots: 5,
       midcapNiftyLots: 5,
       sensexLots: 5,
+      instruments: [
+        { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+        { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
+      ],
       indices: [
-        { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, defaultLots: 5, defaultQuantity: 325, enabled: true },
-        { symbol: 'BANK NIFTY', name: 'Bank Nifty Index', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, defaultLots: 5, defaultQuantity: 150, enabled: true },
+        { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+        { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
       ],
       updatedAt: '2026-11-08T03:00:00.000Z',
+    }),
+    getLotSizes: async () => ({
+      source: 'static-master-json',
+      nifty50: 65,
+      bankNifty: 30,
+      midcapNifty: 120,
+      sensex: 20,
+      nifty50Lots: 5,
+      bankNiftyLots: 5,
+      midcapNiftyLots: 5,
+      sensexLots: 5,
+      instruments: [
+        { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+        { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
+      ],
+      indices: [
+        { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+        { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
+      ],
+      updatedAt: '2026-11-08T03:00:00.000Z',
+    }),
+    saveTradedInstruments: async (cfg: any) => ({
+      success: true,
+      data: {
+        nifty50: 65,
+        bankNifty: 30,
+        midcapNifty: 120,
+        sensex: 20,
+        nifty50Lots: cfg.nifty50Lots ?? 5,
+        bankNiftyLots: cfg.bankNiftyLots ?? 5,
+        instruments: cfg.instruments ?? cfg.indices ?? [],
+        indices: cfg.instruments ?? cfg.indices ?? [],
+        updatedAt: new Date().toISOString(),
+      },
+      writeTime: new Date().toISOString(),
     }),
     saveLotSizes: async (cfg: any) => ({
       success: true,
       data: {
-        nifty50: cfg.nifty50 ?? 65,
-        bankNifty: cfg.bankNifty ?? 30,
-        midcapNifty: cfg.midcapNifty ?? 120,
-        sensex: cfg.sensex ?? 20,
+        nifty50: 65,
+        bankNifty: 30,
+        midcapNifty: 120,
+        sensex: 20,
         nifty50Lots: cfg.nifty50Lots ?? 5,
         bankNiftyLots: cfg.bankNiftyLots ?? 5,
-        indices: cfg.indices ?? [],
+        instruments: cfg.instruments ?? cfg.indices ?? [],
+        indices: cfg.instruments ?? cfg.indices ?? [],
+        updatedAt: new Date().toISOString(),
+      },
+      writeTime: new Date().toISOString(),
+    }),
+    syncTradedInstrumentsFromMasterJson: async () => ({
+      success: true,
+      source: 'static-master-json',
+      data: {
+        source: 'static-master-json',
+        nifty50: 65,
+        bankNifty: 30,
+        midcapNifty: 120,
+        sensex: 20,
+        nifty50Lots: 5,
+        bankNiftyLots: 5,
+        instruments: [
+          { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+          { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
+        ],
+        indices: [
+          { symbolName: 'NIFTY', displayName: 'Nifty 50', securityId: '13', exchangeSegment: 'IDX_I', lotSize: 65, preferredLots: 5, defaultLots: 5, defaultQuantity: 325 },
+          { symbolName: 'BANKNIFTY', displayName: 'Nifty Bank', securityId: '25', exchangeSegment: 'IDX_I', lotSize: 30, preferredLots: 5, defaultLots: 5, defaultQuantity: 150 },
+        ],
         updatedAt: new Date().toISOString(),
       },
       writeTime: new Date().toISOString(),
@@ -810,15 +874,13 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(Array.isArray(res.body));
   });
 
-  await t.test('GET /api/alerts/indices returns popular NSE indices with live prices', async () => {
+  await t.test('GET /api/alerts/indices returns DB-configured indices with live prices', async () => {
     const res = await makeMockRequest('GET', '/api/alerts/indices');
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body));
-    assert.strictEqual(res.body.length, 4);
-    assert.ok(res.body.some((i: any) => i.name === 'NIFTY 50'));
-    assert.ok(res.body.some((i: any) => i.name === 'BANK NIFTY'));
-    assert.ok(res.body.some((i: any) => i.name === 'SENSEX'));
-    assert.ok(res.body.some((i: any) => i.name === 'MIDCAP NIFTY'));
+    assert.strictEqual(res.body.length, 2);
+    assert.ok(res.body.some((i: any) => i.name === 'Nifty 50'));
+    assert.ok(res.body.some((i: any) => i.name === 'Nifty Bank'));
     assert.ok(!res.body.some((i: any) => i.name.includes('FIN')));
     assert.ok(!res.body.some((i: any) => i.name.includes('NEXT')));
     assert.ok(!res.body.some((i: any) => i.name.includes('VIX')));
@@ -869,7 +931,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     });
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.alert.instrument, 'NIFTY 50');
+    assert.strictEqual(res.body.alert.instrument, 'Nifty 50');
     assert.strictEqual(res.body.alert.targetPrice, 25500.0);
     assert.strictEqual(res.body.alert.hasConditionalOrder, true);
     assert.strictEqual(res.body.alert.conditionalOrders.length, 1);
@@ -1160,15 +1222,17 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.data.bankNifty, 30);
   });
 
-  await t.test('PUT /api/instruments/lot-sizes updates index lot sizes in Firestore', async () => {
+  await t.test('PUT /api/instruments/lot-sizes updates preferred lots in Firestore while preserving fixed NSE lot sizes', async () => {
     const res = await makeMockRequest('PUT', '/api/instruments/lot-sizes', {
-      nifty50: 75,
-      bankNifty: 35,
+      nifty50Lots: 10,
+      bankNiftyLots: 15,
     });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.data.nifty50, 75);
-    assert.strictEqual(res.body.data.bankNifty, 35);
+    assert.strictEqual(res.body.data.nifty50, 65);
+    assert.strictEqual(res.body.data.bankNifty, 30);
+    assert.strictEqual(res.body.data.nifty50Lots, 10);
+    assert.strictEqual(res.body.data.bankNiftyLots, 15);
   });
 
   await t.test('POST /api/instruments/lot-sizes/reset restores default lot sizes', async () => {
@@ -1179,12 +1243,21 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.data.bankNifty, 30);
   });
 
-  await t.test('GET /api/instruments/indices returns configurable indices with live prices from Firestore', async () => {
+  await t.test('POST /api/instruments/traded-instruments/sync-json syncs traded instruments from static master JSON', async () => {
+    const res = await makeMockRequest('POST', '/api/instruments/traded-instruments/sync-json', {});
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.source, 'static-master-json');
+    assert.strictEqual(res.body.data.instruments[0].displayName, 'Nifty 50');
+  });
+
+  await t.test('GET /api/instruments/indices returns configurable indices with Dhan displayName and live prices from Firestore', async () => {
     const res = await makeMockRequest('GET', '/api/instruments/indices');
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body));
     assert.ok(res.body.length >= 2);
-    assert.strictEqual(res.body[0].symbol, 'NIFTY 50');
+    assert.strictEqual(res.body[0].displayName, 'Nifty 50');
+    assert.strictEqual(res.body[0].symbol, 'Nifty 50');
     assert.strictEqual(res.body[0].lotSize, 65);
     assert.strictEqual(res.body[0].defaultLots, 5);
   });

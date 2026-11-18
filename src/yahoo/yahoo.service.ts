@@ -48,6 +48,7 @@ export class YahooFinanceService {
     'MIDCAP NIFTY': 'NIFTY_MID_SELECT.NS',
     'MIDCP NIFTY': 'NIFTY_MID_SELECT.NS',
     'MIDCPNIFTY': 'NIFTY_MID_SELECT.NS',
+    'NIFTY MIDCAP SELECT': 'NIFTY_MID_SELECT.NS',
     'FINNIFTY': 'NIFTY_FIN_SERVICE.NS',
     'NIFTY FIN SERVICE': 'NIFTY_FIN_SERVICE.NS',
     'NIFTY FINANCIAL SERVICES': 'NIFTY_FIN_SERVICE.NS',
@@ -285,7 +286,8 @@ export class YahooFinanceService {
     let candles: CandleData[] = [];
 
     for (let i = 0; i < timestamps.length; i++) {
-      const t = timestamps[i];
+      const rawT = timestamps[i];
+      const t = typeof rawT === 'number' && !isNaN(rawT) ? Math.floor(rawT) : 0;
       const o = quote.open?.[i];
       const h = quote.high?.[i];
       const l = quote.low?.[i];
@@ -293,7 +295,7 @@ export class YahooFinanceService {
       const v = quote.volume?.[i] ?? 0;
 
       if (
-        t &&
+        t > 0 &&
         typeof o === 'number' && !isNaN(o) &&
         typeof h === 'number' && !isNaN(h) &&
         typeof l === 'number' && !isNaN(l) &&
@@ -349,6 +351,8 @@ export class YahooFinanceService {
       symbol: string;
       interval?: string;
       range?: string;
+      period1?: number;
+      period2?: number;
       limit?: number;
     }>,
     options: { batchSize?: number; throttleMs?: number } = {},

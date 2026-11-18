@@ -9,6 +9,7 @@ import {
   IndexConfigItem,
   DEFAULT_LOT_SIZES,
   DEFAULT_INDICES,
+  EMPTY_TRADED_INSTRUMENTS_CONFIG,
 } from '../firestore/firestore.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
@@ -21,11 +22,22 @@ export { CachedIndexOption, SecIdMappingMetadata, IndexLotSizesConfig, IndexConf
 export interface InstrumentItem {
   symbol: string;
   name: string;
+  displayName?: string;
+  symbolName?: string;
+  underlyingSymbol?: string;
+  exchId?: string;
+  segment?: string;
   securityId: string;
   exchangeSegment: string;
+  fnoExchangeSegment?: string;
   instrumentType: string;
   ltp?: number;
   lotSize?: number;
+  smFreezeQty?: number;
+  tickSize?: number;
+  expiryFlag?: string;
+  strikeStep?: number;
+  preferredLots?: number;
 }
 
 export interface OptionContractDetails {
@@ -68,27 +80,6 @@ export interface OptionContractsResult {
   contracts: OptionContractDetails[];
 }
 
-// Cold-start fallback used ONLY when Firestore database is uninitialized or in isolated unit tests
-const FALLBACK_POPULAR_INSTRUMENTS: Omit<InstrumentItem, 'ltp'>[] = [
-  // Indices
-  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', securityId: '13', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 65 },
-  { symbol: 'BANK NIFTY', name: 'Nifty Bank Index', securityId: '25', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 30 },
-  { symbol: 'SENSEX', name: 'BSE Sensex Index', securityId: '51', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 20 },
-  { symbol: 'MIDCAP NIFTY', name: 'Nifty Midcap Select', securityId: '442', exchangeSegment: 'IDX_I', instrumentType: 'INDEX', lotSize: 120 },
-
-  // Equities
-  { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', securityId: '2885', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', securityId: '1333', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'INFY', name: 'Infosys Ltd', securityId: '1594', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'TCS', name: 'Tata Consultancy Services', securityId: '11536', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd', securityId: '4963', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'SBIN', name: 'State Bank of India', securityId: '3045', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'BHARTIARTL', name: 'Bharti Airtel Ltd', securityId: '10604', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'ITC', name: 'ITC Ltd', securityId: '1660', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'LT', name: 'Larsen & Toubro Ltd', securityId: '11483', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-  { symbol: 'KOTAKBANK', name: 'Kotak Mahindra Bank', securityId: '1922', exchangeSegment: 'NSE_EQ', instrumentType: 'EQUITY', lotSize: 1 },
-];
-
 @Injectable()
 export class InstrumentsService implements OnModuleInit {
   private readonly logger = new Logger(InstrumentsService.name);
@@ -106,7 +97,12 @@ export class InstrumentsService implements OnModuleInit {
   private scripMasterBySecId = new Map<string, Omit<InstrumentItem, 'ltp'>>();
   private scripMasterBySymbol = new Map<string, Omit<InstrumentItem, 'ltp'>>();
   private securityIdMap = new Map<string, string>();
-  private lotSizes: IndexLotSizesConfig = { ...DEFAULT_LOT_SIZES };
+  private lotSizes: IndexLotSizesConfig = {
+    ...EMPTY_TRADED_INSTRUMENTS_CONFIG,
+    instruments: [],
+    indices: [],
+  };
+  private lotSizesLoadedFromFirestore = false;
 
   constructor(
     private readonly dhanService: DhanService,
@@ -159,36 +155,44 @@ export class InstrumentsService implements OnModuleInit {
    * Loads from collection 'sec_id_to_name_mapping', falling back to 'index_options' if needed.
    */
   public async loadFromFirestore(): Promise<{ optionsCount: number; scripCount: number }> {
-    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-      try {
-        // 1. Load lot sizes configuration from Firestore (config/lot_sizes)
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function') {
+      if (!this.firestoreService.isReady() && typeof this.firestoreService.initialize === 'function') {
+        this.firestoreService.initialize();
+      }
+      if (this.firestoreService.isReady()) {
         try {
-          const dbLotSizes = await this.firestoreService.getLotSizes();
-          if (dbLotSizes) {
-            this.lotSizes = dbLotSizes;
+          // 1. Load traded instruments configuration strictly from Firestore (master_data/traded_instruments)
+          try {
+            const dbLotSizes =
+              typeof this.firestoreService.getTradedInstruments === 'function'
+                ? await this.firestoreService.getTradedInstruments()
+                : await this.firestoreService.getLotSizes();
+            if (dbLotSizes) {
+              this.lotSizes = dbLotSizes;
+              this.lotSizesLoadedFromFirestore = true;
+            }
+          } catch (err: any) {
+            this.logger.warn(`Could not load traded instruments from Firestore: ${err.message}`);
           }
+
+          // 2. Load NSE equities & indices from master_data/sec_id_to_name_mapping
+          const secMapping = await this.firestoreService.getSecIdMapping();
+          this.setScripMaster(secMapping.scripMaster);
+
+          // 3. Load NSE index options strictly from dedicated collection 'index_options'
+          let options = await this.firestoreService.getIndexOptions();
+          if (options.length === 0 && secMapping.options.length > 0) {
+            options = secMapping.options;
+          }
+          this.setIndexOptions(options);
+
+          this.logger.log(
+            `⚡ Loaded ${this.indexOptions.length} index options [index_options] & ${this.scripMaster.length} scrip items [master_data/sec_id_to_name_mapping] strictly from Firestore`,
+          );
+          return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
         } catch (err: any) {
-          this.logger.warn(`Could not load lot sizes from Firestore: ${err.message}`);
+          this.logger.error(`Failed to fetch mapping from Firestore: ${err.message}`);
         }
-
-        // 2. Load NSE equities & indices from collection 'sec_id_to_name_mapping'
-        const secMapping = await this.firestoreService.getSecIdMapping();
-        this.setScripMaster(secMapping.scripMaster);
-
-        // 3. Load NSE index options strictly from dedicated collection 'index_options'
-        // (falling back to secMapping.options if legacy collection holds them)
-        let options = await this.firestoreService.getIndexOptions();
-        if (options.length === 0 && secMapping.options.length > 0) {
-          options = secMapping.options;
-        }
-        this.setIndexOptions(options);
-
-        this.logger.log(
-          `⚡ Loaded ${this.indexOptions.length} index options [index_options] & ${this.scripMaster.length} scrip items [sec_id_to_name_mapping] strictly from Firestore`,
-        );
-        return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
-      } catch (err: any) {
-        this.logger.error(`Failed to fetch mapping from Firestore: ${err.message}`);
       }
     }
     return { optionsCount: this.indexOptions.length, scripCount: this.scripMaster.length };
@@ -816,50 +820,66 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
-   * Retrieve current index lot sizes configuration backed by Firestore.
+   * Retrieve traded instruments master data from Firestore ('master_data/traded_instruments').
    */
-  public async getLotSizes(force = false): Promise<IndexLotSizesConfig> {
-    if (!force && this.lotSizes && Array.isArray(this.lotSizes.indices) && this.lotSizes.indices.length > 0) {
+  public async getTradedInstruments(force = false): Promise<IndexLotSizesConfig> {
+    if (
+      !force &&
+      this.lotSizesLoadedFromFirestore &&
+      this.lotSizes &&
+      Array.isArray(this.lotSizes.instruments) &&
+      this.lotSizes.instruments.length > 0
+    ) {
       return { ...this.lotSizes };
     }
-    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-      try {
-        const dbSizes = await this.firestoreService.getLotSizes(force);
-        if (dbSizes) {
-          this.lotSizes = dbSizes;
+    if (this.firestoreService && typeof this.firestoreService.isReady === 'function') {
+      if (!this.firestoreService.isReady() && typeof this.firestoreService.initialize === 'function') {
+        this.firestoreService.initialize();
+      }
+      if (this.firestoreService.isReady()) {
+        try {
+          const dbData =
+            typeof this.firestoreService.getTradedInstruments === 'function'
+              ? await this.firestoreService.getTradedInstruments(force)
+              : await this.firestoreService.getLotSizes(force);
+          if (dbData) {
+            this.lotSizes = dbData;
+            this.lotSizesLoadedFromFirestore = true;
+          }
+        } catch (err: any) {
+          this.logger.warn(`Could not load traded instruments from Firestore: ${err.message}`);
         }
-      } catch (err: any) {
-        this.logger.warn(`Could not load lot sizes from Firestore: ${err.message}`);
       }
     }
     return { ...this.lotSizes };
   }
 
   /**
-   * Retrieve list of tradeable indices configured in Firestore for Conditional Alert Composer dropdown.
-   * Enriches each index with live LTP from Dhan / Yahoo Finance.
+   * Backward-compatible alias for getTradedInstruments().
    */
-  public async getConfiguredIndices(onlyEnabled = true, force = false): Promise<InstrumentItem[]> {
-    if (force || !this.lotSizes || !Array.isArray(this.lotSizes.indices) || this.lotSizes.indices.length === 0) {
-      if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-        try {
-          const dbSizes = await this.firestoreService.getLotSizes(force);
-          if (dbSizes) {
-            this.lotSizes = dbSizes;
-          }
-        } catch {
-          // ignore
-        }
-      }
+  public async getLotSizes(force = false): Promise<IndexLotSizesConfig> {
+    return this.getTradedInstruments(force);
+  }
+
+  /**
+   * Retrieve list of all tradeable instruments configured in Firestore ('master_data/traded_instruments').
+   * Every instrument in master data appears compulsorily.
+   * Enriches each instrument with live LTP from Dhan / Yahoo Finance and surfaces Dhan's friendly displayName.
+   * Strictly returns [] when Firestore has no records (never injects default fallback instruments).
+   */
+  public async getConfiguredIndices(force = false): Promise<InstrumentItem[]> {
+    const config = await this.getTradedInstruments(force);
+
+    const rawIndices =
+      config?.instruments && config.instruments.length > 0
+        ? config.instruments
+        : config?.indices && config.indices.length > 0
+        ? config.indices
+        : [];
+
+    if (rawIndices.length === 0) {
+      return [];
     }
-
-    const rawIndices = this.lotSizes?.indices && this.lotSizes.indices.length > 0
-      ? this.lotSizes.indices
-      : DEFAULT_INDICES;
-
-    const filtered = onlyEnabled
-      ? rawIndices.filter((idx) => idx.enabled !== false)
-      : rawIndices;
 
     const items: (Omit<InstrumentItem, 'ltp'> & {
       defaultLots?: number;
@@ -867,20 +887,32 @@ export class InstrumentsService implements OnModuleInit {
       defaultLotSize?: number;
       defaultQuantityInOneLot?: number;
       stopLossPoints?: number;
-    })[] = filtered.map((idx) => {
-      const defaultLotSize = idx.defaultLotSize ?? idx.defaultLots ?? 0;
-      const defaultQuantityInOneLot = idx.defaultQuantityInOneLot ?? idx.lotSize ?? 1;
+    })[] = rawIndices.map((idx) => {
+      const preferredLots = idx.preferredLots ?? idx.defaultLotSize ?? idx.defaultLots ?? 0;
+      const lotSize = idx.lotSize ?? idx.defaultQuantityInOneLot ?? 0;
+      const friendlyName = idx.displayName || idx.name || idx.symbolName || idx.symbol || '';
       return {
-        symbol: idx.symbol,
-        name: idx.name,
+        symbol: friendlyName,
+        name: friendlyName,
+        displayName: friendlyName,
+        symbolName: idx.symbolName || idx.underlyingSymbol || friendlyName,
+        underlyingSymbol: idx.underlyingSymbol || idx.symbolName,
+        exchId: idx.exchId,
+        segment: idx.segment,
         securityId: idx.securityId,
-        exchangeSegment: idx.exchangeSegment,
-        instrumentType: 'INDEX',
-        lotSize: defaultQuantityInOneLot,
-        defaultLots: defaultLotSize,
-        defaultQuantity: defaultLotSize * defaultQuantityInOneLot,
-        defaultLotSize,
-        defaultQuantityInOneLot,
+        exchangeSegment: idx.exchangeSegment || '',
+        fnoExchangeSegment: idx.fnoExchangeSegment,
+        instrumentType: idx.instrumentType || '',
+        lotSize,
+        smFreezeQty: idx.smFreezeQty,
+        tickSize: idx.tickSize,
+        expiryFlag: idx.expiryFlag,
+        strikeStep: idx.strikeStep,
+        preferredLots,
+        defaultLots: preferredLots,
+        defaultQuantity: preferredLots * lotSize,
+        defaultLotSize: preferredLots,
+        defaultQuantityInOneLot: lotSize,
         stopLossPoints: idx.stopLossPoints,
       };
     });
@@ -889,41 +921,54 @@ export class InstrumentsService implements OnModuleInit {
   }
 
   /**
-   * Retrieve list of tradeable indices synchronously from in-memory cache / database config.
+   * Retrieve list of all tradeable instruments synchronously from in-memory Firestore cache.
+   * Every instrument in master data appears compulsorily.
+   * Strictly returns [] when no database records are loaded (never falls back to hardcoded defaults).
    */
-  public getConfiguredIndicesSync(onlyEnabled = true): (Omit<InstrumentItem, 'ltp'> & {
+  public getConfiguredIndicesSync(): (Omit<InstrumentItem, 'ltp'> & {
     defaultLots?: number;
     defaultQuantity?: number;
     defaultLotSize?: number;
     defaultQuantityInOneLot?: number;
     stopLossPoints?: number;
   })[] {
-    const rawIndices = this.lotSizes?.indices && this.lotSizes.indices.length > 0
-      ? this.lotSizes.indices
-      : (this.scripMaster.filter((i) => i.instrumentType === 'INDEX').slice(0, 5));
+    const rawIndices =
+      this.lotSizes?.instruments && this.lotSizes.instruments.length > 0
+        ? this.lotSizes.instruments
+        : this.lotSizes?.indices && this.lotSizes.indices.length > 0
+        ? this.lotSizes.indices
+        : [];
 
-    const filtered = onlyEnabled
-      ? rawIndices.filter((idx) => (idx as any).enabled !== false)
-      : rawIndices;
-
-    if (filtered.length === 0) {
-      return FALLBACK_POPULAR_INSTRUMENTS.filter((i) => i.instrumentType === 'INDEX') as any;
+    if (rawIndices.length === 0) {
+      return [];
     }
 
-    return filtered.map((idx) => {
-      const defaultLotSize = (idx as any).defaultLotSize ?? (idx as any).defaultLots ?? 0;
-      const defaultQuantityInOneLot = (idx as any).defaultQuantityInOneLot ?? idx.lotSize ?? 1;
+    return rawIndices.map((idx) => {
+      const preferredLots = (idx as any).preferredLots ?? (idx as any).defaultLotSize ?? (idx as any).defaultLots ?? 0;
+      const lotSize = (idx as any).lotSize ?? (idx as any).defaultQuantityInOneLot ?? 0;
+      const friendlyName = (idx as any).displayName || idx.name || (idx as any).symbolName || idx.symbol || '';
       return {
-        symbol: idx.symbol,
-        name: idx.name,
+        symbol: friendlyName,
+        name: friendlyName,
+        displayName: friendlyName,
+        symbolName: (idx as any).symbolName || (idx as any).underlyingSymbol || friendlyName,
+        underlyingSymbol: (idx as any).underlyingSymbol,
+        exchId: (idx as any).exchId,
+        segment: (idx as any).segment,
         securityId: idx.securityId,
-        exchangeSegment: idx.exchangeSegment,
-        instrumentType: 'INDEX',
-        lotSize: defaultQuantityInOneLot,
-        defaultLots: defaultLotSize,
-        defaultQuantity: defaultLotSize * defaultQuantityInOneLot,
-        defaultLotSize,
-        defaultQuantityInOneLot,
+        exchangeSegment: idx.exchangeSegment || '',
+        fnoExchangeSegment: (idx as any).fnoExchangeSegment,
+        instrumentType: idx.instrumentType || '',
+        lotSize,
+        smFreezeQty: (idx as any).smFreezeQty,
+        tickSize: (idx as any).tickSize,
+        expiryFlag: (idx as any).expiryFlag,
+        strikeStep: (idx as any).strikeStep,
+        preferredLots,
+        defaultLots: preferredLots,
+        defaultQuantity: preferredLots * lotSize,
+        defaultLotSize: preferredLots,
+        defaultQuantityInOneLot: lotSize,
         stopLossPoints: (idx as any).stopLossPoints,
       };
     });
@@ -931,71 +976,110 @@ export class InstrumentsService implements OnModuleInit {
 
   /**
    * Retrieve popular instruments dynamically from master data (configured indices + top active equities).
+   * Strictly returns real database records only (empty array if DB is empty).
    */
   public getPopularInstruments(): Omit<InstrumentItem, 'ltp'>[] {
-    const configured = this.getConfiguredIndicesSync(true);
+    const configured = this.getConfiguredIndicesSync();
     if (this.scripMaster.length > 0) {
       const equities = this.scripMaster
         .filter((item) => item.exchangeSegment === 'NSE_EQ')
         .slice(0, 10);
       return [...configured, ...equities];
     }
-    return configured.length > 0 ? configured : FALLBACK_POPULAR_INSTRUMENTS;
+    return configured;
   }
 
   /**
-   * Resolve lot size for a specific index or symbol from database-driven config.
+   * Resolve lot size for a specific index or symbol strictly from database-driven config.
+   * Returns 0 when not found in Firestore (never returns hardcoded default lot sizes).
    */
   public getLotSizeForInstrument(instrument: string): number {
-    const clean = (instrument || '').toUpperCase();
-    if (this.lotSizes?.indices && this.lotSizes.indices.length > 0) {
-      const match = this.lotSizes.indices.find((i) => clean.includes(i.symbol.toUpperCase()));
-      if (match) return match.defaultQuantityInOneLot ?? match.lotSize ?? 1;
+    const clean = (instrument || '').trim().toUpperCase();
+    const list = this.lotSizes?.instruments || this.lotSizes?.indices || [];
+    if (list.length > 0) {
+      const match = list.find((i) => {
+        const disp = String(i.displayName || '').toUpperCase();
+        const sym = String(i.symbolName || i.symbol || '').toUpperCase();
+        return (
+          (disp && (clean === disp || clean.includes(disp))) ||
+          (sym && (clean === sym || clean.includes(sym)))
+        );
+      });
+      if (match) return match.lotSize ?? match.defaultQuantityInOneLot ?? 0;
     }
-    if (clean.includes('BANK')) return this.lotSizes.bankNifty || 30;
-    if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 120;
-    if (clean.includes('SENSEX')) return this.lotSizes.sensex || 20;
-    if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 65;
-    return 1;
+    if (clean.includes('BANK')) return this.lotSizes.bankNifty || 0;
+    if (clean.includes('MIDCP') || clean.includes('MIDCAP')) return this.lotSizes.midcapNifty || 0;
+    if (clean.includes('SENSEX')) return this.lotSizes.sensex || 0;
+    if (clean.includes('NIFTY')) return this.lotSizes.nifty50 || 0;
+    return 0;
   }
 
   /**
-   * Update index lot sizes configuration in Firestore and memory.
+   * Update traded instruments configuration in Firestore ('master_data/traded_instruments') and memory.
    */
-  public async updateLotSizes(dto: UpdateLotSizesDto) {
+  public async updateTradedInstruments(dto: UpdateLotSizesDto) {
     if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-      const res = await this.firestoreService.saveLotSizes(dto);
+      const res =
+        typeof this.firestoreService.saveTradedInstruments === 'function'
+          ? await this.firestoreService.saveTradedInstruments(dto)
+          : await this.firestoreService.saveLotSizes(dto);
       this.lotSizes = res.data;
+      this.lotSizesLoadedFromFirestore = true;
       return {
         success: true,
         data: this.lotSizes,
-        message: 'Index lot sizes successfully saved to Firestore database (config/lot_sizes)',
+        message: 'Traded instruments successfully saved to Firestore (master_data/traded_instruments)',
       };
     }
-    this.lotSizes = {
-      nifty50: dto.nifty50 !== undefined ? Number(dto.nifty50) : this.lotSizes.nifty50,
-      bankNifty: dto.bankNifty !== undefined ? Number(dto.bankNifty) : this.lotSizes.bankNifty,
-      midcapNifty: dto.midcapNifty !== undefined ? Number(dto.midcapNifty) : this.lotSizes.midcapNifty,
-      sensex: dto.sensex !== undefined ? Number(dto.sensex) : this.lotSizes.sensex,
-      nifty50Lots: dto.nifty50Lots !== undefined ? Number(dto.nifty50Lots) : this.lotSizes.nifty50Lots,
-      bankNiftyLots: dto.bankNiftyLots !== undefined ? Number(dto.bankNiftyLots) : this.lotSizes.bankNiftyLots,
-      midcapNiftyLots: dto.midcapNiftyLots !== undefined ? Number(dto.midcapNiftyLots) : this.lotSizes.midcapNiftyLots,
-      sensexLots: dto.sensexLots !== undefined ? Number(dto.sensexLots) : this.lotSizes.sensexLots,
-      indices: dto.indices && Array.isArray(dto.indices) ? dto.indices : this.lotSizes.indices,
-      updatedAt: new Date().toISOString(),
-    };
-    return {
-      success: true,
-      data: this.lotSizes,
-      message: 'Index lot sizes updated in memory (Firestore offline)',
-    };
+    throw new BadRequestException('Firestore database is not connected. Cannot save traded instruments.');
   }
 
   /**
-   * Reset index lot sizes to default values.
+   * Fast sync of master_data/traded_instruments strictly from the static backend JSON file
+   * (traded-instruments.master.json) without downloading the full Dhan CSV.
+   */
+  public async syncTradedInstrumentsFromJson(resetPreferences = false) {
+    if (
+      this.firestoreService &&
+      typeof this.firestoreService.isReady === 'function' &&
+      this.firestoreService.isReady()
+    ) {
+      if (typeof this.firestoreService.syncTradedInstrumentsFromMasterJson === 'function') {
+        const res = await this.firestoreService.syncTradedInstrumentsFromMasterJson(!resetPreferences);
+        this.lotSizes = res.data;
+        this.lotSizesLoadedFromFirestore = true;
+        return {
+          success: true,
+          source: res.source,
+          data: this.lotSizes,
+          writeTime: res.writeTime,
+          message: `Synced ${this.lotSizes.instruments.length} traded instruments from static master JSON into Firestore (master_data/traded_instruments)`,
+        };
+      }
+      return this.updateTradedInstruments(DEFAULT_LOT_SIZES);
+    }
+    throw new BadRequestException('Firestore database is not connected. Cannot sync traded instruments from Master JSON.');
+  }
+
+  /**
+   * Backward-compatible alias for updateTradedInstruments().
+   */
+  public async updateLotSizes(dto: UpdateLotSizesDto) {
+    return this.updateTradedInstruments(dto);
+  }
+
+  /**
+   * Reset traded instruments back to static master JSON defaults (including default preferences).
+   */
+  public async resetTradedInstruments() {
+    return this.syncTradedInstrumentsFromJson(true);
+  }
+
+  /**
+   * Backward-compatible alias for resetTradedInstruments().
    */
   public async resetLotSizes() {
-    return this.updateLotSizes(DEFAULT_LOT_SIZES);
+    return this.resetTradedInstruments();
   }
 
   /**
@@ -1254,7 +1338,7 @@ export class InstrumentsService implements OnModuleInit {
     const clean = symbol.trim().toUpperCase();
 
     // 1. Check configured tradeable indices dynamically from Firestore
-    const configured = this.getConfiguredIndicesSync(false);
+    const configured = this.getConfiguredIndicesSync();
     for (const idx of configured) {
       const symUpper = idx.symbol.toUpperCase();
       const nameUpper = (idx.name || '').toUpperCase();
@@ -1308,8 +1392,8 @@ export class InstrumentsService implements OnModuleInit {
       };
     }
 
-    // 5. Fallback cold-start
-    return FALLBACK_POPULAR_INSTRUMENTS.find((item) => item.symbol.toUpperCase() === clean);
+    // Not found in database
+    return undefined;
   }
 
   findBySecurityId(securityId: string): {
@@ -1346,7 +1430,7 @@ export class InstrumentsService implements OnModuleInit {
       };
     }
 
-    // 2. Search scripMaster (10,193+ equities and indices from Firestore database)
+    // 2. Search scripMaster (equities and indices from Firestore database)
     const matchedMaster = this.scripMasterBySecId.get(cleanId);
     if (matchedMaster) {
       return {
@@ -1356,12 +1440,12 @@ export class InstrumentsService implements OnModuleInit {
         customSymbol: matchedMaster.symbol,
         tradingSymbol: matchedMaster.symbol,
         exchangeSegment: matchedMaster.exchangeSegment,
-        lotSize: matchedMaster.lotSize || 1,
+        lotSize: matchedMaster.lotSize || 0,
       };
     }
 
     // 3. Search configured tradeable indices from Firestore
-    const matchedConfig = this.getConfiguredIndicesSync(false).find(
+    const matchedConfig = this.getConfiguredIndicesSync().find(
       (item) => String(item.securityId).trim() === cleanId,
     );
     if (matchedConfig) {
@@ -1370,19 +1454,7 @@ export class InstrumentsService implements OnModuleInit {
         securityId: cleanId,
         name: matchedConfig.name,
         exchangeSegment: matchedConfig.exchangeSegment,
-        lotSize: matchedConfig.lotSize || 1,
-      };
-    }
-
-    // 4. Fallback cold-start
-    const matchedPop = FALLBACK_POPULAR_INSTRUMENTS.find((item) => String(item.securityId).trim() === cleanId);
-    if (matchedPop) {
-      return {
-        symbol: matchedPop.symbol,
-        securityId: cleanId,
-        name: matchedPop.name,
-        exchangeSegment: matchedPop.exchangeSegment,
-        lotSize: matchedPop.lotSize,
+        lotSize: matchedConfig.lotSize || 0,
       };
     }
 
@@ -1597,7 +1669,13 @@ export class InstrumentsService implements OnModuleInit {
     let spotPrice = typeof dto.price === 'string' ? parseFloat(dto.price) : dto.price;
     if (!spotPrice || isNaN(spotPrice) || spotPrice <= 0) {
       const ltpObj = await this.getLtp(normalizedName);
-      spotPrice = (ltpObj.ltp && ltpObj.ltp > 0) ? ltpObj.ltp : (defaultStep === 100 ? 52000 : 25500);
+      if (ltpObj.ltp && ltpObj.ltp > 0) {
+        spotPrice = ltpObj.ltp;
+      } else {
+        throw new BadRequestException(
+          `Live spot price is not available for ${normalizedName}. Please provide a target price or retry once market data is connected.`,
+        );
+      }
     } else {
       spotPrice = parseFloat(String(spotPrice));
     }

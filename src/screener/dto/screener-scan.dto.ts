@@ -1,21 +1,55 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsArray, IsString } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, Matches } from 'class-validator';
+import { ScreenerScanMode } from '../models/screener.models';
 
 export class ScreenerScanDto {
   @ApiPropertyOptional({
-    description: 'Timeframe interval for candle analysis',
-    enum: ['15m', '1h', '1d', '1wk'],
-    default: '15m',
+    description: 'Scan mode: live (latest 2-3 closed 5m candles) or historical (full session backtest for selected date/range)',
+    enum: ['live', 'historical'],
+    default: 'live',
   })
   @IsOptional()
-  @IsIn(['15m', '1h', '1d', '1wk', '30m', '5m'], {
-    message: 'Timeframe must be one of: 15m, 1h, 1d, 1wk (or 5m, 30m)',
+  @IsIn(['live', 'historical'], {
+    message: 'Mode must be either "live" or "historical"',
   })
-  timeframe?: string;
+  mode?: ScreenerScanMode;
 
   @ApiPropertyOptional({
-    description: 'Optional subset of ticker symbols to scan. If omitted, all enabled watchlist tickers from Firestore are scanned.',
-    example: ['RELIANCE', 'TCS'],
+    description: 'Single trading date (YYYY-MM-DD) for historical mode. Shorthand for startDate=endDate=date.',
+    example: '2026-11-17',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
+  date?: string;
+
+  @ApiPropertyOptional({
+    description: 'Start date (YYYY-MM-DD) for historical date range scan.',
+    example: '2026-11-14',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'startDate must be in YYYY-MM-DD format',
+  })
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'End date (YYYY-MM-DD) for historical date range scan.',
+    example: '2026-11-17',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'endDate must be in YYYY-MM-DD format',
+  })
+  endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional subset of configured indices from config/lot_sizes to scan.',
+    example: ['NIFTY 50', 'BANK NIFTY'],
   })
   @IsOptional()
   @IsArray()
