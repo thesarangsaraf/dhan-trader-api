@@ -73,6 +73,19 @@ test('AlertsService (NestJS)', async (t) => {
           optionType: 'CE',
         };
       }
+      if (id === '40250') {
+        return {
+          symbol: 'NIFTY 25250 PE',
+          tradingSymbol: 'NIFTY-23Nov-25250-PE',
+          customSymbol: 'NIFTY 23 NOV 25250 PUT',
+          securityId: '40250',
+          exchangeSegment: 'NSE_FNO',
+          expiryDate: '2026-11-23',
+          strikePrice: 25250,
+          optionType: 'PE',
+          lotSize: 65,
+        };
+      }
       if (id === '2885') {
         return {
           symbol: 'RELIANCE',
@@ -445,6 +458,37 @@ test('AlertsService (NestJS)', async (t) => {
 
     const notFound = service.getInstrumentDetailsBySecurityId('999999');
     assert.strictEqual(notFound, null);
+  });
+
+  await t.test('enriches alert orders with lotSize and computed lots from instrument metadata', async () => {
+    const res = await service.createConditionalAlert({
+      instrument: 'NIFTY 50',
+      targetPrice: 25257,
+      conditionalOrder: {
+        symbol: 'NIFTY 25250 PE',
+        securityId: '40250',
+        exchangeSegment: 'NSE_FNO',
+        transactionType: 'BUY',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
+        quantity: 975,
+      },
+    });
+
+    assert.strictEqual(res.success, true);
+    const createdOrder = res.alert.orders?.[0];
+    assert.ok(createdOrder);
+    assert.strictEqual(createdOrder.quantity, 975);
+    assert.strictEqual(createdOrder.lotSize, 65);
+    assert.strictEqual(createdOrder.lots, 15);
+    assert.strictEqual(res.alert.attachedOrder?.lots, 15);
+    assert.strictEqual(res.alert.attachedOrder?.lotSize, 65);
+
+    const allAlerts = service.getAllAlerts();
+    const fetched = allAlerts.find((a) => a.id === res.alert.id);
+    assert.ok(fetched);
+    assert.strictEqual(fetched.orders?.[0]?.lots, 15);
+    assert.strictEqual(fetched.orders?.[0]?.lotSize, 65);
   });
 
   await t.test('triggers test notification event', () => {

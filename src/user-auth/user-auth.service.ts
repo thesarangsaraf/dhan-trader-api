@@ -112,6 +112,16 @@ export class UserAuthService implements OnModuleInit {
       } else {
         this.inMemoryUsers.delete(adminUsername);
       }
+
+      // 3. Preload all existing users and their active sessions from Firestore into memory
+      // Guarantees sessions survive server restarts instantly without cold-start cache misses
+      const allUsers = await this.firestoreService.listDocuments('users', 100);
+      for (const { data } of allUsers) {
+        const docId = (data.username || data.id || '').toLowerCase();
+        if (docId && data.passwordHash) {
+          this.inMemoryUsers.set(docId, data as StoredUserDoc);
+        }
+      }
     } catch (err: any) {
       this.logger.warn(`Could not initialize users in Firestore: ${err.message}`);
     }
@@ -344,14 +354,15 @@ export class UserAuthService implements OnModuleInit {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    // 15-minute access token
+    // 30-day stateless access token (2,592,000s)
+    // Ensures sessions survive backend server restarts seamlessly without requiring frequent refresh calls
     const accessToken = UserJwtUtil.sign(
       {
         sub: user.username,
         username: user.username,
         role: user.role || 'admin',
       },
-      900,
+      30 * 24 * 60 * 60,
     );
 
     // 365-day (1 year) long-lived persistent refresh token
@@ -437,14 +448,14 @@ export class UserAuthService implements OnModuleInit {
       throw new UnauthorizedException('Your session has expired. Please log in again.');
     }
 
-    // Issue a fresh 15-minute access token
+    // Issue a fresh 30-day stateless access token
     const accessToken = UserJwtUtil.sign(
       {
         sub: matchedUser.username,
         username: matchedUser.username,
         role: matchedUser.role || 'admin',
       },
-      900,
+      30 * 24 * 60 * 60,
     );
 
     return {

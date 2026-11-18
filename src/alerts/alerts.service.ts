@@ -120,6 +120,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             const strikePrice = ord.strikePrice || foundOpt?.strikePrice;
             const optionType = ord.optionType || foundOpt?.optionType;
             const instrumentName = foundOpt?.customSymbol || foundOpt?.name || (ord.instrumentName && !ord.instrumentName.startsWith('SEC-') ? ord.instrumentName : instName);
+            const { lotSize, lots } = this.resolveOrderLotInfo(ord, foundOpt, localOrd, instName);
 
             return {
               ...ord,
@@ -133,6 +134,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
               transactionType: (ord.transactionType || ord.action || 'BUY').toUpperCase(),
               action: (ord.action || ord.transactionType || 'BUY').toUpperCase(),
               quantity: Number(ord.quantity || 0),
+              lotSize,
+              lots,
               orderType: (ord.orderType || 'MARKET').toUpperCase(),
               productType: (ord.productType || 'INTRADAY').toUpperCase(),
               price: ord.price !== undefined ? parseFloat(String(ord.price)) : 0,
@@ -160,6 +163,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                 productType: firstOrd.productType,
                 orderType: firstOrd.orderType,
                 quantity: firstOrd.quantity,
+                lotSize: firstOrd.lotSize,
+                lots: firstOrd.lots,
                 price: firstOrd.price,
                 status: firstOrd.status,
                 orderId: firstOrd.orderId,
@@ -298,6 +303,59 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.checkAndTick();
+  }
+
+  /**
+   * Resolves contract lot size and number of lots for an order using Firestore-backed
+   * instrument metadata.
+   */
+  private resolveOrderLotInfo(
+    ord: any,
+    foundOpt?: any,
+    localOrd?: any,
+    fallbackInstrument?: string,
+  ): { lotSize: number; lots?: number } {
+    const qty = Number(ord?.quantity || 0);
+    let lotSize = Number(ord?.lotSize || localOrd?.lotSize || foundOpt?.lotSize || 0);
+
+    if (
+      (!lotSize || lotSize <= 1) &&
+      this.instrumentsService &&
+      typeof this.instrumentsService.getLotSizeForInstrument === 'function'
+    ) {
+      const seg = String(ord?.exchangeSegment || foundOpt?.exchangeSegment || '').toUpperCase();
+      const lookupName =
+        foundOpt?.customSymbol ||
+        foundOpt?.symbol ||
+        ord?.customSymbol ||
+        ord?.symbol ||
+        ord?.tradingSymbol ||
+        fallbackInstrument ||
+        '';
+      if (seg.includes('FNO') || /\b(CE|PE|CALL|PUT)\b/i.test(lookupName)) {
+        const inferred = this.instrumentsService.getLotSizeForInstrument(lookupName);
+        if (inferred > 1) {
+          lotSize = inferred;
+        }
+      }
+    }
+
+    if (!lotSize || lotSize < 1) {
+      lotSize = 1;
+    }
+
+    let lots: number | undefined;
+    const rawLots = Number(ord?.lots || localOrd?.lots || 0);
+    if (rawLots > 0) {
+      lots = rawLots;
+    } else if (qty > 0 && lotSize > 1) {
+      const computedLots = qty / lotSize;
+      lots = Number.isInteger(computedLots)
+        ? computedLots
+        : Math.round(computedLots * 100) / 100;
+    }
+
+    return { lotSize, lots };
   }
 
   /**
@@ -471,6 +529,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         const strikePrice = ord.strikePrice || foundOpt?.strikePrice;
         const optionType = ord.optionType || foundOpt?.optionType;
         const instrumentName = foundOpt?.customSymbol || foundOpt?.name || (ord.instrumentName && !ord.instrumentName.startsWith('SEC-') ? ord.instrumentName : a.instrument);
+        const { lotSize, lots } = this.resolveOrderLotInfo(ord, foundOpt, undefined, a.instrument);
 
         return {
           ...ord,
@@ -484,6 +543,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           transactionType: (ord.transactionType || ord.action || 'BUY').toUpperCase(),
           action: (ord.action || ord.transactionType || 'BUY').toUpperCase(),
           quantity: Number(ord.quantity || 0),
+          lotSize,
+          lots,
           orderType: (ord.orderType || 'MARKET').toUpperCase(),
           productType: (ord.productType || 'INTRADAY').toUpperCase(),
           price: ord.price !== undefined ? parseFloat(String(ord.price)) : 0,
@@ -510,6 +571,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         productType: firstOrd.productType,
         orderType: firstOrd.orderType,
         quantity: firstOrd.quantity,
+        lotSize: firstOrd.lotSize,
+        lots: firstOrd.lots,
         price: firstOrd.price,
         status: firstOrd.status,
         orderId: firstOrd.orderId,
@@ -881,6 +944,15 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         || (ord.symbol && !ord.symbol.startsWith('SEC-') ? ord.symbol.toUpperCase() : null)
         || ord.symbol?.toUpperCase();
 
+      const computedLots =
+        ordLots > 0
+          ? ordLots
+          : contractLotSize > 1 && qty > 0
+          ? Number.isInteger(qty / contractLotSize)
+            ? qty / contractLotSize
+            : Math.round((qty / contractLotSize) * 100) / 100
+          : undefined;
+
       return {
         symbol: symName,
         tradingSymbol: optDetails?.tradingSymbol || (ord as any).tradingSymbol,
@@ -895,6 +967,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         orderType: (ord.orderType || 'MARKET').toUpperCase(),
         productType: (ord.productType || 'INTRADAY').toUpperCase(),
         quantity: qty,
+        lotSize: contractLotSize,
+        lots: computedLots,
         price: parseFloat(String(ord.price || 0)) || 0,
         triggerPrice: parseFloat(String(ord.triggerPrice || 0)) || 0,
         validity: (ord.validity || 'DAY').toUpperCase(),
@@ -1150,6 +1224,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         productType: validatedOrders[0].productType,
         orderType: validatedOrders[0].orderType,
         quantity: validatedOrders[0].quantity,
+        lotSize: validatedOrders[0].lotSize,
+        lots: validatedOrders[0].lots,
         price: validatedOrders[0].price,
         status: validatedOrders[0].status,
         orderId: validatedOrders[0].orderId,

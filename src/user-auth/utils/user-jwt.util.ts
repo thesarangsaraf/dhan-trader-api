@@ -14,12 +14,12 @@ export class UserJwtUtil {
   /**
    * Signs a JWT using HMAC-SHA256 (HS256).
    * @param payload User identity information
-   * @param expiresInSeconds Lifetime in seconds (default 15 minutes = 900s)
+   * @param expiresInSeconds Lifetime in seconds (default 30 days = 2,592,000s)
    * @param secret Optional custom secret key
    */
   public static sign(
     payload: Omit<JwtPayload, 'iat' | 'exp'>,
-    expiresInSeconds: number = 900,
+    expiresInSeconds: number = 30 * 24 * 60 * 60,
     secret: string = this.DEFAULT_SECRET,
   ): string {
     const now = Math.floor(Date.now() / 1000);

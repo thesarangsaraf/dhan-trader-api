@@ -12,6 +12,7 @@ interface ArtifactImage {
     mediaType?: string;
     subjectDigest?: string;
     imageSizeBytes?: string;
+    artifactType?: string;
   };
 }
 
@@ -44,33 +45,58 @@ async function pruneRegistry() {
 
   // Find the 'latest' tagged image
   const latestTagged = images.find((img) => img.tags && img.tags.includes('latest'));
-  const latestDigest = latestTagged ? latestTagged.version : images[0].version;
-  const latestCreateTime = latestTagged ? new Date(latestTagged.createTime).getTime() : new Date(images[0].createTime).getTime();
-
-  console.log(`✅ Keeping latest image: ${latestDigest} (created ${latestTagged?.createTime || images[0].createTime})`);
-
-  // Any image created within 10 minutes of the latest image belongs to the same build (e.g. multi-arch manifests/attestations)
-  const marginMs = 10 * 60 * 1000;
-  const toDelete: ArtifactImage[] = [];
-
-  for (const img of images) {
-    if (img.version === latestDigest) {
-      continue;
-    }
-    const imgTime = new Date(img.createTime).getTime();
-    if (Math.abs(latestCreateTime - imgTime) <= marginMs) {
-      // Associated layer / attestation of the latest build
-      continue;
-    }
-    toDelete.push(img);
+  if (!latestTagged) {
+    console.warn('⚠️ No image with "latest" tag found. Retaining newest image as fallback.');
   }
 
+  const activeImage = latestTagged || images[0];
+  const latestDigest = activeImage.version;
+  const latestCreateTime = new Date(activeImage.createTime).getTime();
+
+  console.log(`✅ Keeping latest image: ${latestDigest} (created ${activeImage.createTime}, tags: ${activeImage.tags?.join(', ') || 'none'})`);
+
+  // Track digests belonging to the active release (manifest index + platform layers + attestations)
+  const activeDigests = new Set<string>();
+  activeDigests.add(latestDigest);
+
+  // Try inspecting docker manifest to accurately identify all child platform manifests of :latest
+  try {
+    const manifestRaw = execSync(`docker manifest inspect ${REGISTRY_REPO}:latest`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const parsed = JSON.parse(manifestRaw);
+    if (parsed.manifests && Array.isArray(parsed.manifests)) {
+      for (const m of parsed.manifests) {
+        if (m.digest) {
+          activeDigests.add(m.digest);
+        }
+      }
+    }
+  } catch {
+    // Docker daemon might not be running or remote inspect unavailable
+  }
+
+  // Any child manifest linked via subjectDigest or created within 60s of the latest manifest belongs to the same build
+  for (const img of images) {
+    if (img.metadata?.subjectDigest && activeDigests.has(img.metadata.subjectDigest)) {
+      activeDigests.add(img.version);
+    }
+    const imgTime = new Date(img.createTime).getTime();
+    if (Math.abs(latestCreateTime - imgTime) <= 60 * 1000) {
+      activeDigests.add(img.version);
+    }
+  }
+
+  // Every other image is an older build (which became tagless when 'latest' was updated)
+  const toDelete: ArtifactImage[] = images.filter((img) => !activeDigests.has(img.version));
+
   if (toDelete.length === 0) {
-    console.log('✨ No older images found. Registry contains only the latest production image.');
+    console.log('✨ No older images found. Registry contains strictly the latest production image.');
   } else {
-    console.log(`🗑️ Found ${toDelete.length} older image digest(s) to remove:`);
+    console.log(`🗑️ Found ${toDelete.length} older/tagless image digest(s) to remove:`);
     for (const img of toDelete) {
-      console.log(`   - ${img.version} (created ${img.createTime}, tags: ${img.tags?.join(', ') || 'none'})`);
+      console.log(`   - ${img.version} (created ${img.createTime}, tags: ${img.tags?.join(', ') || 'none (tagless)'})`);
       try {
         console.log(`   Deleting ${img.version}...`);
         execSync(`gcloud artifacts docker images delete "${REGISTRY_REPO}@${img.version}" --quiet --delete-tags`, {
@@ -80,7 +106,7 @@ async function pruneRegistry() {
         console.error(`   ⚠️ Failed to delete ${img.version}: ${delErr.message}`);
       }
     }
-    console.log('✅ Registry cleanup complete.');
+    console.log('✅ Artifact Registry cleanup complete. Only latest image retained.');
   }
 
   // Also prune local Docker dangling images

@@ -88,7 +88,7 @@ This document provides definitive instructions, architecture patterns, constrain
 
 10. **User Authentication & Persistent Session Architecture (Firestore `users`)**:
     - **Dual-Token System**:
-      - Access Token: Short-lived HS256 JWT (15 minutes). Attached to HTTP requests via `Authorization: Bearer <accessToken>`.
+      - Access Token: Stateless HS256 JWT (30 days / 2,592,000s). Attached to HTTP requests via `Authorization: Bearer <accessToken>`. Validated statelessly via HMAC-SHA256 signature without requiring database lookups, surviving server restarts and cold starts seamlessly.
       - Refresh Token: Long-lived cryptographically secure random token (365 days / 1 year), stored in client `localStorage` and persisted in Firestore collection `users` within each user document.
     - **Indefinite Persistent Sessions**:
       - Users stay logged in indefinitely across restarts and tab closures (just like Twitter/X, Facebook, LinkedIn) until they explicitly sign out or clear their browser cache, history, and cookies.
@@ -102,12 +102,17 @@ This document provides definitive instructions, architecture patterns, constrain
       - Passwords are derived using memory-hard `scrypt` with a cryptographically random salt and validated using constant-time `timingSafeEqual`.
       - Endpoints: `POST /api/user-auth/login`, `POST /api/user-auth/refresh`, `POST /api/user-auth/logout`, `GET /api/user-auth/me`, `PUT /api/user-auth/password`, `GET /api/user-auth/status`, `GET /api/user-auth/sessions`, `DELETE /api/user-auth/sessions`, `DELETE /api/user-auth/sessions/:id`, `GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`, `GET /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions/:id`.
 
-11. **Strict Container Registry Space Saving (Only Latest Image Retained)**:
+11. **Strict Container Registry Space Saving & Cloud Run Revision Cleanup (Only Latest Retained)**:
     - To conserve container registry storage and eliminate unnecessary storage costs in Google Cloud Artifact Registry (`asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api`), agents and deployment pipelines MUST strictly retain only the latest production Docker image.
-    - Whenever a new Docker image is built and pushed to Artifact Registry, older images and dangling digests MUST be purged immediately.
-    - Use the automated operational command:
-      - `npm run prune:registry` (executes `scripts/prune-registry.ts` to delete older digests and prune local dangling images).
-    - Never allow stale, superseded, or untagged container image digests to accumulate in Artifact Registry.
+    - **Tagless Older Images on Every Push**: All production images pushed to Artifact Registry strictly carry the `:latest` tag. Because Docker and Artifact Registry reassign the `:latest` tag to the newly pushed digest, **all previously pushed older images automatically become tagless (untagged dangling digests)**.
+    - **Mandatory Cloud Run Revision & Registry Pruning on Every Production Release**:
+      - Whenever a production release happens, older inactive Cloud Run revisions MUST be deleted immediately once the new revision is ready and serving traffic (`npm run prune:revisions`).
+      - Older tagless container images and dangling digests MUST be deleted immediately from Artifact Registry (`npm run prune:registry`).
+      - Never allow stale revisions or untagged container image digests to accumulate in GCP.
+    - **Automated Operational Release & Pruning Commands**:
+      - `npm run release:prod` (executes `scripts/release-prod.ts` — compiles TypeScript, builds the `linux/amd64` Docker image, pushes `:latest` to Artifact Registry, deploys/restarts Cloud Run, automatically deletes older inactive Cloud Run revisions via `npm run prune:revisions`, and prunes older tagless images via `npm run prune:registry`).
+      - `npm run prune:revisions` (executes `scripts/prune-revisions.ts` — safely discovers the active Cloud Run revision serving 100% traffic, and deletes all older inactive revisions).
+      - `npm run prune:registry` (executes `scripts/prune-registry.ts` — safely discovers the active `:latest` manifest, protects its child layers and attestations, and deletes all older tagless image digests from Artifact Registry as well as pruning local dangling Docker images).
 
 ---
 
@@ -127,7 +132,9 @@ dhan-trader/
 │   ├── verify-firestore.ts            # Live Firestore database verification script
 │   ├── upload-index-options-firestore.ts # Script to seed/upload NSE index options to Firestore
 │   ├── upload-sec-id-mapping-firestore.ts # Script to upload modular sec_id_to_name_mapping
-│   └── prune-registry.ts              # Script to prune older Docker images from Google Artifact Registry
+│   ├── release-prod.ts                # Production release orchestrator (build, push :latest, update Cloud Run, prune registry)
+│   ├── prune-revisions.ts             # Script to prune older inactive Cloud Run revisions
+│   └── prune-registry.ts              # Script to prune older tagless Docker images from Google Artifact Registry
 ├── src/
 │   ├── main.ts                        # Application entry point, Swagger init, ValidationPipe
 │   ├── app.module.ts                  # Root NestJS module registering all feature modules
@@ -208,7 +215,9 @@ Always use the following npm scripts rather than manual invocation:
 | `npm run check:firestore` | Test live Google Cloud Firestore connectivity & Dhan token persistence |
 | `npm run upload:index-options` | Upload/seed NSE index options master into Firestore database |
 | `npm run upload:sec-id-mapping` | Upload modular security ID to name mapping to Firestore database |
-| `npm run prune:registry` | Prune older Docker images from Google Artifact Registry & local cache (retains latest only) |
+| `npm run prune:revisions` | Prune older inactive Cloud Run revisions (retains active revision only) |
+| `npm run prune:registry` | Prune older tagless Docker images from Google Artifact Registry & local cache (retains latest only) |
+| `npm run release:prod` | Execute automated production release (build, push :latest, update Cloud Run, prune older revisions & tagless images) |
 
 ---
 
@@ -267,6 +276,6 @@ Before marking any task as complete:
 - [ ] Every new endpoint is registered with appropriate `@ApiTags`, `@ApiOperation`, and `@ApiResponse` decorators.
 - [ ] Input payloads have corresponding DTO classes with `class-validator` rules.
 - [ ] If any backend API or UI-affecting functionality was modified, checked `../dhan-trader-ui` and made necessary changes there.
-- [ ] If new Docker images were built and pushed, older images were pruned from Google Artifact Registry (`npm run prune:registry`); strictly only the latest image is retained.
+- [ ] If a production release or Docker image push was performed, older Cloud Run revisions were pruned (`npm run prune:revisions`) and older tagless images were immediately pruned from Google Artifact Registry (`npm run prune:registry` or `npm run release:prod`); strictly only the latest revision and latest image are retained.
 - [ ] Data masters in `data/*.json` strictly contain NSE instruments only (`NSE_EQ`, `NSE_FNO`, `IDX_I`), with zero BSE entries.
 - [ ] Code comments and existing docstrings remain intact.

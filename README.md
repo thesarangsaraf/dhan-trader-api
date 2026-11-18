@@ -339,37 +339,84 @@ gcloud run deploy dhan-trader-api \
 
 ---
 
-### 5. Restarting / Updating Service on New Image Push
+### 5. Production Release Workflow & Service Restart
 
-Cloud Run revisions are immutable and pin the exact container image digest (`sha256`). Pushing a new Docker image under `:latest` will **not** automatically restart or update running instances. To deploy your newly pushed image:
+Cloud Run revisions are immutable and pin the exact container image digest (`sha256`). Pushing a new Docker image under `:latest` will **not** automatically restart or update running instances.
 
-#### Option A: Fast Revision Update via `gcloud` CLI (Recommended)
+> [!IMPORTANT]
+> **Strict Space Saving & Clean Infrastructure Directives**:
+> - **Only Latest Container Image Retained**: Every production Docker image is pushed with the tag `:latest`. Because Docker and Artifact Registry reassign `:latest` to the newest digest, **all previously pushed older images automatically become tagless (untagged dangling digests)**, each consuming ~88 MB of registry storage.
+> - **Only Latest Cloud Run Revision Retained**: Each deployment generates a new Cloud Run revision. Inactive older revisions linger in history and hold references to older image digests.
+> - **Mandatory on Every Production Release**:
+>   1. Delete older inactive Cloud Run revisions when the new revision is deployed (`npm run prune:revisions`).
+>   2. Delete older tagless image digests from Artifact Registry (`npm run prune:registry`).
+
+---
+
+#### Option A: One-Command Automated Production Release (Recommended)
+
+Run the entire end-to-end production pipeline with a single command:
+```bash
+npm run release:prod
+```
+
+This automated script (`scripts/release-prod.ts`) executes the entire release lifecycle sequentially:
+1. **Compiles TypeScript**: Executes `npm run build` (`tsc`).
+2. **Builds Container**: Builds the multi-stage Docker image for Cloud Run (`--platform linux/amd64`) tagged `:latest`.
+3. **Pushes Image**: Pushes the image to Artifact Registry (`:latest`), shifting the tag and leaving previous builds tagless.
+4. **Updates Cloud Run**: Deploys a zero-downtime new revision on Cloud Run (`gcloud run services update dhan-trader-api`).
+5. **Prunes Older Cloud Run Revisions**: Automatically executes `npm run prune:revisions` to delete all previous inactive revisions, leaving strictly the newly deployed active revision.
+6. **Prunes Older Registry Images**: Automatically executes `npm run prune:registry` to delete all older tagless digests from Artifact Registry and prune local dangling Docker images.
+
+---
+
+#### Option B: Step-by-Step Production Release Workflow
+
+If executing release steps manually from your terminal:
+
+```bash
+export IMAGE_TAG="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest"
+
+# 1. Compile TypeScript
+npm run build
+
+# 2. Build for Cloud Run architecture (linux/amd64)
+docker build --platform linux/amd64 -t $IMAGE_TAG .
+
+# 3. Push image to Artifact Registry (reassigns :latest; makes older images tagless)
+docker push $IMAGE_TAG
+
+# 4. Deploy new revision to Cloud Run
+gcloud run services update dhan-trader-api --image $IMAGE_TAG --region asia-south1
+
+# 5. MANDATORY: Delete older inactive Cloud Run revisions
+npm run prune:revisions
+
+# 6. MANDATORY: Prune older tagless images from Artifact Registry
+npm run prune:registry
+```
+
+---
+
+#### Option C: Fast Revision Update via `gcloud` CLI (Image Already Pushed)
 Pulls the latest image digest for `$IMAGE_TAG` and performs a zero-downtime rolling restart:
 ```bash
 gcloud run services update dhan-trader-api \
   --image asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest \
   --region asia-south1
+
+# Cleanup older revisions and tagless images:
+npm run prune:revisions
+npm run prune:registry
 ```
 
-#### Option B: Complete Build, Push & Restart Pipeline
-Run the entire end-to-end workflow from your local terminal:
-```bash
-export IMAGE_TAG="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api:latest"
+---
 
-# 1. Build for Cloud Run architecture (linux/amd64)
-docker build --platform linux/amd64 -t $IMAGE_TAG .
-
-# 2. Push image to Artifact Registry
-docker push $IMAGE_TAG
-
-# 3. Restart Cloud Run with the new revision
-gcloud run services update dhan-trader-api --image $IMAGE_TAG --region asia-south1
-```
-
-#### Option C: Via Google Cloud Console (Web UI)
+#### Option D: Via Google Cloud Console (Web UI)
 1. Go to **Google Cloud Console** → **Cloud Run** → **`dhan-trader-api`** (Region: `asia-south1`).
 2. Click **Edit & Deploy New Revision** at the top bar.
 3. Keep the image URL unchanged and click **Deploy**. Cloud Run re-resolves the tag to the newest digest and deploys the new revision.
+4. Run `npm run prune:revisions` to remove older revisions, followed by `npm run prune:registry`.
 
 > [!TIP]
 > **Forcing an Instance Restart Without Changing Images**:
@@ -382,18 +429,43 @@ gcloud run services update dhan-trader-api --image $IMAGE_TAG --region asia-sout
 
 ---
 
-### 6. Delete Untagged Images from Artifact Registry
+### 6. Delete Older Inactive Cloud Run Revisions
 
-Repeatedly pushing builds to `:latest` leaves previous image versions untagged ("dangling") in Google Artifact Registry. Run this command to prune and delete all untagged images:
+Whenever a new Cloud Run revision is deployed and ready, older revisions become inactive (receiving 0% traffic). To delete all older revisions and keep only the active revision:
 
 ```bash
-IMAGE_PATH="asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api"
-
-for digest in $(gcloud artifacts docker images list $IMAGE_PATH --filter="NOT tags:*" --format="value(IMAGE)"); do
-  echo "Deleting untagged image: $digest"
-  gcloud artifacts docker images delete "$digest" --delete-tags --quiet
-done
+npm run prune:revisions
 ```
+
+#### What `npm run prune:revisions` does:
+1. Queries the service description to identify the active revision currently serving 100% traffic (`status.latestReadyRevisionName`).
+2. Discovers all revisions associated with service `dhan-trader-api` in `asia-south1`.
+3. Protects the active revision and cleanly deletes every older inactive revision:
+   ```bash
+   gcloud run revisions delete "<old-revision-name>" --region=asia-south1 --quiet
+   ```
+4. Eliminates revision clutter and unblocks the immediate removal of older container image digests from Artifact Registry.
+
+---
+
+### 7. Delete Older & Tagless Images from Google Artifact Registry
+
+When images are pushed with the `:latest` tag, previous images lose their tag and become tagless dangling digests. Use the automated CLI command:
+
+```bash
+npm run prune:registry
+```
+
+#### What `npm run prune:registry` does:
+1. Lists all Docker images in `asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api`.
+2. Locates the image digest pinned by `:latest`.
+3. Protects the `:latest` index manifest and its corresponding architecture layers and attestations (via `docker manifest inspect` and creation time correlation).
+4. Deletes every older tagless digest using:
+   ```bash
+   gcloud artifacts docker images delete "asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api@<digest>" --quiet --delete-tags
+   ```
+5. Prunes local dangling Docker images via `docker image prune -f`.
+6. Conserves storage space so only ~55–65 MB compressed (~88 MB uncompressed) is stored in Artifact Registry.
 
 ---
 
@@ -405,7 +477,13 @@ dhan-trader/
 │   └── alerts.json                    # Persistent alert store
 ├── dist/                              # Compiled JavaScript output (from tsc)
 ├── scripts/
-│   └── verify-dhan.ts                 # Dhan HQ live connectivity test script (TypeScript)
+│   ├── verify-dhan.ts                 # Dhan HQ live connectivity test script (TypeScript)
+│   ├── verify-firestore.ts            # Live Firestore database verification script
+│   ├── upload-index-options-firestore.ts # Seed/upload NSE index options master to Firestore
+│   ├── upload-sec-id-mapping-firestore.ts # Upload modular security ID mapping to Firestore
+│   ├── release-prod.ts                # Production release orchestrator (build, push, deploy, prune)
+│   ├── prune-revisions.ts             # Script to prune older inactive Cloud Run revisions
+│   └── prune-registry.ts              # Script to prune older tagless Docker images from Artifact Registry
 ├── src/
 │   ├── app.controller.ts              # Root controller (/, /health, /api)
 │   ├── app.module.ts                  # NestJS root application module
