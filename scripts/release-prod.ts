@@ -1,9 +1,11 @@
 import { execSync } from 'child_process';
+import { ConfigService } from '../src/config/config.service';
 
-const REGISTRY_REPO = 'asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api';
+const config = new ConfigService();
+const REGISTRY_REPO = (config.containerRegistryRepo || process.env.CONTAINER_REGISTRY_REPO || '').trim();
 const IMAGE_TAG = `${REGISTRY_REPO}:latest`;
-const CLOUD_RUN_SERVICE = 'dhan-trader-api';
-const REGION = 'asia-south1';
+const CLOUD_RUN_SERVICE = (config.cloudRunService || process.env.CLOUD_RUN_SERVICE || '').trim();
+const REGION = (config.cloudRunRegion || process.env.CLOUD_RUN_REGION || '').trim();
 
 function runStep(title: string, command: string) {
   console.log(`\n======================================================`);

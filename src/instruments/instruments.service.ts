@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, Optional, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '../config/config.service';
 import { DhanService } from '../dhan/dhan.service';
 import { YahooFinanceService } from '../yahoo/yahoo.service';
 import {
@@ -108,6 +109,7 @@ export class InstrumentsService implements OnModuleInit {
     private readonly dhanService: DhanService,
     @Optional() private readonly yahooService?: YahooFinanceService,
     @Optional() private readonly firestoreService?: FirestoreService,
+    @Optional() private readonly config?: ConfigService,
   ) {
     // Eagerly trigger mapping fetch strictly from Firestore database in background and store promise to prevent duplicate concurrent load
     this.indexOptionsLoadingPromise = this.loadFromFirestore()
@@ -253,7 +255,10 @@ export class InstrumentsService implements OnModuleInit {
    * Download official Dhan scrip master CSV with timeout and error handling.
    */
   private async downloadDhanCsv(csvUrl?: string): Promise<string> {
-    const url = csvUrl || 'https://images.dhan.co/api-data/api-scrip-master.csv';
+    const url = csvUrl || this.config?.dhanScripMasterUrl || (process.env.DHAN_SCRIP_MASTER_URL || '').trim();
+    if (!url) {
+      throw new BadRequestException('Dhan scrip master CSV URL is not configured in .env or environment');
+    }
     this.logger.log(`Downloading latest official Dhan scrip master from ${url}...`);
     const resp = await fetch(url, { signal: AbortSignal.timeout(45000) });
     if (!resp.ok) {

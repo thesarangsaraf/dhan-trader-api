@@ -212,6 +212,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             hasConditionalOrder: enrichedOrders.length > 0,
             conditionalOrders: enrichedOrders,
             attachedOrder,
+            webhookUrl: localMatch?.webhookUrl || (enrichedOrders.length > 0 ? this.config.getWebhookCallbackUrl() : undefined),
+            webhookConfigured: Boolean(localMatch?.webhookConfigured !== undefined ? localMatch.webhookConfigured : enrichedOrders.length > 0),
             stopLoss: localMatch?.stopLoss,
             stopLossAlertPlaced: localMatch?.stopLossAlertPlaced,
             stopLossAlertId: localMatch?.stopLossAlertId,
@@ -603,6 +605,10 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         orders: orders,
       };
 
+      const hasOrder = orders.length > 0 || Boolean(attachedOrder);
+      const webhookCallbackUrl = a.webhookUrl || (hasOrder ? this.config.getWebhookCallbackUrl() : undefined);
+      const webhookConfigured = Boolean(a.webhookConfigured !== undefined ? a.webhookConfigured : (hasOrder && webhookCallbackUrl));
+
       return {
         ...a,
         instrument: inst,
@@ -611,6 +617,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         conditionalOrders: orders,
         hasConditionalOrder: orders.length > 0,
         attachedOrder,
+        webhookUrl: webhookCallbackUrl,
+        webhookConfigured,
         currentPrice: this.getCurrentPrice(inst, a.securityId, a.exchangeSegment),
         rawDhanJson: rawJson,
         rawAlertJson: rawJson,
@@ -820,6 +828,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       createdAt: new Date().toISOString(),
       triggeredAt: null,
       hasConditionalOrder: false,
+      webhookUrl: dto.webhookUrl || (dto.webhookConfigured ? this.config.getWebhookCallbackUrl() : undefined),
+      webhookConfigured: Boolean(dto.webhookConfigured || dto.webhookUrl),
       dhanMetadata: {
         monitoringMode: 'Live Dhan Marketfeed & In-Memory Check Engine',
         exchangeSegment: exSegment,
@@ -1091,10 +1101,14 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     // Dhan HQ API v2 /alerts/orders submission
     let dhanAlertId: string | null = null;
     let dhanApiResult: any = null;
+    const webhookCallbackUrl = dto.webhookUrl || this.config.getWebhookCallbackUrl();
 
     if (dto.executeViaDhanApi !== false) {
       const dhanPayload = {
         dhanClientId: this.config.clientId,
+        webhookUrl: webhookCallbackUrl,
+        postbackUrl: webhookCallbackUrl,
+        callbackUrl: webhookCallbackUrl,
         condition: {
           comparisonType: 'PRICE_WITH_VALUE',
           exchangeSegment: exSegment,
@@ -1102,7 +1116,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           operator: dhanOp,
           comparingValue: priceNum,
           expDate,
-          userNote: dto.remarks ? dto.remarks.trim() : `Conditional order for ${dto.instrument} at ${priceNum}`,
+          userNote: dto.remarks
+            ? `${dto.remarks.trim()} [Webhook: ${webhookCallbackUrl}]`
+            : `Conditional order for ${dto.instrument} at ${priceNum} [Webhook: ${webhookCallbackUrl}]`,
           frequency: dto.frequency || 'ONCE',
         },
         orders: validatedOrders.map((o) => ({
@@ -1114,6 +1130,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           quantity: Number(o.quantity),
           price: o.price ? String(o.price) : '0',
           validity: o.validity || 'DAY',
+          webhookUrl: webhookCallbackUrl,
+          postbackUrl: webhookCallbackUrl,
           ...(o.triggerPrice ? { triggerPrice: String(o.triggerPrice) } : {}),
         })),
       };
@@ -1149,6 +1167,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
       const slPayload = {
         dhanClientId: this.config.clientId,
+        webhookUrl: webhookCallbackUrl,
+        postbackUrl: webhookCallbackUrl,
+        callbackUrl: webhookCallbackUrl,
         condition: {
           comparisonType: 'PRICE_WITH_VALUE',
           exchangeSegment: exSegment,
@@ -1156,7 +1177,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           operator: stopLossConfig.operator,
           comparingValue: stopLossConfig.targetPrice,
           expDate,
-          userNote: `[STOP LOSS] Exit for #${alertId} (${firstOrder.symbol})`,
+          userNote: `[STOP LOSS] Exit for #${alertId} (${firstOrder.symbol}) [Webhook: ${webhookCallbackUrl}]`,
           frequency: 'ONCE',
         },
         orders: [
@@ -1176,6 +1197,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             quantity: Number(firstOrder.quantity),
             price: '0',
             validity: 'DAY',
+            correlationId: `SL-${alertId}`,
+            webhookUrl: webhookCallbackUrl,
+            postbackUrl: webhookCallbackUrl,
           },
         ],
       };
@@ -1244,6 +1268,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       isStopLossAlert: Boolean((dto as any).isStopLossAlert),
       parentAlertId: (dto as any).parentAlertId || null,
       dhanAlertId: alertId,
+      webhookUrl: webhookCallbackUrl,
+      webhookConfigured: true,
       dhanMetadata: {
         monitoringMode: 'Live Dhan Marketfeed & In-Memory Check Engine',
         dhanApiAlertCreated: true,
@@ -1581,6 +1607,9 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                     price: ord.price || 0,
                     triggerPrice: ord.triggerPrice || 0,
                     validity: ord.validity || 'DAY',
+                    correlationId: alert.id,
+                    postbackUrl: alert.webhookUrl || this.config.getWebhookCallbackUrl(),
+                    webhookUrl: alert.webhookUrl || this.config.getWebhookCallbackUrl(),
                   };
 
                   const ordRes = await this.dhanService.placeOrder(ordPayload);

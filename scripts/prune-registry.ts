@@ -1,6 +1,8 @@
 import { execSync } from 'child_process';
+import { ConfigService } from '../src/config/config.service';
 
-const REGISTRY_REPO = 'asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api';
+const config = new ConfigService();
+const REGISTRY_REPO = (config.containerRegistryRepo || process.env.CONTAINER_REGISTRY_REPO || '').trim();
 
 interface ArtifactImage {
   createTime: string;

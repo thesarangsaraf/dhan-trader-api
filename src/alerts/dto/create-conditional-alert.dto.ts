@@ -143,4 +143,19 @@ export class CreateConditionalAlertDto {
   @IsOptional()
   @IsString()
   parentAlertId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Custom webhook callback URL to receive notifications when alert triggers',
+    example: '/api/webhooks/dhan',
+  })
+  @IsOptional()
+  @IsString()
+  webhookUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Explicit flag indicating whether webhook callback is active for this alert',
+    default: true,
+  })
+  @IsOptional()
+  webhookConfigured?: boolean;
 }

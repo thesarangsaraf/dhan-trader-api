@@ -47,6 +47,9 @@ export class AuthService implements OnModuleInit {
         timeRemainingFormatted: 'No Token Configured',
         isExpired: true,
         isExpiringSoon: false,
+        postbackUrl: null,
+        postbackUrlConfigured: false,
+        expectedPostbackUrl: this.config.getWebhookCallbackUrl(),
         payload: null,
       };
     }
@@ -71,6 +74,9 @@ export class AuthService implements OnModuleInit {
         timeRemainingFormatted: 'Validity managed by Dhan API',
         isExpired: false,
         isExpiringSoon: false,
+        postbackUrl: null,
+        postbackUrlConfigured: false,
+        expectedPostbackUrl: this.config.getWebhookCallbackUrl(),
         payload: { raw: 'Opaque or Custom Token Format' },
       };
     }
@@ -90,6 +96,11 @@ export class AuthService implements OnModuleInit {
       statusText = 'Expiring Soon';
     }
 
+    const rawWebhook = (payload.webhookUrl || payload.postbackUrl || '').trim();
+    const postbackUrl = rawWebhook || null;
+    const postbackUrlConfigured = Boolean(rawWebhook && rawWebhook.length > 0);
+    const expectedPostbackUrl = this.config.getWebhookCallbackUrl();
+
     return {
       configured: true,
       status,
@@ -104,12 +115,16 @@ export class AuthService implements OnModuleInit {
       timeRemainingFormatted: formatDuration(secondsRemaining),
       isExpired: secondsRemaining <= 0,
       isExpiringSoon: secondsRemaining > 0 && secondsRemaining < 7200,
+      postbackUrl,
+      postbackUrlConfigured,
+      expectedPostbackUrl,
       payload: {
         sub: payload.sub || payload.clientId || clientId,
         clientId: payload.clientId || clientId,
         userName: payload.userName || payload.name || payload.clientId || clientId || 'Account',
         iat: iatSec,
         exp: expSec,
+        webhookUrl: rawWebhook,
       },
     };
   }

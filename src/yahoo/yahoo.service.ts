@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '../config/config.service';
 
 export interface OptionDetails {
   isOption: boolean;
@@ -36,6 +37,12 @@ export class YahooFinanceService {
   private readonly cacheTtlMs = 3000; // 3 seconds TTL to avoid spamming Yahoo
   private readonly candleCache = new Map<string, { data: ChartCandlesResponse; timestamp: number }>();
   private readonly candleCacheTtlMs = 60000; // 60 seconds TTL for candle charts & scans
+
+  constructor(@Optional() private readonly config?: ConfigService) {}
+
+  private getBaseUrl(): string {
+    return (this.config?.yahooFinanceBaseUrl || process.env.YAHOO_FINANCE_BASE_URL || '').trim();
+  }
 
   private readonly INDEX_MAP: Record<string, string> = {
     'NIFTY 50': '^NSEI',
@@ -140,7 +147,11 @@ export class YahooFinanceService {
     }
 
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1d`;
+      const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
+        throw new Error('Yahoo Finance API base URL is not configured in .env or environment');
+      }
+      const url = `${baseUrl}/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1d`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
 
@@ -233,9 +244,14 @@ export class YahooFinanceService {
     const interval = options.interval || '5m';
     let range = options.range;
 
+    const baseUrl = this.getBaseUrl();
+    if (!baseUrl) {
+      throw new Error('Yahoo Finance API base URL is not configured in .env or environment');
+    }
+
     let url: string;
     if (options.period1 && options.period2) {
-      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(interval)}&period1=${options.period1}&period2=${options.period2}`;
+      url = `${baseUrl}/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(interval)}&period1=${options.period1}&period2=${options.period2}`;
       range = `${options.period1}-${options.period2}`;
     } else {
       if (!range) {
@@ -245,7 +261,7 @@ export class YahooFinanceService {
         else if (interval === '1wk') range = '2y';
         else range = '1y';
       }
-      url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
+      url = `${baseUrl}/${encodeURIComponent(yahooSymbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
     }
 
     const cacheKey = `${yahooSymbol}_${interval}_${range || ''}_${options.period1 || 0}_${options.period2 || 0}_${options.limit || 0}`;

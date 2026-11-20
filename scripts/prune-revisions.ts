@@ -1,7 +1,9 @@
 import { execSync } from 'child_process';
+import { ConfigService } from '../src/config/config.service';
 
-const SERVICE_NAME = 'dhan-trader-api';
-const REGION = 'asia-south1';
+const config = new ConfigService();
+const SERVICE_NAME = (config.cloudRunService || process.env.CLOUD_RUN_SERVICE || '').trim();
+const REGION = (config.cloudRunRegion || process.env.CLOUD_RUN_REGION || '').trim();
 
 interface CloudRunRevision {
   metadata: {

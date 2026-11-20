@@ -59,7 +59,11 @@ export class TelegramService implements OnModuleInit {
       return { success: false, reason: 'Telegram bot token or chat ID not configured' };
     }
 
-    const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
+    const apiBase = (this.config.telegramApiBase || process.env.TELEGRAM_API_BASE || '').trim();
+    if (!apiBase) {
+      return { success: false, reason: 'Telegram API base URL is not configured in .env or environment' };
+    }
+    const url = `${apiBase}/bot${this.config.telegramBotToken}/sendMessage`;
     const payload = {
       chat_id: this.config.telegramChatId,
       text,

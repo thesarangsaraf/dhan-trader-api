@@ -407,13 +407,17 @@ export class FirestoreService implements OnModuleInit {
       const actualProjectId = keyJson.project_id || projectId;
 
       // 3. Create Google Auth JWT client (clean, modern authentication without deprecation warnings)
+      const scopes = (this.config?.firestoreAuthScopes && this.config.firestoreAuthScopes.length > 0)
+        ? this.config.firestoreAuthScopes
+        : (process.env.FIRESTORE_AUTH_SCOPES || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+
       const authClient = new JWT({
         email: keyJson.client_email,
         key: keyJson.private_key,
-        scopes: [
-          'https://www.googleapis.com/auth/cloud-platform',
-          'https://www.googleapis.com/auth/datastore',
-        ],
+        scopes,
       });
 
       // 4. Initialize Firestore instance pointing to project and named database
@@ -1544,7 +1548,7 @@ export class FirestoreService implements OnModuleInit {
       port: cfg.port !== undefined ? Number(cfg.port) : (current?.port || this.config.port || 8000),
       host: cfg.host || current?.host || this.config.host || '127.0.0.1',
       pollIntervalMs: cfg.pollIntervalMs !== undefined ? Number(cfg.pollIntervalMs) : (current?.pollIntervalMs || this.config.pollIntervalMs || 4000),
-      dhanApiBase: cfg.dhanApiBase || current?.dhanApiBase || this.config.dhanApiBase || 'https://api.dhan.co/v2',
+      dhanApiBase: cfg.dhanApiBase || current?.dhanApiBase || this.config.dhanApiBase || process.env.DHAN_API_BASE || '',
       updatedAt: new Date().toISOString(),
     };
     const res = await this.setDoc('config', 'app', payload, true);

@@ -23,7 +23,11 @@ async function uploadIndexOptionsToFirestore() {
 
   // 1. Download Dhan CSV and extract live NSE index options
   const indexOptions: CachedIndexOption[] = [];
-  const csvUrl = 'https://images.dhan.co/api-data/api-scrip-master.csv';
+  const csvUrl = config.dhanScripMasterUrl || (process.env.DHAN_SCRIP_MASTER_URL || '').trim();
+  if (!csvUrl) {
+    console.error('❌ Dhan scrip master CSV URL is not configured in .env or environment.');
+    process.exit(1);
+  }
   console.log(`\n📥 Downloading latest Dhan scrip master from ${csvUrl}...`);
 
   try {

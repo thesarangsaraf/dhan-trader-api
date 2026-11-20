@@ -24,7 +24,7 @@ async function verifyRealDhanConnection() {
 
   if (!inspection.configured || inspection.isExpired) {
     console.log('\n❌ [ALERT] Your Dhan Access Token is missing or expired.');
-    console.log('👉 Please generate a fresh token on https://web.dhan.co and update your .env:');
+    console.log('👉 Please generate a fresh token on the Dhan web console and update your credentials:');
     console.log('   DHAN_CLIENT_ID=your_client_id');
     console.log('   DHAN_ACCESS_TOKEN=your_jwt_access_token\n');
     return;
