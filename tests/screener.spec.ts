@@ -336,6 +336,24 @@ test('Liquidity Sweep & Reversal Screener (5m, Configured Indices)', async (t) =
               { time: istUnix('2026-11-16', '09:15'), open: 24550, high: 24700, low: 24500, close: 24600, volume: 10000 },
             ],
           });
+        } else if (req.interval === '1h') {
+          // Synthetic 1h candles for Order Block scanning
+          const baseT = istUnix(sampleDay, '09:15');
+          const candles: CandleData[] = [
+            { time: baseT - 6 * 3600, open: 24400, high: 24500, low: 24350, close: 24450, volume: 1000 },
+            { time: baseT - 5 * 3600, open: 24450, high: 24650, low: 24420, close: 24620, volume: 1500 },
+            { time: baseT - 4 * 3600, open: 24620, high: 24700, low: 24600, close: 24680, volume: 1800 },
+            { time: baseT - 3 * 3600, open: 24680, high: 24800, low: 24650, close: 24780, volume: 2000 },
+            { time: baseT - 2 * 3600, open: 24780, high: 24790, low: 24620, close: 24640, volume: 1200 },
+            { time: baseT - 1 * 3600, open: 24640, high: 24660, low: 24580, close: 24600, volume: 900 },
+            { time: baseT, open: 24600, high: 24650, low: 24590, close: 24620, volume: 800 },
+          ];
+          map.set(req.symbol, {
+            symbol: req.symbol,
+            yahooSymbol: '^NSEI',
+            interval: '1h',
+            candles,
+          });
         } else {
           // 5m candles with a fresh BUY PDL sweep for NIFTY only
           const candles: CandleData[] =
@@ -427,5 +445,21 @@ test('Liquidity Sweep & Reversal Screener (5m, Configured Indices)', async (t) =
       () => service.scan({ mode: 'historical', date: '2026-08-01' }, refNow),
       BadRequestException,
     );
+  });
+
+  await t.test('POST /api/screener/scan executes Order Block (SMC) scan when strategy is order-block', async () => {
+    const res = await service.scan({ strategy: 'order-block', htfTimeframe: '1h', ltfTimeframe: '5m' }, istUnix(sampleDay, '12:00'));
+    assert.strictEqual(res.strategy, 'order-block');
+    assert.strictEqual(res.totalScanned, 4);
+    assert.ok(res.orderBlockData);
+    assert.strictEqual(res.orderBlockData?.strategy, 'order-block');
+    assert.strictEqual(res.orderBlockData?.results.length, 4);
+  });
+
+  await t.test('POST /api/screener/order-block/scan directly executes Order Block scan', async () => {
+    const res = await controller.runOrderBlockScan({ htfTimeframe: '1h', ltfTimeframe: '5m' });
+    assert.strictEqual(res.strategy, 'order-block');
+    assert.strictEqual(res.totalScanned, 4);
+    assert.ok(Array.isArray(res.results));
   });
 });
