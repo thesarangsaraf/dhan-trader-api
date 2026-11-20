@@ -40,6 +40,7 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
   public telegramApiBase: string;
   public yahooFinanceBaseUrl: string;
   public jwtSecret: string;
+  public cronSecret: string;
   public cloudRunService: string;
   public cloudRunRegion: string;
   public containerRegistryRepo: string;
@@ -88,6 +89,7 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
 
     // Application Security
     this.jwtSecret = (process.env.JWT_SECRET || this.env.JWT_SECRET || '').trim();
+    this.cronSecret = (process.env.CRON_SECRET || this.env.CRON_SECRET || '').trim();
 
     // Google Cloud Run & Deployment
     this.cloudRunService = (process.env.CLOUD_RUN_SERVICE || this.env.CLOUD_RUN_SERVICE || '').trim();
@@ -152,6 +154,7 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     syncVar('TELEGRAM_API_BASE', this.telegramApiBase, (v) => (this.telegramApiBase = v));
     syncVar('YAHOO_FINANCE_BASE_URL', this.yahooFinanceBaseUrl, (v) => (this.yahooFinanceBaseUrl = v));
     syncVar('JWT_SECRET', this.jwtSecret, (v) => (this.jwtSecret = v));
+    syncVar('CRON_SECRET', this.cronSecret, (v) => (this.cronSecret = v));
     syncVar('CLOUD_RUN_SERVICE', this.cloudRunService, (v) => (this.cloudRunService = v));
     syncVar('CLOUD_RUN_REGION', this.cloudRunRegion, (v) => (this.cloudRunRegion = v));
     syncVar('CONTAINER_REGISTRY_REPO', this.containerRegistryRepo, (v) => (this.containerRegistryRepo = v));

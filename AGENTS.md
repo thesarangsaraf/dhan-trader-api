@@ -114,6 +114,15 @@ This document provides definitive instructions, architecture patterns, constrain
       - `npm run prune:revisions` (executes `scripts/prune-revisions.ts` — safely discovers the active Cloud Run revision serving 100% traffic, and deletes all older inactive revisions).
       - `npm run prune:registry` (executes `scripts/prune-registry.ts` — safely discovers the active `:latest` manifest, protects its child layers and attestations, and deletes all older tagless image digests from Artifact Registry as well as pruning local dangling Docker images).
 
+12. **Automated Twice-Daily Dhan Token Renewal via GCP Cloud Scheduler (`config/cron`)**:
+    - **Schedule & Objective**: Dhan Broker access tokens expire after 24 hours. To guarantee zero token expiration without manual intervention, a Google Cloud Scheduler job (`dhan-token-auto-renew`) triggers `POST /api/auth/renew` twice daily at **9:00 AM and 9:00 PM IST** (`0 9,21 * * *` in timezone `Asia/Kolkata`).
+    - **Authentication Architecture (`x-cron-secret`)**:
+      - Cloud Scheduler does not hold user interactive credentials. Instead, automated server-to-server invocations pass a pre-shared 64-character secret in the `x-cron-secret` HTTP header.
+      - **Firestore Persistence**: The active secret is stored in Google Cloud Firestore collection `config`, document `cron` (`CronConfig` { `cronSecret`, `updatedAt`, `description` }) and synchronized into `.env` (`CRON_SECRET`).
+      - **Guard Authorization**: `UserAuthGuard` inspects `request.headers['x-cron-secret']`. When valid, it sets `request.user = { userId: 'cloud-scheduler', username: 'cloud-scheduler', role: 'admin' }`, automatically passing `@Roles(UserRole.ADMIN)` authorization checks.
+    - **CLI & Setup Command**:
+      - `npm run setup:cron-secret` (executes `scripts/setup-cron-secret.ts` — verifies or generates a new cryptographically secure 64-character token, persists it into Firestore `config/cron`, and synchronizes `.env`).
+
 ---
 
 ## 📂 Architecture & Directory Structure
@@ -132,6 +141,7 @@ dhan-trader/
 │   ├── verify-firestore.ts            # Live Firestore database verification script
 │   ├── upload-index-options-firestore.ts # Script to seed/upload NSE index options to Firestore
 │   ├── upload-sec-id-mapping-firestore.ts # Script to upload modular sec_id_to_name_mapping
+│   ├── setup-cron-secret.ts           # Script to generate & persist Cloud Scheduler secret to Firestore
 │   ├── release-prod.ts                # Production release orchestrator (build, push :latest, update Cloud Run, prune registry)
 │   ├── prune-revisions.ts             # Script to prune older inactive Cloud Run revisions
 │   └── prune-registry.ts              # Script to prune older tagless Docker images from Google Artifact Registry
@@ -215,6 +225,7 @@ Always use the following npm scripts rather than manual invocation:
 | `npm run check:firestore` | Test live Google Cloud Firestore connectivity & Dhan token persistence |
 | `npm run upload:index-options` | Upload/seed NSE index options master into Firestore database |
 | `npm run upload:sec-id-mapping` | Upload modular security ID to name mapping to Firestore database |
+| `npm run setup:cron-secret` | Generate and save Cloud Scheduler automation secret into Firestore (`config/cron`) |
 | `npm run prune:revisions` | Prune older inactive Cloud Run revisions (retains active revision only) |
 | `npm run prune:registry` | Prune older tagless Docker images from Google Artifact Registry & local cache (retains latest only) |
 | `npm run release:prod` | Execute automated production release (build, push :latest, update Cloud Run, prune older revisions & tagless images) |

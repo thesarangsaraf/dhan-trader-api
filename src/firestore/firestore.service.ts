@@ -82,6 +82,12 @@ export interface TelegramConfig {
   updatedAt?: string;
 }
 
+export interface CronConfig {
+  cronSecret: string;
+  updatedAt?: string;
+  description?: string;
+}
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -1564,6 +1570,43 @@ export class FirestoreService implements OnModuleInit {
   }
 
   /**
+   * Helper: Retrieve Cron / Scheduler configuration from Firestore (config/cron).
+   */
+  @Cacheable({ key: 'config:cron', condition: (force) => !force, clone: true })
+  public async getCronConfig(force = false): Promise<CronConfig | null> {
+    if (!this.isReady()) return null;
+    return this.getDoc<CronConfig>('config', 'cron');
+  }
+
+  /**
+   * Helper: Save Cron / Scheduler configuration in Firestore (config/cron).
+   */
+  @CacheEvict({ key: 'config:cron' })
+  public async saveCronConfig(
+    secret: string,
+    description = 'GCP Cloud Scheduler API token renewal secret',
+  ): Promise<{ success: boolean; writeTime: string }> {
+    if (!this.isReady()) {
+      throw new Error('Firestore is not initialized. Check credentials.');
+    }
+    const cleanSecret = (secret || '').trim();
+    const payload: CronConfig = {
+      cronSecret: cleanSecret,
+      updatedAt: new Date().toISOString(),
+      description,
+    };
+    const res = await this.setDoc('config', 'cron', payload, true);
+    if (this.config) {
+      this.config.cronSecret = cleanSecret;
+    }
+    this.logger.log(`⏰ Saved Cron configuration to Firestore (config/cron)`);
+    return {
+      success: true,
+      writeTime: res.writeTime,
+    };
+  }
+
+  /**
    * Synchronizes all application settings, Telegram credentials, and Dhan tokens
    * from Firestore database directly into in-memory ConfigService state.
    */
@@ -1603,6 +1646,17 @@ export class FirestoreService implements OnModuleInit {
         if (appDoc.pollIntervalMs) this.config.pollIntervalMs = Number(appDoc.pollIntervalMs);
         if (appDoc.dhanApiBase) this.config.dhanApiBase = String(appDoc.dhanApiBase);
         this.logger.log(`⚙️ Application settings synced from Firestore (config/app)`);
+      }
+
+      // 4. Cron Security Secret (GCP Cloud Scheduler automation secret)
+      const cronDoc = await this.getCronConfig();
+      if (cronDoc?.cronSecret) {
+        if (this.config) {
+          this.config.cronSecret = cronDoc.cronSecret;
+        }
+        this.logger.log(`⏰ Cron secret synced from Firestore (config/cron)`);
+      } else if (this.config?.cronSecret) {
+        await this.saveCronConfig(this.config.cronSecret);
       }
     } catch (err: any) {
       this.logger.warn(`Could not sync configurations from Firestore: ${err.message}`);

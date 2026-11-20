@@ -873,6 +873,16 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.inspection?.expiresAtIST);
   });
 
+  await t.test('POST /api/auth/renew allows renewal via x-cron-secret header', async () => {
+    const config = app.get(ConfigService);
+    config.cronSecret = 'test_cron_secret_12345';
+    const res = await makeMockRequest('POST', '/api/auth/renew', undefined, {
+      'x-cron-secret': 'test_cron_secret_12345',
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.success, true);
+  });
+
   await t.test('GET /api/alerts returns active alerts array', async () => {
     const res = await makeMockRequest('GET', '/api/alerts');
     assert.strictEqual(res.status, 200);

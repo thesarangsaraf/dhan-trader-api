@@ -23,10 +23,11 @@ A high-performance, enterprise-grade backend algorithmic trading engine and pric
   - Monitors and triggers price alerts on benchmark NSE indices and F&O instruments using tick monitoring.
 - **Telegram Bot Notifications**:
   - Automated dispatches for triggered alerts and orders (placed, executed, cancelled).
-- **Dhan Token Expiry & Refresh Service**:
+- **Automated Dhan Token Renewal (Twice Daily via GCP Cloud Scheduler)**:
   - Inspects JWT `exp` and `iat` claims, outputting human-readable Indian Standard Time (IST) expiration stamps and countdowns.
-  - Live API validation pinging `https://api.dhan.co/v2/profile`.
-  - In-place token updates via API (`/api/auth/update` and `/api/auth/renew`) persisted directly to `.env` with hot-reloading.
+  - Automatically renewed twice daily at **9:00 AM and 9:00 PM IST** (`0 9,21 * * *`) via Google Cloud Scheduler job `dhan-token-auto-renew`.
+  - Authenticated securely via pre-shared header `x-cron-secret` backed by Google Cloud Firestore (`config/cron`) and `.env` (`CRON_SECRET`).
+  - In-place updates persisted directly to Firestore (`config/dhan`) and `.env` with hot-reloading.
 
 ---
 
@@ -142,9 +143,14 @@ curl http://127.0.0.1:8000/api/auth/verify
 ```
 
 #### `POST /api/auth/renew`
-Renews the token via Dhan API `/RenewToken` and persists it to `.env`.
+Renews the token via Dhan API `/RenewToken` and persists the newly generated token directly into Google Cloud Firestore (`config/dhan`) and local `.env`.
+- **User Calls**: Authenticated via Bearer token (`Authorization: Bearer <token>`).
+- **Cloud Scheduler Calls**: Authenticated via automated cron header (`x-cron-secret: <CRON_SECRET>`), automatically triggered twice daily at 9:00 AM & 9:00 PM IST by Google Cloud Scheduler job `dhan-token-auto-renew`.
+
 ```bash
-curl -X POST http://127.0.0.1:8000/api/auth/renew
+# Invocation via Cloud Scheduler pre-shared secret:
+curl -X POST http://127.0.0.1:8000/api/auth/renew \
+  -H "x-cron-secret: 2ae65767dbc0ae6a4aee4107fde62c17d3e73f199d8f2f49075557e16ddc1ac6"
 ```
 
 #### `POST /api/auth/update`

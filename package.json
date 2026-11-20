@@ -15,6 +15,7 @@
     "check:firestore": "ts-node scripts/verify-firestore.ts",
     "upload:index-options": "ts-node scripts/upload-index-options-firestore.ts",
     "upload:sec-id-mapping": "ts-node scripts/upload-sec-id-mapping-firestore.ts",
+    "setup:cron-secret": "ts-node scripts/setup-cron-secret.ts",
     "prune:revisions": "ts-node scripts/prune-revisions.ts",
     "prune:registry": "ts-node scripts/prune-registry.ts",
     "release:prod": "ts-node scripts/release-prod.ts"
