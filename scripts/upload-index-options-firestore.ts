@@ -109,9 +109,9 @@ async function uploadIndexOptionsToFirestore() {
 
   const tradedOptions = indexOptions.filter((opt) => opt.symbolName && new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']).has(opt.symbolName));
 
-  console.log(`\n📤 Uploading contracts to Firestore collection [index_options] across dedicated documents (max 2 expiries: current & next)...`);
+  console.log(`\n📤 Uploading contracts to Firestore collection [index_options] across dedicated documents (max 3 expiries: current, next & far)...`);
   const startTime = Date.now();
-  const result = await firestoreService.saveIndexOptions(tradedOptions, 2);
+  const result = await firestoreService.saveIndexOptions(tradedOptions, 3);
   const elapsed = Date.now() - startTime;
 
   console.log(`✅ Upload complete in ${elapsed}ms!`);
@@ -144,6 +144,8 @@ async function uploadIndexOptionsToFirestore() {
       console.log(`      - Name           : ${doc.name}`);
       console.log(`      - Current Expiry : ${doc.currentExpiry}`);
       console.log(`      - Next Expiry    : ${doc.nextExpiry}`);
+      console.log(`      - Far Expiry     : ${doc.farExpiry || 'N/A'}`);
+      console.log(`      - Expiries       : ${doc.expiries?.join(', ') || 'N/A'}`);
       console.log(`      - Total Contracts: ${doc.totalContracts}`);
       console.log(`      - Sample Contract: ${doc.contracts[0]?.customSymbol || doc.contracts[0]?.tradingSymbol} (SecID: ${doc.contracts[0]?.securityId})`);
     } else {

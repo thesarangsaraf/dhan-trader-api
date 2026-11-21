@@ -241,8 +241,8 @@ test('FirestoreService (NestJS)', async (t) => {
         exchange: 'NSE_FNO',
         securityId: '45001',
         tradingSymbol: 'NIFTY-Nov2026-25500-CE',
-        customSymbol: 'NIFTY 12 NOV 25500 CALL',
-        expiryDate: '2026-11-12',
+        customSymbol: 'NIFTY 26 NOV 25500 CALL',
+        expiryDate: '2026-11-26',
         strikePrice: 25500,
         optionType: 'CE',
         lotSize: 50,
@@ -252,10 +252,43 @@ test('FirestoreService (NestJS)', async (t) => {
         exchange: 'NSE_FNO',
         securityId: '45002',
         tradingSymbol: 'NIFTY-Nov2026-25500-PE',
-        customSymbol: 'NIFTY 12 NOV 25500 PUT',
-        expiryDate: '2026-11-12',
+        customSymbol: 'NIFTY 26 NOV 25500 PUT',
+        expiryDate: '2026-11-26',
         strikePrice: 25500,
         optionType: 'PE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45003',
+        tradingSymbol: 'NIFTY-Dec2026-25500-CE-W1',
+        customSymbol: 'NIFTY 03 DEC 25500 CALL',
+        expiryDate: '2026-12-03',
+        strikePrice: 25500,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45004',
+        tradingSymbol: 'NIFTY-Dec2026-25500-CE-W2',
+        customSymbol: 'NIFTY 10 DEC 25500 CALL',
+        expiryDate: '2026-12-10',
+        strikePrice: 25500,
+        optionType: 'CE',
+        lotSize: 50,
+      },
+      {
+        symbolName: 'NIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '45005',
+        tradingSymbol: 'NIFTY-Dec2026-25500-CE-W3',
+        customSymbol: 'NIFTY 17 DEC 25500 CALL',
+        expiryDate: '2026-12-17',
+        strikePrice: 25500,
+        optionType: 'CE',
         lotSize: 50,
       },
       {
@@ -263,40 +296,49 @@ test('FirestoreService (NestJS)', async (t) => {
         exchange: 'NSE_FNO',
         securityId: '52001',
         tradingSymbol: 'BANKNIFTY-Nov2026-52000-CE',
-        customSymbol: 'BANKNIFTY 12 NOV 52000 CALL',
-        expiryDate: '2026-11-12',
+        customSymbol: 'BANKNIFTY 26 NOV 52000 CALL',
+        expiryDate: '2026-11-26',
         strikePrice: 52000,
         optionType: 'CE',
         lotSize: 30,
       },
     ];
 
-    const saveRes = await service.saveIndexOptions(sampleOptions, 2);
+    const saveRes = await service.saveIndexOptions(sampleOptions);
     assert.strictEqual(saveRes.success, true);
-    assert.strictEqual(saveRes.totalItems, 3);
+    assert.strictEqual(saveRes.totalItems, 5);
     assert.strictEqual(saveRes.totalChunks, 2);
 
     const meta = await service.getIndexOptionsMetadata();
-    assert.strictEqual(meta?.totalItems, 3);
+    assert.strictEqual(meta?.totalItems, 5);
     assert.strictEqual(meta?.totalChunks, 2);
+    assert.strictEqual(meta?.maxExpiriesPerIndex, 3);
 
     const niftyDoc = await service.getIndexOptionDocument('NIFTY');
     assert.strictEqual(niftyDoc?.symbol, 'NIFTY');
     assert.strictEqual(niftyDoc?.name, 'NIFTY 50');
-    assert.strictEqual(niftyDoc?.currentExpiry, '2026-11-12');
-    assert.strictEqual(niftyDoc?.totalContracts, 2);
+    assert.strictEqual(niftyDoc?.currentExpiry, '2026-11-26');
+    assert.strictEqual(niftyDoc?.nextExpiry, '2026-12-03');
+    assert.strictEqual(niftyDoc?.farExpiry, '2026-12-10');
+    assert.deepStrictEqual(niftyDoc?.expiries, ['2026-11-26', '2026-12-03', '2026-12-10']);
+    assert.strictEqual(niftyDoc?.totalContracts, 4);
 
     const bankDoc = await service.getIndexOptionDocument('BANKNIFTY');
     assert.strictEqual(bankDoc?.symbol, 'BANKNIFTY');
     assert.strictEqual(bankDoc?.name, 'NIFTY BANK');
-    assert.strictEqual(bankDoc?.currentExpiry, '2026-11-12');
+    assert.strictEqual(bankDoc?.currentExpiry, '2026-11-26');
+    assert.strictEqual(bankDoc?.nextExpiry, null);
+    assert.strictEqual(bankDoc?.farExpiry, null);
+    assert.deepStrictEqual(bankDoc?.expiries, ['2026-11-26']);
     assert.strictEqual(bankDoc?.totalContracts, 1);
 
     const fetched = await service.getIndexOptions();
-    assert.strictEqual(fetched.length, 3);
+    assert.strictEqual(fetched.length, 5);
     assert.strictEqual(fetched[0].securityId, '45001');
     assert.strictEqual(fetched[1].securityId, '45002');
-    assert.strictEqual(fetched[2].securityId, '52001');
+    assert.strictEqual(fetched[2].securityId, '45003');
+    assert.strictEqual(fetched[3].securityId, '45004');
+    assert.strictEqual(fetched[4].securityId, '52001');
 
     const delRes = await service.deleteIndexOptions();
     assert.strictEqual(delRes.success, true);

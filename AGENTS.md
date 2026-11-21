@@ -58,8 +58,8 @@ This document provides definitive instructions, architecture patterns, constrain
      - **Traded Index Options** (Collection `index_options`):
        - Option contracts are saved **strictly for the indices that the user trades**: `NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, and `SENSEX`.
        - `FINNIFTY`, all single stock options (`OPTSTK`), and non-traded index options (`NIFTYFPI`, `NIFTYNXT50`) are strictly excluded.
-       - **Maximum 2 Expiries**: Limited strictly to nearest 2 active expiries (`currentExpiry` and `nextExpiry`).
-       - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, `SENSEX`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `expiries`, and array of `contracts`.
+       - **Maximum 3 Expiries**: Limited strictly to nearest 3 active expiries (`currentExpiry`, `nextExpiry`, and `farExpiry`).
+       - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, `SENSEX`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `farExpiry`, `expiries`, and array of `contracts`.
        - Stale/legacy chunk documents (`chunk_*`) and obsolete index documents (`FINNIFTY`) are automatically purged.
    - **Sync & Flush-Reload Endpoints**:
      - `POST /api/instruments/sync/equities` (CLI `npm run upload:sec-id-mapping`)

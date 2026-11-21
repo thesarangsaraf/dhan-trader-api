@@ -504,8 +504,8 @@ export class InstrumentsService implements OnModuleInit {
       throw new BadRequestException('No traded index options found to sync');
     }
 
-    // Save strictly to index_options collection in dedicated documents per index (max 2 expiries)
-    const res = await this.firestoreService.saveIndexOptions(optionsToSync, 2);
+    // Save strictly to index_options collection in dedicated documents per index (max 3 expiries)
+    const res = await this.firestoreService.saveIndexOptions(optionsToSync, 3);
 
     // Update in-memory cache strictly with filtered options
     this.setIndexOptions(res.items && res.items.length > 0 ? res.items : optionsToSync);
@@ -519,7 +519,7 @@ export class InstrumentsService implements OnModuleInit {
       documentIds: res.documentIds,
       writeTime: res.writeTime,
       tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
-      message: `Successfully synced ${res.totalItems} traded index options across dedicated documents [${res.documentIds?.join(', ') || Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS).join(', ')}] (max 2 expiries) in Firestore collection [index_options]`,
+      message: `Successfully synced ${res.totalItems} traded index options across dedicated documents [${res.documentIds?.join(', ') || Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS).join(', ')}] (max 3 expiries) in Firestore collection [index_options]`,
     };
   }
 
@@ -619,7 +619,7 @@ export class InstrumentsService implements OnModuleInit {
       ];
     }
 
-    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 3);
     this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
 
     return {
@@ -705,7 +705,7 @@ export class InstrumentsService implements OnModuleInit {
 
     // Save reloaded data into Firestore
     const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
-    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+    const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 3);
 
     // Repopulate in-memory cache
     this.setScripMaster(parsedScrip);
@@ -748,7 +748,7 @@ export class InstrumentsService implements OnModuleInit {
     if (dto?.csvContent) {
       const { parsedScrip, parsedOptions } = this.parseCsv(dto.csvContent);
       const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
-      const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+      const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 3);
       this.setScripMaster(parsedScrip);
       this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
       return {
@@ -770,7 +770,7 @@ export class InstrumentsService implements OnModuleInit {
         const csvText = await this.downloadDhanCsv(dto?.csvUrl);
         const { parsedScrip, parsedOptions } = this.parseCsv(csvText);
         const eqRes = await this.firestoreService.saveSecIdMapping([], parsedScrip);
-        const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 2);
+        const optRes = await this.firestoreService.saveIndexOptions(parsedOptions, 3);
         this.setScripMaster(parsedScrip);
         this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : parsedOptions);
         return {
@@ -804,7 +804,7 @@ export class InstrumentsService implements OnModuleInit {
     const eqRes = await this.firestoreService.saveSecIdMapping([], scripToSync);
     let totalOptions = 0;
     if (optionsToSync.length > 0) {
-      const optRes = await this.firestoreService.saveIndexOptions(optionsToSync, 2);
+      const optRes = await this.firestoreService.saveIndexOptions(optionsToSync, 3);
       totalOptions = optRes.totalItems;
       this.setIndexOptions(optRes.items && optRes.items.length > 0 ? optRes.items : optionsToSync);
     }

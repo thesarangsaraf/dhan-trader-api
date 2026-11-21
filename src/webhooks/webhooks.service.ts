@@ -2,6 +2,9 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { TelegramService } from '../telegram/telegram.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { InstrumentsService } from '../instruments/instruments.service';
+import { NtfyService } from '../notifications/ntfy.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { FirestoreService } from '../firestore/firestore.service';
 import { DhanWebhookDto } from './dto/dhan-webhook.dto';
 
 function escapeHtml(text: any): string {
@@ -25,12 +28,15 @@ export class WebhooksService {
     private readonly telegramService: TelegramService,
     @Optional() private readonly alertsService?: AlertsService,
     @Optional() private readonly instrumentsService?: InstrumentsService,
+    @Optional() private readonly ntfyService?: NtfyService,
+    @Optional() private readonly notificationsService?: NotificationsService,
+    @Optional() private readonly firestoreService?: FirestoreService,
   ) {}
 
   /**
    * Process Dhan Postback / Webhook POST payload.
    * Matches alert and attached order details, updates alert state,
-   * formats a comprehensive message, and dispatches it immediately to Telegram.
+   * formats comprehensive messages, and dispatches them to enabled channels (Telegram & ntfy.sh).
    */
   async handleDhanWebhook(dto: DhanWebhookDto): Promise<{
     success: boolean;
@@ -38,6 +44,8 @@ export class WebhooksService {
     matchedAlertId?: string;
     telegramSent: boolean;
     telegramReason?: string;
+    ntfySent: boolean;
+    ntfyReason?: string;
     data: {
       orderId?: string;
       orderStatus?: string;
@@ -68,7 +76,24 @@ export class WebhooksService {
     // 3. Resolve attached order instrument and contract details
     const orderDetails = this.resolveOrderDetails(dto, matchedAlert, instrumentName);
 
-    // 4. Construct high-visibility Telegram message
+    // 4. Resolve notification channel settings from Firestore
+    let telegramEnabled = true;
+    let ntfyEnabled = true;
+    if (this.notificationsService) {
+      try {
+        const s = await this.notificationsService.getSettings();
+        telegramEnabled = s.telegram.enabled;
+        ntfyEnabled = s.ntfy.enabled;
+      } catch {}
+    } else if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
+      try {
+        const c = await this.firestoreService.getNotificationConfig();
+        telegramEnabled = c.telegramEnabled;
+        ntfyEnabled = c.ntfyEnabled;
+      } catch {}
+    }
+
+    // 5. Construct high-visibility Telegram message & dispatch if enabled
     const messageHtml = this.formatTelegramMessage({
       orderStatus,
       action,
@@ -84,23 +109,57 @@ export class WebhooksService {
       omsErrorDescription: dto.omsErrorDescription || null,
     });
 
-    // 5. Send message immediately to Telegram
-    let teleRes: any = { success: false, reason: 'TelegramService not available' };
-    if (this.telegramService && typeof this.telegramService.sendMessage === 'function') {
-      teleRes = await this.telegramService.sendMessage(messageHtml, { parseMode: 'HTML' });
+    let teleRes: any = { success: false, reason: 'Telegram disabled in settings' };
+    if (telegramEnabled) {
+      if (this.telegramService && typeof this.telegramService.sendMessage === 'function') {
+        teleRes = await this.telegramService.sendMessage(messageHtml, { parseMode: 'HTML' });
+      } else {
+        teleRes = { success: false, reason: 'TelegramService not available' };
+      }
     }
     const telegramSent = Boolean(teleRes && teleRes.success);
 
     this.logger.log(
-      `✈️ Telegram notification ${telegramSent ? 'dispatched successfully' : 'suppressed/failed'}: ${teleRes?.reason || 'OK'}`,
+      `✈️ Telegram notification ${telegramSent ? 'dispatched successfully' : telegramEnabled ? 'suppressed/failed' : 'disabled in settings'}: ${teleRes?.reason || 'OK'}`,
+    );
+
+    // 6. Construct ntfy Markdown message & dispatch if enabled
+    let ntfyRes: any = { success: false, reason: 'ntfy.sh disabled in settings' };
+    if (ntfyEnabled && this.ntfyService) {
+      const ntfyPayload = this.ntfyService.formatPostbackMessage({
+        orderStatus,
+        action,
+        instrumentName,
+        targetPrice,
+        operator,
+        remarks,
+        ...orderDetails,
+        orderId: dto.orderId || 'N/A',
+        correlationId: dto.correlationId || matchedAlert?.id || null,
+        exchangeSegment: dto.exchangeSegment || orderDetails.exchangeSegment || 'NSE_FNO',
+        omsErrorCode: dto.omsErrorCode || null,
+        omsErrorDescription: dto.omsErrorDescription || null,
+      });
+      ntfyRes = await this.ntfyService.sendNotification(ntfyPayload);
+    } else if (!ntfyEnabled) {
+      ntfyRes = { success: false, reason: 'ntfy.sh notifications disabled in settings' };
+    } else {
+      ntfyRes = { success: false, reason: 'NtfyService not available' };
+    }
+    const ntfySent = Boolean(ntfyRes && ntfyRes.success);
+
+    this.logger.log(
+      `📱 ntfy.sh notification ${ntfySent ? 'dispatched successfully' : ntfyEnabled ? 'suppressed/failed' : 'disabled in settings'}: ${ntfyRes?.reason || ntfyRes?.error || 'OK'}`,
     );
 
     return {
       success: true,
-      message: 'Dhan webhook processed and Telegram alert notification evaluated',
+      message: 'Dhan webhook processed and notification channels evaluated',
       matchedAlertId: matchedAlert?.id,
       telegramSent,
       telegramReason: teleRes?.reason,
+      ntfySent,
+      ntfyReason: ntfyRes?.reason || ntfyRes?.error,
       data: {
         orderId: dto.orderId,
         orderStatus,

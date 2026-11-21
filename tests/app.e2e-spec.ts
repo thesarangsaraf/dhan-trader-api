@@ -202,6 +202,31 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     saveDhanToken: async () => ({ success: true, writeTime: new Date().toISOString() }),
     getTelegramConfig: async () => ({ botToken: 'test_token', chatId: 'test_chat' }),
     saveTelegramConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
+    getNotificationConfig: async () => {
+      const doc = mockFirestoreDb['config/notifications'] || {};
+      return {
+        telegramEnabled: doc.telegramEnabled !== undefined ? doc.telegramEnabled : true,
+        ntfyEnabled: doc.ntfyEnabled !== undefined ? doc.ntfyEnabled : true,
+        ntfyTopic: doc.ntfyTopic || 'dhan-alerts-sarang-8821',
+        ntfyServerUrl: doc.ntfyServerUrl || 'https://ntfy.sh',
+      };
+    },
+    saveNotificationConfig: async (cfg: any) => {
+      const current = mockFirestoreDb['config/notifications'] || {};
+      const updated = {
+        telegramEnabled: cfg.telegramEnabled !== undefined ? cfg.telegramEnabled : (current.telegramEnabled ?? true),
+        ntfyEnabled: cfg.ntfyEnabled !== undefined ? cfg.ntfyEnabled : (current.ntfyEnabled ?? true),
+        ntfyTopic: cfg.ntfyTopic || current.ntfyTopic || 'dhan-alerts-sarang-8821',
+        ntfyServerUrl: cfg.ntfyServerUrl || current.ntfyServerUrl || 'https://ntfy.sh',
+        updatedAt: new Date().toISOString(),
+      };
+      mockFirestoreDb['config/notifications'] = updated;
+      return {
+        success: true,
+        config: updated,
+        writeTime: new Date().toISOString(),
+      };
+    },
     getAppConfig: async () => ({ port: 8000, host: '127.0.0.1', pollIntervalMs: 4000, dhanApiBase: 'https://api.dhan.co/v2' }),
     saveAppConfig: async () => ({ success: true, writeTime: new Date().toISOString() }),
     syncAllConfigFromFirestore: async () => {},
@@ -1118,6 +1143,36 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.configured);
   });
 
+  await t.test('GET /api/notifications/settings returns notification channels configuration and status', async () => {
+    const res = await makeMockRequest('GET', '/api/notifications/settings');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(typeof res.body.telegram?.enabled, 'boolean');
+    assert.strictEqual(typeof res.body.ntfy?.enabled, 'boolean');
+    assert.ok(res.body.ntfy?.topic);
+    assert.ok(res.body.ntfy?.serverUrl);
+  });
+
+  await t.test('GET /api/ntfy/status returns ntfy connection status and subscription URL', async () => {
+    const res = await makeMockRequest('GET', '/api/ntfy/status');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.configured, true);
+    assert.ok(res.body.topic);
+    assert.ok(res.body.subscriptionUrl.includes(res.body.topic));
+  });
+
+  await t.test('POST /api/ntfy/test triggers test notification to ntfy.sh', async () => {
+    const res = await makeMockRequest('POST', '/api/ntfy/test', { topic: 'dhan-alerts-sarang-8821' });
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.success, true);
+  });
+
+  await t.test('POST /api/notifications/test triggers test notifications across enabled channels', async () => {
+    const res = await makeMockRequest('POST', '/api/notifications/test');
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(typeof res.body.telegram?.sent, 'boolean');
+    assert.strictEqual(typeof res.body.ntfy?.sent, 'boolean');
+  });
+
   await t.test('GET /api/firestore/status returns firestore configuration state', async () => {
     const res = await makeMockRequest('GET', '/api/firestore/status');
     assert.strictEqual(res.status, 200);
@@ -1523,7 +1578,27 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     );
     assert.strictEqual(traderLotUpdateRes.status, 403);
 
-    // 12. Clean up created users
+    // 12. Trader is blocked from updating notification settings -> 403
+    const traderNotifRes = await makeMockRequest(
+      'PUT',
+      '/api/notifications/settings',
+      { telegramEnabled: false, ntfyEnabled: true },
+      { authorization: `Bearer ${traderToken}` },
+    );
+    assert.strictEqual(traderNotifRes.status, 403);
+
+    // 13. Admin can update notification settings
+    const adminNotifRes = await makeMockRequest(
+      'PUT',
+      '/api/notifications/settings',
+      { telegramEnabled: false, ntfyEnabled: true, ntfyTopic: 'dhan-alerts-sarang-8821' },
+      { authorization: `Bearer ${adminToken}` },
+    );
+    assert.strictEqual(adminNotifRes.status, 200);
+    assert.strictEqual(adminNotifRes.body.settings.telegram.enabled, false);
+    assert.strictEqual(adminNotifRes.body.settings.ntfy.enabled, true);
+
+    // 14. Clean up created users
     await makeMockRequest(
       'DELETE',
       '/api/user-auth/users/test_trader_order',
