@@ -68,13 +68,6 @@ test('AuthService (NestJS)', async (t) => {
     assert.strictEqual(inspection.status, 'ACTIVE');
   });
 
-  await t.test('verifyLiveValidity calls Dhan API', async () => {
-    const res = await service.verifyLiveValidity();
-    assert.strictEqual(res.verified, true);
-    assert.strictEqual(res.source, 'dhan_api');
-    assert.strictEqual(res.profile.name, 'SARANG');
-  });
-
   await t.test('renewToken returns renewed status from Dhan API', async () => {
     const res = await service.renewToken();
     assert.strictEqual(res.success, true);

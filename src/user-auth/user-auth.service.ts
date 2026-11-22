@@ -534,17 +534,6 @@ export class UserAuthService implements OnModuleInit {
   }
 
   /**
-   * Retrieves profile of current user.
-   */
-  public async getProfile(username: string) {
-    const user = await this.getUser(username);
-    return {
-      username: user?.username || username,
-      role: user?.role || 'admin',
-    };
-  }
-
-  /**
    * List all active sessions for a user, sorted newest first.
    */
   public async listUserSessions(username: string, currentRefreshToken?: string): Promise<ActiveSessionDto[]> {

@@ -322,9 +322,6 @@ export class OrdersService {
         updateTime: new Date().toISOString(),
       };
 
-      // Event notifications stopped per user instruction
-      // this.telegramService.sendOrderNotification(liveOrder, 'PLACED');
-
       return {
         success: true,
         source: 'dhan_api',
@@ -349,8 +346,6 @@ export class OrdersService {
     const apiResult = await this.dhanService.cancelOrder(orderId);
 
     if (apiResult.ok) {
-      // Event notifications stopped per user instruction
-      // this.telegramService.sendOrderNotification({ orderId, status: 'CANCELLED', symbol: 'ORDER' }, 'CANCELLED');
       return {
         success: true,
         source: 'dhan_api',
@@ -366,26 +361,6 @@ export class OrdersService {
       || `Failed to cancel order ${orderId} on Dhan API`;
 
     throw new BadRequestException(errorMsg);
-  }
-
-  getFinancialYears() {
-    return getAvailableFinancialYears();
-  }
-
-  async getTrades() {
-    const apiResult = await this.dhanService.getTrades();
-    if (apiResult.ok && Array.isArray(apiResult.data)) {
-      return this.mapTradeRecords(apiResult.data);
-    }
-    if (!apiResult.ok) {
-      const errorMsg = apiResult.data?.errorMessage
-        || apiResult.data?.message
-        || apiResult.data?.data?.['808']
-        || apiResult.error
-        || `Dhan API error (HTTP ${apiResult.status})`;
-      throw new BadGatewayException(errorMsg);
-    }
-    return [];
   }
 
   async getTradeHistory(dto: GetTradeHistoryDto = {}) {

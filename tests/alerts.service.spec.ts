@@ -49,8 +49,6 @@ test('AlertsService (NestJS)', async (t) => {
   };
 
   const mockTelegramService = {
-    sendAlertNotification: async () => ({ success: true }),
-    sendOrderNotification: async () => ({ success: true }),
     sendMessage: async () => ({ success: true }),
   };
 
@@ -123,35 +121,6 @@ test('AlertsService (NestJS)', async (t) => {
   }).compile();
 
   service = moduleRef.get<AlertsService>(AlertsService);
-
-  await t.test('returns predefined popular NSE indices', () => {
-    const indices = service.getIndices();
-    assert.ok(Array.isArray(indices));
-    assert.strictEqual(indices.length, 4);
-
-    const nifty50 = indices.find((i) => i.name === 'NIFTY 50');
-    assert.ok(nifty50);
-    assert.strictEqual(nifty50.securityId, '13');
-    assert.strictEqual(nifty50.exchangeSegment, 'IDX_I');
-
-    const bankNifty = indices.find((i) => i.name === 'BANK NIFTY');
-    assert.ok(bankNifty);
-    assert.strictEqual(bankNifty.securityId, '25');
-
-    const sensex = indices.find((i) => i.name === 'SENSEX');
-    assert.ok(sensex);
-    assert.strictEqual(sensex.securityId, '51');
-
-    const midcapNifty = indices.find((i) => i.name === 'MIDCAP NIFTY');
-    assert.ok(midcapNifty);
-    assert.strictEqual(midcapNifty.securityId, '442');
-
-    // Confirm that removed indices are NOT present
-    const removedNames = ['NIFTY NEXT 50', 'INDIA VIX', 'NIFTY IT', 'NIFTY AUTO', 'NIFTY FMCG', 'NIFTY PHARMA', 'NIFTY METAL', 'NIFTY FIN SERVICE'];
-    for (const rName of removedNames) {
-      assert.ok(!indices.some((i) => i.name === rName), `Expected ${rName} to be deleted`);
-    }
-  });
 
   await t.test('creates, reads, categorizes and manages price alerts', () => {
     const result = service.createAlert({
@@ -450,22 +419,6 @@ test('AlertsService (NestJS)', async (t) => {
     assert.strictEqual(rawFallback, 'SEC-999999');
   });
 
-  await t.test('getInstrumentDetailsBySecurityId returns structured metadata', () => {
-    const idxDetails = service.getInstrumentDetailsBySecurityId('13');
-    assert.ok(idxDetails);
-    assert.strictEqual(idxDetails.instrumentName, 'NIFTY 50');
-    assert.strictEqual(idxDetails.exchangeSegment, 'IDX_I');
-
-    const eqDetails = service.getInstrumentDetailsBySecurityId('2885');
-    assert.ok(eqDetails);
-    assert.strictEqual(eqDetails.instrumentName, 'Reliance Industries Ltd');
-    assert.strictEqual(eqDetails.symbol, 'RELIANCE');
-    assert.strictEqual(eqDetails.exchangeSegment, 'NSE_EQ');
-
-    const notFound = service.getInstrumentDetailsBySecurityId('999999');
-    assert.strictEqual(notFound, null);
-  });
-
   await t.test('enriches alert orders with lotSize and computed lots from instrument metadata', async () => {
     const res = await service.createConditionalAlert({
       instrument: 'NIFTY 50',
@@ -495,14 +448,5 @@ test('AlertsService (NestJS)', async (t) => {
     assert.ok(fetched);
     assert.strictEqual(fetched.orders?.[0]?.lots, 15);
     assert.strictEqual(fetched.orders?.[0]?.lotSize, 65);
-  });
-
-  await t.test('triggers test notification event', () => {
-    const testEvent = service.triggerTestAlert('NIFTY 50');
-    assert.strictEqual(testEvent.instrument, 'NIFTY 50');
-    assert.strictEqual(testEvent.isTest, true);
-
-    const events = service.getTriggeredEventsSince();
-    assert.ok(events.length > 0);
   });
 });

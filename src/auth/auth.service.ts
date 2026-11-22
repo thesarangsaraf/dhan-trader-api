@@ -129,68 +129,6 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  async verifyLiveValidity() {
-    const inspection = this.getTokenInspection();
-    if (!inspection.configured) {
-      return {
-        verified: false,
-        source: 'local',
-        message: 'No token configured',
-        inspection,
-      };
-    }
-
-    const apiResult = await this.dhanService.getProfile();
-    if (!apiResult.ok) {
-      let errorMsg = apiResult.data?.errorMessage
-        || apiResult.data?.message
-        || apiResult.data?.data?.['808']
-        || apiResult.error
-        || `Dhan API rejection (HTTP ${apiResult.status})`;
-
-      if (errorMsg === 'Invalid Token' || apiResult.data?.errorCode === 'DH-906') {
-        errorMsg = 'Dhan rejected token (DH-906: Invalid Token). The token was revoked or superseded by Dhan (e.g. newer token generated, logged out, or expired on server). Please generate a fresh token from Dhan HQ web console.';
-
-        if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-          this.firestoreService.saveDhanToken({
-            accessToken: this.config.accessToken,
-            clientId: this.config.clientId,
-            status: 'INVALID',
-            source: 'dhan_verify_invalid',
-          }).catch(() => {});
-        }
-      }
-
-      return {
-        valid: false,
-        verified: false,
-        source: 'dhan_api',
-        status: apiResult.status,
-        errorCode: apiResult.data?.errorCode,
-        message: errorMsg,
-        inspection: { ...inspection, status: 'INVALID', statusText: errorMsg },
-      };
-    }
-
-    if (this.firestoreService && typeof this.firestoreService.isReady === 'function' && this.firestoreService.isReady()) {
-      this.firestoreService.saveDhanToken({
-        accessToken: this.config.accessToken,
-        clientId: this.config.clientId,
-        status: 'ACTIVE',
-        source: 'dhan_verify_success',
-      }).catch(() => {});
-    }
-
-    return {
-      valid: true,
-      verified: true,
-      source: 'dhan_api',
-      message: 'Successfully verified live with Dhan API v2',
-      profile: apiResult.data,
-      inspection,
-    };
-  }
-
   /**
    * Loads token from Firestore database into memory cache and updates local .env.
    * If Firestore is not populated yet but memory has initial token, seeds it to Firestore.

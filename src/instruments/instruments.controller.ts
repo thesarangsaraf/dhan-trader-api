@@ -70,9 +70,6 @@ export class InstrumentsController {
   @ApiResponse({ status: 200, description: 'Master data successfully synced to Firestore' })
   @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync instruments' })
   async syncMaster(@Body() dto?: SyncInstrumentsDto) {
-    if (dto?.csvContent) {
-      return this.instrumentsService.syncCsv(dto.csvContent);
-    }
     return this.instrumentsService.syncMaster(dto);
   }
 

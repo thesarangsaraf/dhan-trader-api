@@ -398,52 +398,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     return secId ? `SEC-${secId}` : 'CUSTOM';
   }
 
-  /**
-   * Returns structured instrument details for a given security ID.
-   * Dynamically checks InstrumentsService (Firestore master cache).
-   */
-  getInstrumentDetailsBySecurityId(securityId: string) {
-    const secId = String(securityId || '').trim();
-    if (!secId) return null;
-
-    // 1. Check InstrumentsService first (Firestore master data)
-    if (this.instrumentsService && typeof this.instrumentsService.findBySecurityId === 'function') {
-      const found = this.instrumentsService.findBySecurityId(secId);
-      if (found) {
-        const name = found.customSymbol || found.name || found.symbol || found.tradingSymbol;
-        return {
-          securityId: secId,
-          instrumentName: name,
-          name,
-          symbol: found.symbol,
-          tradingSymbol: found.tradingSymbol || found.symbol,
-          customSymbol: found.customSymbol || name,
-          exchangeSegment: found.exchangeSegment || 'NSE_EQ',
-          expiryDate: found.expiryDate,
-          strikePrice: found.strikePrice,
-          optionType: found.optionType,
-          lotSize: found.lotSize || 1,
-        };
-      }
-    }
-
-    // 2. Check DB-configured traded instruments
-    const matchedIndex = this.getDbConfiguredIndices().find((i) => i.securityId === secId);
-    if (matchedIndex) {
-      return {
-        securityId: secId,
-        instrumentName: matchedIndex.name,
-        name: matchedIndex.name,
-        symbol: matchedIndex.name,
-        tradingSymbol: matchedIndex.name,
-        exchangeSegment: matchedIndex.exchangeSegment,
-        lotSize: 0,
-      };
-    }
-
-    return null;
-  }
-
   private getDbConfiguredIndices(): Array<{ name: string; securityId: string; exchangeSegment: string }> {
     if (this.instrumentsService && typeof this.instrumentsService.getConfiguredIndicesSync === 'function') {
       return this.instrumentsService.getConfiguredIndicesSync().map((idx) => ({
@@ -453,13 +407,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       }));
     }
     return [];
-  }
-
-  getIndices() {
-    return this.getDbConfiguredIndices().map((idx) => ({
-      ...idx,
-      currentPrice: this.getCurrentPrice(idx.name, idx.securityId, idx.exchangeSegment),
-    }));
   }
 
   getCurrentPrice(instrument?: string, securityId?: string, exchangeSegment?: string): number | null {
@@ -701,21 +648,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return alerts;
-  }
-
-  getAlertById(id: string) {
-    const rawId = id.replace(/^DHAN-/, '');
-    const all = this.getAllAlerts();
-    return (
-      all.find(
-        (a: any) =>
-          a.id === id ||
-          a.id === rawId ||
-          a.id === `DHAN-${rawId}` ||
-          a.dhanAlertId === id ||
-          a.dhanAlertId === rawId,
-      ) || null
-    );
   }
 
   getGroupedAlerts() {
@@ -1588,9 +1520,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
             hasConditionalOrder: Boolean(alert.hasConditionalOrder),
           });
 
-          // Event notifications stopped per user instruction
-          // this.telegramService.sendAlertNotification(alert);
-
           // If attached conditional order exists and autoExecuteOnTrigger is enabled, place order on Dhan
           if (alert.hasConditionalOrder && alert.autoExecuteOnTrigger && Array.isArray(alert.conditionalOrders)) {
             for (const ord of alert.conditionalOrders) {
@@ -1623,9 +1552,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
                       alert.attachedOrder.executedAt = ord.executedAt;
                     }
 
-                    // Event notifications stopped per user instruction
-                    // this.telegramService.sendOrderNotification({ ... }, 'PLACED')
-
                     // Automatically deploy linked Stop Loss alert if configured
                     if (alert.stopLoss && alert.stopLoss.enabled && !alert.stopLossAlertPlaced) {
                       alert.stopLossAlertPlaced = true;
@@ -1657,13 +1583,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.isFetchingPrices = false;
     }
-  }
-
-  getTriggeredEventsSince(lastEventId?: string) {
-    if (!lastEventId) return this.triggeredEvents;
-    const idx = this.triggeredEvents.findIndex((e) => e.id === lastEventId);
-    if (idx === -1) return this.triggeredEvents;
-    return this.triggeredEvents.slice(idx + 1);
   }
 
   /**
@@ -1711,41 +1630,12 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         result.alert.isStopLossAlert = true;
         result.alert.parentAlertId = parentAlert.id;
         parentAlert.stopLossAlertId = result.alert.id;
-
-        const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
-        const msg = `
-🛡️ <b>AUTOMATED STOP LOSS ALERT PLACED</b> 🛡️
-
-<b>Parent Alert:</b> #${parentAlert.id} (${parentAlert.instrument} @ ₹${parentAlert.targetPrice})
-<b>Stop Loss Level:</b> ₹${slTargetPrice} (${slOperator})
-<b>Square-off Order:</b> ${slAction} ${executedOrder.quantity}x ${executedOrder.symbol}
-<b>SL Alert ID:</b> <code>${result.alert.id}</code>
-<b>Time:</b> ${timeStr} IST
-        `.trim();
-        // Event notifications stopped per user instruction
-        // this.telegramService.sendMessage(msg).catch(() => {});
       }
       return result;
     } catch (err: any) {
       console.warn(`Failed to deploy automated Stop Loss alert for #${parentAlert.id}:`, err.message);
       return null;
     }
-  }
-
-  triggerTestAlert(instrument = 'NIFTY 50') {
-    const ltp = this.getCurrentPrice(instrument);
-    const testEvent = {
-      id: `TEST-${Date.now().toString().slice(-4)}`,
-      instrument,
-      targetPrice: ltp !== null ? ltp : 0,
-      triggeredPrice: ltp !== null ? ltp : 0,
-      operator: 'GREATER_THAN_OR_EQUAL',
-      remarks: 'Test alert notification',
-      triggeredAt: new Date().toISOString(),
-      isTest: true,
-    };
-    this.triggeredEvents.push(testEvent);
-    return testEvent;
   }
 
   isSameOptionContract(alertA: any, ordA: any, alertB: any, ordB: any): boolean {

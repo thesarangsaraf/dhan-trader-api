@@ -6,6 +6,7 @@ import { OrdersService } from '../src/orders/orders.service';
 import { DhanService } from '../src/dhan/dhan.service';
 import { TelegramService } from '../src/telegram/telegram.service';
 import { ConfigService } from '../src/config/config.service';
+import { getAvailableFinancialYears } from '../src/orders/utils/financial-year.util';
 
 test('OrdersService (NestJS)', async (t) => {
   let moduleRef: TestingModule;
@@ -80,24 +81,6 @@ test('OrdersService (NestJS)', async (t) => {
       ok: true,
       data: { orderId, orderStatus: 'CANCELLED' },
     }),
-    getTrades: async () => ({
-      ok: true,
-      data: [
-        {
-          tradeId: 'TR-101',
-          orderId: 'DHAN-ORD-101',
-          tradingSymbol: 'NIFTY 24500 CE',
-          securityId: '45021',
-          exchangeSegment: 'NSE_FNO',
-          transactionType: 'BUY',
-          productType: 'INTRADAY',
-          tradedQuantity: 50,
-          tradedPrice: 130.0,
-          tradeValue: 6500.0,
-          createTime: '2026-11-07 10:15:00',
-        },
-      ],
-    }),
     getTradeHistory: async (fromDate: string, toDate: string, page = 0) => ({
       ok: true,
       data: [
@@ -141,9 +124,7 @@ test('OrdersService (NestJS)', async (t) => {
     }),
   };
 
-  const mockTelegramService = {
-    sendOrderNotification: async () => ({ success: true }),
-  };
+  const mockTelegramService = {};
 
   moduleRef = await Test.createTestingModule({
     providers: [
@@ -212,7 +193,7 @@ test('OrdersService (NestJS)', async (t) => {
   });
 
   await t.test('returns available financial years including current and historic FYs', async () => {
-    const years = service.getFinancialYears();
+    const years = getAvailableFinancialYears();
     assert.ok(Array.isArray(years));
     assert.ok(years.length >= 5);
     assert.strictEqual(years[0].isCurrent, true);

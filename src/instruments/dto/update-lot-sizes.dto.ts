@@ -37,5 +37,3 @@ export class UpdateLotSizesDto {
   indices?: any[];
 }
 
-export class UpdateTradedInstrumentsDto extends UpdateLotSizesDto {}
-

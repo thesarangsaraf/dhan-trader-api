@@ -1468,10 +1468,6 @@ export class FirestoreService implements OnModuleInit {
     };
   }
 
-  private findMasterJsonInstrument(item: any): TradedInstrumentRecord | undefined {
-    return this.findInList(DEFAULT_TRADED_INSTRUMENTS, item);
-  }
-
   private findInList(list: TradedInstrumentRecord[], query: any): TradedInstrumentRecord | undefined {
     if (!query || !Array.isArray(list)) return undefined;
     const secId = String(query.securityId || '').trim();

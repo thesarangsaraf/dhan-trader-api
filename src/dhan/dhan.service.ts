@@ -203,19 +203,9 @@ export class DhanService {
     return this.request('/positions');
   }
 
-  // Trades
-  async getTrades(): Promise<DhanApiResponse> {
-    return this.request('/trades');
-  }
-
   // Historical Trade History by Date Range (Paginated)
   async getTradeHistory(fromDate: string, toDate: string, page = 0): Promise<DhanApiResponse> {
     return this.request(`/trades/${fromDate}/${toDate}/${page}`);
-  }
-
-  // Trades for a specific Dhan Order ID
-  async getTradesByOrderId(orderId: string): Promise<DhanApiResponse> {
-    return this.request(`/trades/${orderId}`);
   }
 
   // Marketfeed LTP lookup
@@ -237,37 +227,14 @@ export class DhanService {
     });
   }
 
-  // Option Chain Quotes & Greek Data
-  async getOptionChain(underlyingScrip: number, underlyingSeg: string, expiry: string): Promise<DhanApiResponse> {
-    return this.request('/optionchain', {
-      method: 'POST',
-      body: {
-        UnderlyingScrip: underlyingScrip,
-        UnderlyingSeg: underlyingSeg,
-        Expiry: expiry,
-      },
-    });
-  }
-
   // Live Conditional Triggers & Price Alerts (Dhan HQ v2)
   async getAlerts(): Promise<DhanApiResponse> {
     return this.request('/alerts/orders');
   }
 
-  async getAlertById(alertId: string): Promise<DhanApiResponse> {
-    return this.request(`/alerts/orders/${alertId}`);
-  }
-
   async createDhanAlert(payload: any): Promise<DhanApiResponse> {
     return this.request('/alerts/orders', {
       method: 'POST',
-      body: payload,
-    });
-  }
-
-  async modifyDhanAlert(alertId: string, payload: any): Promise<DhanApiResponse> {
-    return this.request(`/alerts/orders/${alertId}`, {
-      method: 'PUT',
       body: payload,
     });
   }

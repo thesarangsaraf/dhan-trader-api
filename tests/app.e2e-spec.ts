@@ -78,23 +78,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       ok: true,
       data: { orderId, orderStatus: 'CANCELLED' },
     }),
-    getTrades: async () => ({
-      ok: true,
-      data: [
-        {
-          tradeId: 'TR-E2E-1',
-          orderId: 'DHAN-ORD-201',
-          tradingSymbol: 'NIFTY 24500 CE',
-          securityId: '45021',
-          exchangeSegment: 'NSE_FNO',
-          transactionType: 'BUY',
-          productType: 'INTRADAY',
-          tradedQuantity: 50,
-          tradedPrice: 130.0,
-          tradeValue: 6500.0,
-        },
-      ],
-    }),
     getTradeHistory: async (fromDate: string, toDate: string, page = 0) => ({
       ok: true,
       data: [
@@ -158,10 +141,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
       ok: true,
       data: ['2026-11-26', '2026-12-03'],
     }),
-    getOptionChain: async () => ({
-      ok: true,
-      data: {},
-    }),
     renewToken: async () => ({
       ok: true,
       data: {
@@ -172,10 +151,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
 
   const mockTelegramService = {
     sendMessage: async () => ({ success: true }),
-    sendAlertNotification: async () => ({ success: true }),
-    sendOrderNotification: async () => ({ success: true }),
-    sendOrderEvent: async () => ({ success: true }),
-    formatOrderEventHtml: () => 'formatted',
     getStatus: () => ({ configured: true, chatId: '895***469', botConfigured: true }),
     sendTestNotification: async () => ({ success: true, test: true }),
   };
