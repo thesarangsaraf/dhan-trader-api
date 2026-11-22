@@ -31,8 +31,6 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
   public accessToken: string;
   public telegramBotToken: string;
   public telegramChatId: string;
-  public ntfyTopic: string;
-  public ntfyServerUrl: string;
   public port: number;
   public host: string;
   public pollIntervalMs: number;
@@ -103,8 +101,6 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     this.accessToken = (process.env.DHAN_ACCESS_TOKEN || this.env.DHAN_ACCESS_TOKEN || '').trim();
     this.telegramBotToken = (process.env.TELEGRAM_BOT_TOKEN || this.env.TELEGRAM_BOT_TOKEN || '').trim();
     this.telegramChatId = (process.env.TELEGRAM_CHAT_ID || this.env.TELEGRAM_CHAT_ID || '').trim();
-    this.ntfyTopic = (process.env.NTFY_TOPIC || this.env.NTFY_TOPIC || 'dhan-alerts-sarang-8821').trim();
-    this.ntfyServerUrl = (process.env.NTFY_SERVER_URL || this.env.NTFY_SERVER_URL || 'https://ntfy.sh').trim();
 
     // In unit testing environment, provide default mock tokens if not provided
     if (process.env.NODE_ENV === 'test') {
@@ -162,8 +158,6 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     syncVar('CLOUD_RUN_SERVICE', this.cloudRunService, (v) => (this.cloudRunService = v));
     syncVar('CLOUD_RUN_REGION', this.cloudRunRegion, (v) => (this.cloudRunRegion = v));
     syncVar('CONTAINER_REGISTRY_REPO', this.containerRegistryRepo, (v) => (this.containerRegistryRepo = v));
-    syncVar('NTFY_TOPIC', this.ntfyTopic, (v) => (this.ntfyTopic = v));
-    syncVar('NTFY_SERVER_URL', this.ntfyServerUrl, (v) => (this.ntfyServerUrl = v));
 
     if (changed) {
       this.notifyChange();

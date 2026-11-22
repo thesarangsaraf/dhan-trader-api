@@ -302,6 +302,17 @@ test('FirestoreService (NestJS)', async (t) => {
         optionType: 'CE',
         lotSize: 30,
       },
+      {
+        symbolName: 'BANKNIFTY',
+        exchange: 'NSE_FNO',
+        securityId: '52002',
+        tradingSymbol: 'BANKNIFTY-Dec2026-52000-CE',
+        customSymbol: 'BANKNIFTY 03 DEC 52000 CALL',
+        expiryDate: '2026-12-03',
+        strikePrice: 52000,
+        optionType: 'CE',
+        lotSize: 30,
+      },
     ];
 
     const saveRes = await service.saveIndexOptions(sampleOptions);

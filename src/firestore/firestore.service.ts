@@ -83,14 +83,6 @@ export interface TelegramConfig {
   updatedAt?: string;
 }
 
-export interface NotificationConfig {
-  telegramEnabled: boolean;
-  ntfyEnabled: boolean;
-  ntfyTopic: string;
-  ntfyServerUrl: string;
-  updatedAt?: string;
-}
-
 export interface CronConfig {
   cronSecret: string;
   updatedAt?: string;
@@ -768,8 +760,9 @@ export class FirestoreService implements OnModuleInit {
         activeExpiries = distinctExpiries;
       }
 
-      // Limit strictly to maximum 3 expiries: currentExpiry, nextExpiry, and farExpiry
-      const targetExpiries = activeExpiries.slice(0, maxExpiriesPerIndex);
+      // NIFTY 50 and SENSEX support up to 3 expiries; all other indices (BANKNIFTY, MIDCPNIFTY) are strictly limited to 1 expiry to comply with Firestore 1 MiB document limit.
+      const indexMaxExpiries = (sym === 'NIFTY' || sym === 'SENSEX') ? Math.min(maxExpiriesPerIndex, 3) : 1;
+      const targetExpiries = activeExpiries.slice(0, indexMaxExpiries);
       const currentExpiry = targetExpiries[0] || null;
       const nextExpiry = targetExpiries[1] || null;
       const farExpiry = targetExpiries[2] || null;
@@ -788,7 +781,6 @@ export class FirestoreService implements OnModuleInit {
         expiries: targetExpiries,
         totalContracts: kept.length,
         contracts: kept,
-        items: kept,
         updatedAt: now,
       };
 
@@ -1537,56 +1529,6 @@ export class FirestoreService implements OnModuleInit {
     this.logger.log(`⚙️ Saved Telegram configuration to Firestore (config/telegram)`);
     return {
       success: true,
-      writeTime: res.writeTime,
-    };
-  }
-
-  /**
-   * Helper: Retrieve notification channel configuration from Firestore (config/notifications).
-   */
-  @Cacheable({ key: 'config:notifications', condition: (force) => !force, clone: true })
-  public async getNotificationConfig(force = false): Promise<NotificationConfig> {
-    const defaults: NotificationConfig = {
-      telegramEnabled: true,
-      ntfyEnabled: true,
-      ntfyTopic: 'dhan-alerts-sarang-8821',
-      ntfyServerUrl: 'https://ntfy.sh',
-    };
-    if (!this.isReady()) return defaults;
-    const doc = await this.getDoc<NotificationConfig>('config', 'notifications');
-    if (!doc) return defaults;
-    return {
-      telegramEnabled: doc.telegramEnabled !== undefined ? Boolean(doc.telegramEnabled) : defaults.telegramEnabled,
-      ntfyEnabled: doc.ntfyEnabled !== undefined ? Boolean(doc.ntfyEnabled) : defaults.ntfyEnabled,
-      ntfyTopic: (doc.ntfyTopic || defaults.ntfyTopic).trim(),
-      ntfyServerUrl: (doc.ntfyServerUrl || defaults.ntfyServerUrl).trim(),
-      updatedAt: doc.updatedAt,
-    };
-  }
-
-  /**
-   * Helper: Save notification channel configuration in Firestore (config/notifications).
-   */
-  @CacheEvict({ key: 'config:notifications' })
-  public async saveNotificationConfig(
-    cfg: Partial<NotificationConfig>,
-  ): Promise<{ success: boolean; config: NotificationConfig; writeTime: string }> {
-    if (!this.isReady()) {
-      throw new Error('Firestore is not initialized. Check credentials.');
-    }
-    const current = await this.getNotificationConfig(true);
-    const updated: NotificationConfig = {
-      telegramEnabled: cfg.telegramEnabled !== undefined ? Boolean(cfg.telegramEnabled) : current.telegramEnabled,
-      ntfyEnabled: cfg.ntfyEnabled !== undefined ? Boolean(cfg.ntfyEnabled) : current.ntfyEnabled,
-      ntfyTopic: (cfg.ntfyTopic !== undefined && cfg.ntfyTopic !== null ? cfg.ntfyTopic : current.ntfyTopic || 'dhan-alerts-sarang-8821').trim(),
-      ntfyServerUrl: (cfg.ntfyServerUrl !== undefined && cfg.ntfyServerUrl !== null ? cfg.ntfyServerUrl : current.ntfyServerUrl || 'https://ntfy.sh').trim(),
-      updatedAt: new Date().toISOString(),
-    };
-    const res = await this.setDoc('config', 'notifications', updated, true);
-    this.logger.log(`⚙️ Saved notification channel settings to Firestore (config/notifications)`);
-    return {
-      success: true,
-      config: updated,
       writeTime: res.writeTime,
     };
   }

@@ -58,7 +58,7 @@ This document provides definitive instructions, architecture patterns, constrain
      - **Traded Index Options** (Collection `index_options`):
        - Option contracts are saved **strictly for the indices that the user trades**: `NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, and `SENSEX`.
        - `FINNIFTY`, all single stock options (`OPTSTK`), and non-traded index options (`NIFTYFPI`, `NIFTYNXT50`) are strictly excluded.
-       - **Maximum 3 Expiries**: Limited strictly to nearest 3 active expiries (`currentExpiry`, `nextExpiry`, and `farExpiry`).
+       - **Expiries Scope**: Limited strictly to nearest 3 active expiries (`currentExpiry`, `nextExpiry`, `farExpiry`) for `NIFTY` and `SENSEX`, and nearest 1 active expiry (`currentExpiry`) for all other traded indices (`BANKNIFTY`, `MIDCPNIFTY`) to strictly comply with Firestore's 1 MiB document size limit.
        - **Dedicated Document per Index**: Stored in visually identifiable documents named after each traded index (`NIFTY`, `BANKNIFTY`, `MIDCPNIFTY`, `SENSEX`) + `_meta`. Each document stores its `currentExpiry`, `nextExpiry`, `farExpiry`, `expiries`, and array of `contracts`.
        - Stale/legacy chunk documents (`chunk_*`) and obsolete index documents (`FINNIFTY`) are automatically purged.
    - **Sync & Flush-Reload Endpoints**:

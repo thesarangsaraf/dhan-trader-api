@@ -109,7 +109,7 @@ async function uploadIndexOptionsToFirestore() {
 
   const tradedOptions = indexOptions.filter((opt) => opt.symbolName && new Set(['NIFTY', 'BANKNIFTY', 'MIDCPNIFTY', 'SENSEX']).has(opt.symbolName));
 
-  console.log(`\n📤 Uploading contracts to Firestore collection [index_options] across dedicated documents (max 3 expiries: current, next & far)...`);
+  console.log(`\n📤 Uploading contracts to Firestore collection [index_options] across dedicated documents (NIFTY/SENSEX: 3 expiries, others: 1 expiry)...`);
   const startTime = Date.now();
   const result = await firestoreService.saveIndexOptions(tradedOptions, 3);
   const elapsed = Date.now() - startTime;
