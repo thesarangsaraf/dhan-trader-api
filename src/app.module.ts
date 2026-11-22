@@ -9,7 +9,6 @@ import { AuthModule } from './auth/auth.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { OrdersModule } from './orders/orders.module';
 import { InstrumentsModule } from './instruments/instruments.module';
-import { ChartsModule } from './charts/charts.module';
 import { FirestoreModule } from './firestore/firestore.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
 import { ScreenerModule } from './screener/screener.module';
@@ -28,7 +27,6 @@ import { RolesGuard } from './user-auth/roles.guard';
     AlertsModule,
     OrdersModule,
     InstrumentsModule,
-    ChartsModule,
     UserAuthModule,
     ScreenerModule,
     WebhooksModule,

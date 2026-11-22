@@ -1,11 +1,9 @@
-import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Post, Put, Query } from '@nestjs/common';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InstrumentsService } from './instruments.service';
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
 import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
-import { QueryEquitiesDto } from './dto/query-equities.dto';
-import { QueryOptionsDto } from './dto/query-options.dto';
 import { Roles } from '../user-auth/roles.decorator';
 import { UserRole } from '../user-auth/dto/create-user.dto';
 
@@ -52,51 +50,6 @@ export class InstrumentsController {
     return this.instrumentsService.syncTradedInstrumentsFromJson(Boolean(body?.resetPreferences));
   }
 
-  @Post('traded-instruments/reset')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Reset traded instruments to static master JSON defaults (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Traded instruments reset to static master JSON defaults' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset traded instruments' })
-  async resetTradedInstruments() {
-    return this.instrumentsService.resetTradedInstruments();
-  }
-
-  @Get('lot-sizes')
-  @ApiOperation({
-    summary: 'Get traded instruments configuration (compatibility alias for /api/instruments/traded-instruments)',
-    description: 'Retrieves current traded instruments master data backed by Firestore master_data/traded_instruments.',
-  })
-  @ApiResponse({ status: 200, description: 'Traded instruments configuration' })
-  async getLotSizes() {
-    return {
-      success: true,
-      data: await this.instrumentsService.getTradedInstruments(),
-    };
-  }
-
-  @Put('lot-sizes')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary: 'Update traded instruments configuration (compatibility alias) (Admin only)',
-    description: 'Updates and persists traded instruments in Firestore (master_data/traded_instruments).',
-  })
-  @ApiResponse({ status: 200, description: 'Traded instruments successfully updated' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update traded instruments' })
-  async updateLotSizes(@Body() dto: UpdateLotSizesDto) {
-    return this.instrumentsService.updateTradedInstruments(dto);
-  }
-
-  @Post('lot-sizes/reset')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Reset traded instruments configuration to static master JSON defaults (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Traded instruments reset to static master JSON defaults' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can reset traded instruments' })
-  async resetLotSizes() {
-    return this.instrumentsService.resetTradedInstruments();
-  }
-
   @Get('indices')
   @ApiOperation({
     summary: 'Get list of all tradeable indices configured in Firestore for Conditional Alert Composer',
@@ -121,45 +74,6 @@ export class InstrumentsController {
       return this.instrumentsService.syncCsv(dto.csvContent);
     }
     return this.instrumentsService.syncMaster(dto);
-  }
-
-  @Post('sync/equities')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Sync NSE cash equities & benchmark indices into Firestore collection (sec_id_to_name_mapping) (Admin only)',
-    description: 'Uploads and organizes all NSE equities into balanced chunks and indices into sec_id_to_name_mapping. Guarantees zero option contracts are saved in this collection.',
-  })
-  @ApiResponse({ status: 200, description: 'Equities and indices successfully synced to sec_id_to_name_mapping' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync equities' })
-  async syncEquities(@Body() dto?: SyncInstrumentsDto) {
-    return this.instrumentsService.syncEquities(dto);
-  }
-
-  @Post('sync/options')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Sync traded index options (NIFTY, BANKNIFTY, MIDCPNIFTY, SENSEX) into Firestore collection (index_options) (Admin only)',
-    description: 'Uploads option contracts strictly for the 4 traded indices into collection index_options in chunks of 500. Excludes stock options and non-traded indices.',
-  })
-  @ApiResponse({ status: 200, description: 'Traded index options successfully synced to index_options' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can sync options' })
-  async syncOptions(@Body() dto?: SyncInstrumentsDto) {
-    return this.instrumentsService.syncOptions(dto);
-  }
-
-  @Post('flush-and-reload')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Flush all master data from Firestore and reload fresh from Dhan (Admin only)',
-    description: 'Completely wipes both sec_id_to_name_mapping and index_options Firestore collections and re-downloads fresh scrip master from Dhan API.',
-  })
-  @ApiResponse({ status: 200, description: 'Master data successfully flushed and reloaded' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can flush and reload master data' })
-  async flushAndReload(@Body() dto?: SyncInstrumentsDto) {
-    return this.instrumentsService.flushAndReload(dto);
   }
 
   @Post('flush-and-reload/equities')
@@ -188,19 +102,6 @@ export class InstrumentsController {
     return this.instrumentsService.flushAndReloadOptions(dto);
   }
 
-  @Post('sync/csv')
-  @Roles(UserRole.ADMIN)
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Upload and sync NSE security master from raw CSV content into Firestore (Admin only)',
-    description: 'Parses raw Dhan api-scrip-master.csv text, filters strictly to NSE contracts, and writes divided documents.',
-  })
-  @ApiResponse({ status: 200, description: 'CSV data parsed and synced to Firestore' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can upload CSV' })
-  async syncCsvPost(@Body('csvContent') csvContent: string) {
-    return this.instrumentsService.syncCsv(csvContent);
-  }
-
   @Get('sync/status')
   @ApiOperation({ summary: 'Get current sync status and metadata of sec_id_to_name_mapping from Firestore' })
   @ApiResponse({ status: 200, description: 'Firestore sec_id_to_name_mapping metadata and in-memory counts' })
@@ -215,26 +116,6 @@ export class InstrumentsController {
     return this.instrumentsService.getOptionsSyncStatus();
   }
 
-  @Get('equities')
-  @ApiOperation({
-    summary: 'Browse and query cash equities & benchmark indices from sec_id_to_name_mapping',
-    description: 'Returns paginated list of equities and indices with search filter and segment filter.',
-  })
-  @ApiResponse({ status: 200, description: 'Paginated list of equities and indices' })
-  async getEquities(@Query() dto: QueryEquitiesDto) {
-    return this.instrumentsService.getEquities(dto);
-  }
-
-  @Get('options')
-  @ApiOperation({
-    summary: 'Browse and query traded index options from index_options collection',
-    description: 'Returns paginated list of traded index options with filters for index, expiry, strike, and option type.',
-  })
-  @ApiResponse({ status: 200, description: 'Paginated list of index options' })
-  async getOptions(@Query() dto: QueryOptionsDto) {
-    return this.instrumentsService.getOptions(dto);
-  }
-
   @Get('option-contracts')
   @ApiOperation({
     summary: 'Get 3 option contracts (ATM, ITM, OTM) for current and next expiry',
@@ -243,18 +124,6 @@ export class InstrumentsController {
   @ApiResponse({ status: 200, description: 'Option contracts for current and next expiry with live/model LTP' })
   @ApiResponse({ status: 400, description: 'Instrument name missing or invalid' })
   async getOptionContractsGet(@Query() dto: GetOptionContractsDto) {
-    return this.instrumentsService.getOptionContracts(dto);
-  }
-
-  @Post('option-contracts')
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Get 3 option contracts (ATM, ITM, OTM) for current and next expiry via POST payload',
-    description: 'JSON body alternative accepting instrument, optional price, and optional expiry date, returning ATM, ITM, and OTM contracts.',
-  })
-  @ApiResponse({ status: 200, description: 'Option contracts for current and next expiry with live/model LTP' })
-  @ApiResponse({ status: 400, description: 'Instrument name missing or invalid' })
-  async getOptionContractsPost(@Body() dto: GetOptionContractsDto) {
     return this.instrumentsService.getOptionContracts(dto);
   }
 
@@ -272,19 +141,6 @@ export class InstrumentsController {
   @ApiResponse({ status: 200, description: 'Live LTP for the requested instrument' })
   async getLtp(@Query('symbol') symbol: string) {
     return this.instrumentsService.getLtp(symbol);
-  }
-
-  @Get('by-security-id/:securityId')
-  @ApiOperation({ summary: 'Find scrip or option contract by Dhan security ID' })
-  @ApiParam({ name: 'securityId', description: 'Dhan security ID (e.g. 40040, 13)' })
-  @ApiResponse({ status: 200, description: 'Instrument scrip details' })
-  @ApiResponse({ status: 404, description: 'Security ID not found' })
-  async getBySecurityId(@Param('securityId') securityId: string) {
-    const item = this.instrumentsService.findBySecurityId(securityId);
-    if (!item) {
-      throw new NotFoundException(`Instrument with security ID ${securityId} not found`);
-    }
-    return item;
   }
 
   @Get()

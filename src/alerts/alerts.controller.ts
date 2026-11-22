@@ -28,44 +28,6 @@ export class AlertsController {
     return this.alertsService.getGroupedAlerts();
   }
 
-  @Get('indices')
-  @ApiOperation({ summary: 'Get popular NSE benchmark indices with live current prices' })
-  @ApiResponse({ status: 200, description: 'Popular indices with live prices' })
-  async getIndices() {
-    await this.alertsService.checkAndTick();
-    return this.alertsService.getIndices();
-  }
-
-  @Get('instrument-name/:securityId')
-  @ApiOperation({
-    summary: 'Fetch instrument display name and metadata by security ID for alerts',
-    description: 'Looks up any Dhan security ID (Indices, Equities, or F&O Options) and returns the verified instrument name, symbol, and segment.',
-  })
-  @ApiParam({ name: 'securityId', description: 'Dhan security ID (e.g. 13 for NIFTY 50, 2885 for RELIANCE, 1100742)' })
-  @ApiResponse({ status: 200, description: 'Instrument metadata with display name and symbol' })
-  @ApiResponse({ status: 404, description: 'Security ID not found' })
-  getInstrumentName(@Param('securityId') securityId: string) {
-    const details = this.alertsService.getInstrumentDetailsBySecurityId(securityId);
-    if (!details) {
-      throw new NotFoundException(`Instrument with security ID ${securityId} not found`);
-    }
-    return details;
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get single alert with raw Dhan HQ API JSON by alert ID' })
-  @ApiParam({ name: 'id', description: 'Alert ID (e.g. 100234 or DHAN-100234)' })
-  @ApiResponse({ status: 200, description: 'Alert object with raw Dhan HQ JSON payload' })
-  @ApiResponse({ status: 404, description: 'Alert not found' })
-  async getAlertById(@Param('id') id: string) {
-    await this.alertsService.syncWithDhan();
-    const alert = this.alertsService.getAlertById(id);
-    if (!alert) {
-      throw new NotFoundException(`Alert with ID ${id} not found`);
-    }
-    return alert;
-  }
-
   @Post()
   @HttpCode(201)
   @ApiOperation({ summary: 'Create new price alert' })
@@ -100,15 +62,6 @@ export class AlertsController {
   @ApiResponse({ status: 403, description: 'Forbidden - only admin users can place conditional orders' })
   createConditionalAlert(@Body() dto: CreateConditionalAlertDto) {
     return this.alertsService.createConditionalAlert(dto);
-  }
-
-  @Post('test-chime')
-  @ApiOperation({ summary: 'Simulate an immediate alert notification trigger' })
-  @ApiResponse({ status: 200, description: 'Test alert fired' })
-  testChime(@Body() body: { instrument?: string }) {
-    const inst = body?.instrument || 'NIFTY 50';
-    const event = this.alertsService.triggerTestAlert(inst);
-    return { success: true, message: 'Test chime alert triggered', event };
   }
 
   @Post(':id/cancel')

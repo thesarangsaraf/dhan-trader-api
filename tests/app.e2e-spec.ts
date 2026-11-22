@@ -889,18 +889,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(Array.isArray(res.body));
   });
 
-  await t.test('GET /api/alerts/indices returns DB-configured indices with live prices', async () => {
-    const res = await makeMockRequest('GET', '/api/alerts/indices');
-    assert.strictEqual(res.status, 200);
-    assert.ok(Array.isArray(res.body));
-    assert.strictEqual(res.body.length, 2);
-    assert.ok(res.body.some((i: any) => i.name === 'Nifty 50'));
-    assert.ok(res.body.some((i: any) => i.name === 'Nifty Bank'));
-    assert.ok(!res.body.some((i: any) => i.name.includes('FIN')));
-    assert.ok(!res.body.some((i: any) => i.name.includes('NEXT')));
-    assert.ok(!res.body.some((i: any) => i.name.includes('VIX')));
-  });
-
   await t.test('POST /api/alerts creates new alert', async () => {
     const res = await makeMockRequest('POST', '/api/alerts', {
       instrument: 'NIFTY BANK',
@@ -911,23 +899,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.success, true);
     assert.strictEqual(res.body.alert.instrument, 'NIFTY BANK');
-  });
-
-  await t.test('GET /api/alerts/instrument-name/:securityId returns instrument metadata', async () => {
-    const res = await makeMockRequest('GET', '/api/alerts/instrument-name/13');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.securityId, '13');
-    assert.strictEqual(res.body.instrumentName, 'NIFTY 50');
-    assert.strictEqual(res.body.exchangeSegment, 'IDX_I');
-
-    const resEq = await makeMockRequest('GET', '/api/alerts/instrument-name/2885');
-    assert.strictEqual(resEq.status, 200);
-    assert.strictEqual(resEq.body.securityId, '2885');
-    assert.strictEqual(resEq.body.symbol, 'RELIANCE');
-    assert.strictEqual(resEq.body.exchangeSegment, 'NSE_EQ');
-
-    const resNotFound = await makeMockRequest('GET', '/api/alerts/instrument-name/999999');
-    assert.strictEqual(resNotFound.status, 404);
   });
 
   await t.test('POST /api/alerts/conditional-order creates alert with conditional order', async () => {
@@ -1007,28 +978,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
   });
 
-  await t.test('POST /api/instruments/option-contracts returns option contracts via body payload', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
-      instrument: 'NIFTY 50',
-      price: 25500,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
-  });
-
-  await t.test('POST /api/instruments/option-contracts accepts instrument, price, expiry and returns 3 contracts', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/option-contracts', {
-      instrument: 'BANKNIFTY',
-      price: 52000,
-      expiry: '2026-11-26',
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.instrument, 'NIFTY BANK');
-    assert.strictEqual(res.body.strikeStep, 100);
-    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-26');
-    assert.deepStrictEqual(res.body.strikes, [51900, 52000, 52100]);
-  });
-
   await t.test('GET /api/instruments/option-contracts returns 404 when instrument options are not found in database', async () => {
     const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=MIDCPNIFTY&price=12000');
     assert.strictEqual(res.status, 404);
@@ -1071,45 +1020,11 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.ok(res.body.trades[0].executionTime);
   });
 
-  await t.test('GET /api/trades/financial-years returns selectable FYs list', async () => {
-    const res = await makeMockRequest('GET', '/api/trades/financial-years');
-    assert.strictEqual(res.status, 200);
-    assert.ok(Array.isArray(res.body));
-    assert.ok(res.body.length >= 5);
-    assert.strictEqual(res.body[0].isCurrent, true);
-  });
-
-  await t.test('GET /api/trades returns active session trades', async () => {
-    const res = await makeMockRequest('GET', '/api/trades');
-    assert.strictEqual(res.status, 200);
-    assert.ok(Array.isArray(res.body));
-    assert.strictEqual(res.body.length, 1);
-    assert.strictEqual(res.body[0].symbol, 'NIFTY 24500 CE');
-  });
-
   await t.test('GET /api/instruments returns security lookup results', async () => {
     const res = await makeMockRequest('GET', '/api/instruments?q=NIFTY');
     assert.strictEqual(res.status, 200);
     assert.ok(Array.isArray(res.body));
     assert.ok(res.body.length > 0);
-  });
-
-  await t.test('GET /api/instruments/equities returns paginated equities & indices', async () => {
-    const res = await makeMockRequest('GET', '/api/instruments/equities?limit=10');
-    assert.strictEqual(res.status, 200);
-    assert.ok(res.body.total >= 0);
-    assert.ok(Array.isArray(res.body.items));
-    assert.strictEqual(res.body.limit, 10);
-    assert.strictEqual(res.body.offset, 0);
-  });
-
-  await t.test('GET /api/instruments/options returns paginated traded index options', async () => {
-    const res = await makeMockRequest('GET', '/api/instruments/options?limit=10');
-    assert.strictEqual(res.status, 200);
-    assert.ok(res.body.total >= 0);
-    assert.ok(Array.isArray(res.body.items));
-    assert.ok(Array.isArray(res.body.tradedIndices));
-    assert.ok(res.body.tradedIndices.includes('NIFTY'));
   });
 
   await t.test('GET /api/telegram/status returns telegram connection state', async () => {
@@ -1133,14 +1048,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.projectId, 'dhan-trader-514002');
   });
 
-  await t.test('GET /api/firestore/index-options/status returns metadata of index options stored in Firestore', async () => {
-    const res = await makeMockRequest('GET', '/api/firestore/index-options/status');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.storedInFirestore, true);
-    assert.strictEqual(res.body.metadata.totalItems, 18);
-    assert.strictEqual(res.body.metadata.totalChunks, 1);
-  });
-
   await t.test('POST /api/instruments/sync syncs security master and index options into Firestore', async () => {
     const res = await makeMockRequest('POST', '/api/instruments/sync', {
       force: true,
@@ -1150,43 +1057,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.collection, 'sec_id_to_name_mapping');
     assert.ok(res.body.totalInstruments >= 4);
     assert.ok(Array.isArray(res.body.documents));
-  });
-
-  await t.test('POST /api/instruments/sync/equities syncs cash equities into Firestore sec_id_to_name_mapping', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/sync/equities', {
-      force: true,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.collection, 'sec_id_to_name_mapping');
-    assert.ok(res.body.totalInstruments >= 1);
-    assert.ok(Array.isArray(res.body.documents));
-  });
-
-  await t.test('POST /api/instruments/sync/options syncs traded index options into Firestore index_options', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/sync/options', {
-      force: true,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.collection, 'index_options');
-    assert.ok(res.body.totalItems >= 1);
-    assert.ok(Array.isArray(res.body.tradedIndices));
-    assert.ok(res.body.tradedIndices.includes('NIFTY'));
-  });
-
-  await t.test('POST /api/instruments/flush-and-reload flushes Firestore collections and reloads master data', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/flush-and-reload', {
-      force: true,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.ok(res.body.flushed);
-    assert.strictEqual(res.body.flushed.secIdMappingDeleted, 3);
-    assert.strictEqual(res.body.flushed.indexOptionsDeleted, 4);
-    assert.ok(res.body.reloaded);
-    assert.ok(res.body.reloaded.totalInstruments >= 1);
-    assert.ok(res.body.message.includes('Successfully flushed master data and reloaded'));
   });
 
   await t.test('POST /api/instruments/flush-and-reload/equities flushes sec_id_to_name_mapping and reloads equities', async () => {
@@ -1228,42 +1098,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.metadata.totalInstruments, 20);
   });
 
-  await t.test('GET /api/firestore/sec-id-mapping/status returns metadata of sec_id_to_name_mapping stored in Firestore', async () => {
-    const res = await makeMockRequest('GET', '/api/firestore/sec-id-mapping/status');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.storedInFirestore, true);
-    assert.strictEqual(res.body.metadata.collection, 'sec_id_to_name_mapping');
-  });
-
-  await t.test('GET /api/instruments/lot-sizes returns index lot sizes config', async () => {
-    const res = await makeMockRequest('GET', '/api/instruments/lot-sizes');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.data.nifty50, 65);
-    assert.strictEqual(res.body.data.bankNifty, 30);
-  });
-
-  await t.test('PUT /api/instruments/lot-sizes updates preferred lots in Firestore while preserving fixed NSE lot sizes', async () => {
-    const res = await makeMockRequest('PUT', '/api/instruments/lot-sizes', {
-      nifty50Lots: 10,
-      bankNiftyLots: 15,
-    });
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.data.nifty50, 65);
-    assert.strictEqual(res.body.data.bankNifty, 30);
-    assert.strictEqual(res.body.data.nifty50Lots, 10);
-    assert.strictEqual(res.body.data.bankNiftyLots, 15);
-  });
-
-  await t.test('POST /api/instruments/lot-sizes/reset restores default lot sizes', async () => {
-    const res = await makeMockRequest('POST', '/api/instruments/lot-sizes/reset');
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.data.nifty50, 65);
-    assert.strictEqual(res.body.data.bankNifty, 30);
-  });
-
   await t.test('POST /api/instruments/traded-instruments/sync-json syncs traded instruments from static master JSON', async () => {
     const res = await makeMockRequest('POST', '/api/instruments/traded-instruments/sync-json', {});
     assert.strictEqual(res.status, 200);
@@ -1299,7 +1133,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
 
     const sessionsRes = await makeMockRequest(
       'GET',
-      '/api/user-auth/sessions',
+      '/api/user-auth/all-sessions',
       undefined,
       {
         authorization: `Bearer ${token}`,
@@ -1316,7 +1150,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     const sessionId = sessionsRes.body[0].id;
     const killRes = await makeMockRequest(
       'DELETE',
-      `/api/user-auth/sessions/${sessionId}`,
+      `/api/user-auth/users/admin/sessions/${sessionId}`,
       undefined,
       { authorization: `Bearer ${token}` },
     );
@@ -1517,7 +1351,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     // 11. Trader is blocked from sensitive modifications (e.g. updating lot sizes) -> 403
     const traderLotUpdateRes = await makeMockRequest(
       'PUT',
-      '/api/instruments/lot-sizes',
+      '/api/instruments/traded-instruments',
       { nifty50: 75 },
       { authorization: `Bearer ${traderToken}` },
     );

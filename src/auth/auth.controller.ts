@@ -17,13 +17,6 @@ export class AuthController {
     return this.authService.getTokenInspection();
   }
 
-  @Get('verify')
-  @ApiOperation({ summary: 'Verify live validity against Dhan API profile' })
-  @ApiResponse({ status: 200, description: 'Live verification result' })
-  async verify() {
-    return this.authService.verifyLiveValidity();
-  }
-
   @Post('renew')
   @Roles(UserRole.ADMIN)
   @HttpCode(200)

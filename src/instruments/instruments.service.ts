@@ -15,8 +15,6 @@ import {
 import { GetOptionContractsDto } from './dto/get-option-contracts.dto';
 import { SyncInstrumentsDto } from './dto/sync-instruments.dto';
 import { UpdateLotSizesDto } from './dto/update-lot-sizes.dto';
-import { QueryEquitiesDto } from './dto/query-equities.dto';
-import { QueryOptionsDto } from './dto/query-options.dto';
 
 export { CachedIndexOption, SecIdMappingMetadata, IndexLotSizesConfig, IndexConfigItem, DEFAULT_LOT_SIZES, DEFAULT_INDICES };
 
@@ -1210,124 +1208,6 @@ export class InstrumentsService implements OnModuleInit {
     }
 
     return this.enrichWithLiveLtp(matched);
-  }
-
-  /**
-   * Browse / filter cash equities & indices stored in sec_id_to_name_mapping.
-   */
-  public getEquities(dto?: QueryEquitiesDto): {
-    total: number;
-    items: Omit<InstrumentItem, 'ltp'>[];
-    limit: number;
-    offset: number;
-  } {
-    const q = dto?.q ? dto.q.trim().toUpperCase() : '';
-    const segment = dto?.segment ? dto.segment.trim().toUpperCase() : '';
-    const limit = dto?.limit ? Math.min(Math.max(1, dto.limit), 200) : 50;
-    const offset = dto?.offset ? Math.max(0, dto.offset) : 0;
-
-    let filtered = this.scripMaster;
-
-    if (segment) {
-      filtered = filtered.filter((item) => item.exchangeSegment === segment);
-    }
-
-    if (q) {
-      filtered = filtered.filter(
-        (item) => item.symbol.includes(q) || item.name.toUpperCase().includes(q) || item.securityId === q,
-      );
-    }
-
-    const paginated = filtered.slice(offset, offset + limit);
-
-    return {
-      total: filtered.length,
-      items: paginated,
-      limit,
-      offset,
-    };
-  }
-
-  /**
-   * Browse / filter traded index options stored in index_options collection.
-   */
-  public getOptions(dto?: QueryOptionsDto): {
-    total: number;
-    items: CachedIndexOption[];
-    limit: number;
-    offset: number;
-    expiries: string[];
-    tradedIndices: string[];
-  } {
-    const indexFilter = dto?.index ? dto.index.trim().toUpperCase() : '';
-    const expiryFilter = dto?.expiry ? dto.expiry.trim() : '';
-    const strikeFilter = dto?.strike !== undefined && dto?.strike !== null ? Number(dto.strike) : null;
-    const optionTypeFilter = dto?.optionType ? dto.optionType.trim().toUpperCase() : '';
-    const q = dto?.q ? dto.q.trim().toUpperCase() : '';
-    const limit = dto?.limit ? Math.min(Math.max(1, dto.limit), 200) : 50;
-    const offset = dto?.offset ? Math.max(0, dto.offset) : 0;
-
-    let filtered = this.indexOptions;
-
-    if (indexFilter) {
-      let symKey = indexFilter;
-      if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
-      else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-      else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
-      else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
-
-      filtered = filtered.filter((o) => o.symbolName === symKey);
-    }
-
-    if (expiryFilter) {
-      filtered = filtered.filter((o) => o.expiryDate === expiryFilter);
-    }
-
-    if (strikeFilter !== null && !isNaN(strikeFilter)) {
-      filtered = filtered.filter((o) => Math.abs(o.strikePrice - strikeFilter) < 0.1);
-    }
-
-    if (optionTypeFilter) {
-      const optType = optionTypeFilter.startsWith('C') ? 'CE' : optionTypeFilter.startsWith('P') ? 'PE' : optionTypeFilter;
-      filtered = filtered.filter((o) => o.optionType === optType);
-    }
-
-    if (q) {
-      filtered = filtered.filter(
-        (o) =>
-          (o.customSymbol && o.customSymbol.toUpperCase().includes(q)) ||
-          o.symbolName.includes(q) ||
-          String(o.strikePrice).includes(q) ||
-          o.securityId === q,
-      );
-    }
-
-    // Collect distinct expiries
-    const expiriesSet = new Set<string>();
-    const expirySource = indexFilter ? this.indexOptions.filter((o) => {
-      let symKey = indexFilter;
-      if (symKey.includes('BANK')) symKey = 'BANKNIFTY';
-      else if (symKey.includes('MIDCP') || symKey.includes('MIDCAP')) symKey = 'MIDCPNIFTY';
-      else if (symKey.includes('SENSEX')) symKey = 'SENSEX';
-      else if (symKey.includes('NIFTY')) symKey = 'NIFTY';
-      return o.symbolName === symKey;
-    }) : this.indexOptions;
-
-    for (const o of expirySource) {
-      if (o.expiryDate) expiriesSet.add(o.expiryDate);
-    }
-    const expiries = Array.from(expiriesSet).sort();
-
-    const paginated = filtered.slice(offset, offset + limit);
-
-    return {
-      total: filtered.length,
-      items: paginated,
-      limit,
-      offset,
-      expiries,
-      tradedIndices: Array.from(InstrumentsService.TRADED_INDEX_SYMBOLS),
-    };
   }
 
   async getAll(): Promise<InstrumentItem[]> {

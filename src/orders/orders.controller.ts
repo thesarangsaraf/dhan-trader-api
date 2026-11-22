@@ -66,22 +66,4 @@ export class OrdersController {
   async getTradeHistory(@Query() query: GetTradeHistoryDto) {
     return this.ordersService.getTradeHistory(query);
   }
-
-  @Get('trades/financial-years')
-  @ApiOperation({ summary: 'Get list of selectable financial years (current + previous historical FYs)' })
-  @ApiResponse({ status: 200, description: 'Available financial years list' })
-  getFinancialYears() {
-    return this.ordersService.getFinancialYears();
-  }
-
-  @Get('trades')
-  @ApiOperation({ summary: 'Get executed trades (active session or historical if query params provided)' })
-  @ApiResponse({ status: 200, description: 'List of trades' })
-  @ApiResponse({ status: 502, description: 'Dhan API failure' })
-  async getTrades(@Query() query: GetTradeHistoryDto) {
-    if (query && (query.financialYear || query.fromDate || query.toDate)) {
-      return this.ordersService.getTradeHistory(query);
-    }
-    return this.ordersService.getTrades();
-  }
 }

@@ -55,26 +55,4 @@ export class FirestoreController {
       tokenCollection: 'config/dhan',
     };
   }
-
-  @Get('index-options/status')
-  @ApiOperation({ summary: 'Get metadata and status of NSE index options stored in Firestore' })
-  @ApiResponse({ status: 200, description: 'Index options metadata and chunking stats' })
-  async getIndexOptionsStatus() {
-    const meta = await this.firestoreService.getIndexOptionsMetadata();
-    return {
-      storedInFirestore: !!meta,
-      metadata: meta,
-    };
-  }
-
-  @Get('sec-id-mapping/status')
-  @ApiOperation({ summary: 'Get metadata and status of security ID to name mapping stored in Firestore' })
-  @ApiResponse({ status: 200, description: 'sec_id_to_name_mapping metadata, document count, and instrument totals' })
-  async getSecIdMappingStatus() {
-    const meta = await this.firestoreService.getSecIdMappingMetadata();
-    return {
-      storedInFirestore: !!meta,
-      metadata: meta,
-    };
-  }
 }

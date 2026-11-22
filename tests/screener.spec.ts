@@ -456,10 +456,10 @@ test('Liquidity Sweep & Reversal Screener (5m, Configured Indices)', async (t) =
     assert.strictEqual(res.orderBlockData?.results.length, 4);
   });
 
-  await t.test('POST /api/screener/order-block/scan directly executes Order Block scan', async () => {
-    const res = await controller.runOrderBlockScan({ htfTimeframe: '1h', ltfTimeframe: '5m' });
+  await t.test('POST /api/screener/scan with order-block strategy executes Order Block scan', async () => {
+    const res = await controller.runScan({ strategy: 'order-block', htfTimeframe: '1h', ltfTimeframe: '5m' });
     assert.strictEqual(res.strategy, 'order-block');
-    assert.strictEqual(res.totalScanned, 4);
-    assert.ok(Array.isArray(res.results));
+    assert.strictEqual(res.orderBlockData?.totalScanned, 4);
+    assert.ok(Array.isArray(res.orderBlockData?.results));
   });
 });

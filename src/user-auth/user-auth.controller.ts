@@ -65,17 +65,6 @@ export class UserAuthController {
     return this.userAuthService.logout(dto.refreshToken);
   }
 
-  @Get('me')
-  @UseGuards(UserAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get profile information of current authenticated user' })
-  @ApiResponse({ status: 200, description: 'Current user profile' })
-  async getProfile(@Req() req: any) {
-    const username = req.user?.username || req.user?.sub;
-    if (!username) throw new UnauthorizedException('User identity missing from token');
-    return this.userAuthService.getProfile(username);
-  }
-
   @Put('password')
   @UseGuards(UserAuthGuard)
   @ApiBearerAuth()
@@ -88,44 +77,9 @@ export class UserAuthController {
     return this.userAuthService.changePassword(username, dto);
   }
 
-  @Public()
-  @Get('status')
-  @ApiOperation({ summary: 'Check user authentication module readiness' })
-  @ApiResponse({ status: 200, description: 'User auth readiness state' })
-  async getStatus() {
-    const sarang = await this.userAuthService.getUser('sarang');
-    return {
-      configured: !!sarang,
-      superuserConfigured: !!sarang,
-    };
-  }
-
   // =========================================================================
   // ACTIVE SESSION MANAGEMENT (Self)
   // =========================================================================
-
-  @Get('sessions')
-  @UseGuards(UserAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'List active sessions for current authenticated user' })
-  @ApiResponse({ status: 200, description: 'List of active sessions' })
-  async getMySessions(@Req() req: any, @Headers('x-refresh-token') currentRefreshToken?: string) {
-    const username = req.user?.username || req.user?.sub;
-    if (!username) throw new UnauthorizedException('User identity missing from token');
-    return this.userAuthService.listUserSessions(username, currentRefreshToken);
-  }
-
-  @Delete('sessions/:id')
-  @UseGuards(UserAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Terminate a specific active session for current user' })
-  @ApiResponse({ status: 200, description: 'Session terminated' })
-  @ApiResponse({ status: 404, description: 'Session not found' })
-  async revokeMySession(@Req() req: any, @Param('id') sessionId: string) {
-    const username = req.user?.username || req.user?.sub;
-    if (!username) throw new UnauthorizedException('User identity missing from token');
-    return this.userAuthService.revokeSession(username, sessionId);
-  }
 
   @Delete('sessions')
   @UseGuards(UserAuthGuard)
@@ -209,16 +163,6 @@ export class UserAuthController {
   @ApiResponse({ status: 403, description: 'Access denied: requires admin role' })
   async getAllSessions(@Headers('x-refresh-token') currentRefreshToken?: string) {
     return this.userAuthService.listAllActiveSessions(currentRefreshToken);
-  }
-
-  @Get('users/:username/sessions')
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'List active sessions for specified user (Restricted to role: admin)' })
-  @ApiResponse({ status: 200, description: 'List of active sessions for user' })
-  @ApiResponse({ status: 403, description: 'Access denied: requires admin role' })
-  async getUserSessions(@Param('username') username: string) {
-    return this.userAuthService.listUserSessions(username);
   }
 
   @Delete('users/:username/sessions/:id')

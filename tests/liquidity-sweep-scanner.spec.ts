@@ -279,9 +279,9 @@ test('Standalone Liquidity Sweep Strategy Scanner Engine', async (t) => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. CONTROLLER ENDPOINT INTEGRATION (/api/screener/liquidity-sweep/scan)
+  // 6. CONTROLLER ENDPOINT INTEGRATION (/api/screener/scan)
   // -------------------------------------------------------------------------
-  await t.test('6. POST /api/screener/liquidity-sweep/scan executes standalone scan endpoint', async () => {
+  await t.test('6. POST /api/screener/scan executes sweep scan via controller', async () => {
     const mockFirestore = {
       isReady: () => true,
       getTradedInstruments: async () => ({
@@ -319,11 +319,11 @@ test('Standalone Liquidity Sweep Strategy Scanner Engine', async (t) => {
     }).compile();
 
     const controller = moduleRef.get<ScreenerController>(ScreenerController);
-    const res = await controller.runLiquiditySweepScan({ timeframe: '15m' });
+    const res = await controller.runScan({ timeframe: '15m' });
 
     assert.strictEqual(res.strategy, 'LIQUIDITY_SWEEP');
     assert.strictEqual(res.timeframe, '15m');
     assert.strictEqual(res.totalScanned, 4);
-    assert.ok(Array.isArray(res.results));
+    assert.ok(Array.isArray(res.liquiditySweepData?.results));
   });
 });
