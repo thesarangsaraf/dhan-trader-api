@@ -65,9 +65,9 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Google Cloud Firestore credentials
-    this.firestoreProjectId = (process.env.FIRESTORE_PROJECT_ID || this.env.FIRESTORE_PROJECT_ID || '').trim();
-    this.firestoreDatabaseId = (process.env.FIRESTORE_DATABASE_ID || this.env.FIRESTORE_DATABASE_ID || '').trim();
-    this.firestoreKeyFile = (process.env.FIRESTORE_KEY_FILE || this.env.FIRESTORE_KEY_FILE || '').trim();
+    this.firestoreProjectId = (process.env.FIRESTORE_PROJECT_ID || this.env.FIRESTORE_PROJECT_ID || 'dhan-trader-514002').trim();
+    this.firestoreDatabaseId = (process.env.FIRESTORE_DATABASE_ID || this.env.FIRESTORE_DATABASE_ID || 'dhan-trader-firebase-db').trim();
+    this.firestoreKeyFile = (process.env.FIRESTORE_KEY_FILE || this.env.FIRESTORE_KEY_FILE || 'google-service-account-key.json').trim();
     const rawScopes = (process.env.FIRESTORE_AUTH_SCOPES || this.env.FIRESTORE_AUTH_SCOPES || '').trim();
     this.firestoreAuthScopes = rawScopes ? rawScopes.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
@@ -77,24 +77,24 @@ export class ConfigService implements OnModuleInit, OnModuleDestroy {
     this.pollIntervalMs = parseInt(process.env.POLL_INTERVAL_MS || this.env.POLL_INTERVAL_MS || '4000', 10);
 
     // Dhan HQ API v2 Endpoints
-    this.dhanApiBase = (process.env.DHAN_API_BASE || this.env.DHAN_API_BASE || '').trim();
-    this.dhanScripMasterUrl = (process.env.DHAN_SCRIP_MASTER_URL || this.env.DHAN_SCRIP_MASTER_URL || '').trim();
+    this.dhanApiBase = (process.env.DHAN_API_BASE || this.env.DHAN_API_BASE || 'https://api.dhan.co/v2').trim();
+    this.dhanScripMasterUrl = (process.env.DHAN_SCRIP_MASTER_URL || this.env.DHAN_SCRIP_MASTER_URL || 'https://images.dhan.co/api-data/api-scrip-master.csv').trim();
 
     // Webhook Postback Callback URL
-    this.webhookBaseUrl = (process.env.WEBHOOK_BASE_URL || this.env.WEBHOOK_BASE_URL || '').trim();
+    this.webhookBaseUrl = (process.env.WEBHOOK_BASE_URL || this.env.WEBHOOK_BASE_URL || 'https://dhan-trader-api-218680608145.asia-south1.run.app').trim();
 
     // External Integration Endpoints
-    this.telegramApiBase = (process.env.TELEGRAM_API_BASE || this.env.TELEGRAM_API_BASE || '').trim();
-    this.yahooFinanceBaseUrl = (process.env.YAHOO_FINANCE_BASE_URL || this.env.YAHOO_FINANCE_BASE_URL || '').trim();
+    this.telegramApiBase = (process.env.TELEGRAM_API_BASE || this.env.TELEGRAM_API_BASE || 'https://api.telegram.org').trim();
+    this.yahooFinanceBaseUrl = (process.env.YAHOO_FINANCE_BASE_URL || this.env.YAHOO_FINANCE_BASE_URL || 'https://query1.finance.yahoo.com/v8/finance/chart').trim();
 
     // Application Security
-    this.jwtSecret = (process.env.JWT_SECRET || this.env.JWT_SECRET || '').trim();
+    this.jwtSecret = (process.env.JWT_SECRET || this.env.JWT_SECRET || 'dhan-trader-user-jwt-secret-key-2026').trim();
     this.cronSecret = (process.env.CRON_SECRET || this.env.CRON_SECRET || '').trim();
 
     // Google Cloud Run & Deployment
-    this.cloudRunService = (process.env.CLOUD_RUN_SERVICE || this.env.CLOUD_RUN_SERVICE || '').trim();
-    this.cloudRunRegion = (process.env.CLOUD_RUN_REGION || this.env.CLOUD_RUN_REGION || '').trim();
-    this.containerRegistryRepo = (process.env.CONTAINER_REGISTRY_REPO || this.env.CONTAINER_REGISTRY_REPO || '').trim();
+    this.cloudRunService = (process.env.CLOUD_RUN_SERVICE || this.env.CLOUD_RUN_SERVICE || 'dhan-trader-api').trim();
+    this.cloudRunRegion = (process.env.CLOUD_RUN_REGION || this.env.CLOUD_RUN_REGION || 'asia-south1').trim();
+    this.containerRegistryRepo = (process.env.CONTAINER_REGISTRY_REPO || this.env.CONTAINER_REGISTRY_REPO || 'asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api').trim();
 
     // Default configuration (all dynamically loaded from Firestore on startup)
     this.clientId = (process.env.DHAN_CLIENT_ID || this.env.DHAN_CLIENT_ID || '').trim();

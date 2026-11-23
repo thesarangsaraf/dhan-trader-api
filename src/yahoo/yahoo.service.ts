@@ -41,7 +41,7 @@ export class YahooFinanceService {
   constructor(@Optional() private readonly config?: ConfigService) {}
 
   private getBaseUrl(): string {
-    return (this.config?.yahooFinanceBaseUrl || process.env.YAHOO_FINANCE_BASE_URL || '').trim();
+    return (this.config?.yahooFinanceBaseUrl || process.env.YAHOO_FINANCE_BASE_URL || 'https://query1.finance.yahoo.com/v8/finance/chart').trim();
   }
 
   private readonly INDEX_MAP: Record<string, string> = {

@@ -953,6 +953,13 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.deepStrictEqual(res.body.strikes, [25450, 25500, 25550]);
   });
 
+  await t.test('GET /api/instruments/option-contracts succeeds when price is omitted by using spot / median strike', async () => {
+    const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=nifty%2050&expiry=2026-11-26');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.currentExpiry.expiryDate, '2026-11-26');
+    assert.strictEqual(res.body.strikes.length, 3);
+  });
+
   await t.test('GET /api/instruments/option-contracts returns 404 when instrument options are not found in database', async () => {
     const res = await makeMockRequest('GET', '/api/instruments/option-contracts?instrument=MIDCPNIFTY&price=12000');
     assert.strictEqual(res.status, 404);

@@ -1192,12 +1192,16 @@ export class InstrumentsService implements OnModuleInit {
     const matched = this.findBySymbol(clean);
     if (matched) {
       const enriched = await this.enrichWithLiveLtp([matched]);
-      return { symbol: clean, ltp: enriched[0]?.ltp ?? null };
+      if (enriched[0]?.ltp && enriched[0].ltp > 0) {
+        return { symbol: clean, ltp: enriched[0].ltp };
+      }
     }
 
     if (this.yahooService) {
       const price = await this.yahooService.getLtp(clean);
-      return { symbol: clean, ltp: price };
+      if (price && price > 0) {
+        return { symbol: clean, ltp: price };
+      }
     }
 
     return { symbol: clean, ltp: null };
@@ -1395,6 +1399,12 @@ export class InstrumentsService implements OnModuleInit {
       const ltpObj = await this.getLtp(normalizedName);
       if (ltpObj.ltp && ltpObj.ltp > 0) {
         spotPrice = ltpObj.ltp;
+      } else if (availableStrikes.length > 0) {
+        const midIdx = Math.floor(availableStrikes.length / 2);
+        spotPrice = availableStrikes[midIdx];
+        this.logger.warn(
+          `Live spot price is not available for ${normalizedName}. Using middle strike ${spotPrice} as reference.`,
+        );
       } else {
         throw new BadRequestException(
           `Live spot price is not available for ${normalizedName}. Please provide a target price or retry once market data is connected.`,
@@ -1586,8 +1596,8 @@ export class InstrumentsService implements OnModuleInit {
           }
         }
       }
-    } catch {
-      // Data API offline or unsubscribed
+    } catch (err: any) {
+      this.logger.warn(`Dhan marketfeed LTP failed: ${err.message}`);
     }
 
     const missingItems = items.filter(
@@ -1599,13 +1609,16 @@ export class InstrumentsService implements OnModuleInit {
         const yahooQuotes = await this.yahooService.getBatchLtp(missingItems.map((it) => it.symbol));
         for (const it of missingItems) {
           const key = `${it.exchangeSegment}:${it.securityId}`;
-          const yPrice = yahooQuotes[it.symbol] ?? yahooQuotes[it.symbol.toUpperCase()];
+          const yPrice =
+            yahooQuotes[it.symbol] ??
+            yahooQuotes[it.symbol.toUpperCase()] ??
+            ((it as any).name ? yahooQuotes[(it as any).name] ?? yahooQuotes[(it as any).name.toUpperCase()] : undefined);
           if (typeof yPrice === 'number') {
             priceMap.set(key, yPrice);
           }
         }
-      } catch {
-        // Yahoo service error
+      } catch (err: any) {
+        this.logger.warn(`Yahoo batch LTP fallback failed: ${err.message}`);
       }
     }
 
