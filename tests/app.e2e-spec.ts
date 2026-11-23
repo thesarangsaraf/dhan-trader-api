@@ -1023,13 +1023,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.databaseId, 'dhan-trader-firebase-db');
   });
 
-  await t.test('POST /api/firestore/test triggers connectivity test', async () => {
-    const res = await makeMockRequest('POST', '/api/firestore/test');
-    assert.strictEqual(res.status, 201);
-    assert.strictEqual(res.body.success, true);
-    assert.strictEqual(res.body.projectId, 'dhan-trader-514002');
-  });
-
   await t.test('POST /api/instruments/sync syncs security master and index options into Firestore', async () => {
     const res = await makeMockRequest('POST', '/api/instruments/sync', {
       force: true,

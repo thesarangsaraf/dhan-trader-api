@@ -6,7 +6,6 @@ import { YahooFinanceService } from '../yahoo/yahoo.service';
 import { InstrumentsService } from '../instruments/instruments.service';
 import { FirestoreService } from '../firestore/firestore.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
-import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
 import { ConditionalOrderDto } from './dto/conditional-order.dto';
 
@@ -650,29 +649,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     return alerts;
   }
 
-  getGroupedAlerts() {
-    const enriched = this.getAllAlerts();
-    const groups: Record<string, any> = {};
-
-    for (const alert of enriched) {
-      const inst = alert.instrument || 'CUSTOM';
-      if (!groups[inst]) {
-        groups[inst] = {
-          instrument: inst,
-          currentPrice: this.getCurrentPrice(inst, alert.securityId, alert.exchangeSegment),
-          activeCount: 0,
-          triggeredCount: 0,
-          alerts: [],
-        };
-      }
-      groups[inst].alerts.push(alert);
-      if (alert.status === 'ACTIVE') groups[inst].activeCount++;
-      if (alert.status === 'TRIGGERED') groups[inst].triggeredCount++;
-    }
-
-    return Object.values(groups);
-  }
-
   createAlert(dto: CreateAlertDto) {
     if (dto.attachedOrder && !dto.conditionalOrder) {
       dto.conditionalOrder = {
@@ -1249,23 +1225,6 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
       stopLossAlertId: slDhanAlertId,
       dhanApiResult,
     };
-  }
-
-  updateAlert(id: string, dto: UpdateAlertDto) {
-    const alert = this.alerts.find((a) => a.id === id);
-    if (!alert) {
-      throw new NotFoundException(`Alert ${id} not found`);
-    }
-
-    if (dto.targetPrice !== undefined) {
-      const price = parseFloat(String(dto.targetPrice));
-      if (!isNaN(price) && price > 0) alert.targetPrice = price;
-    }
-    if (dto.operator) alert.operator = dto.operator;
-    if (dto.remarks !== undefined) alert.remarks = dto.remarks;
-    if (dto.status) alert.status = dto.status;
-
-    return { success: true, alert };
   }
 
   cancelAlert(id: string) {

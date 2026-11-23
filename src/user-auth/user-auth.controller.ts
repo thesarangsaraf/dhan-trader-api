@@ -18,7 +18,6 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { UserAuthService } from './user-auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto, UserRole } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Public } from './public.decorator';
@@ -63,18 +62,6 @@ export class UserAuthController {
   @ApiResponse({ status: 200, description: 'Session revoked' })
   async logout(@Body() dto: Partial<RefreshTokenDto>) {
     return this.userAuthService.logout(dto.refreshToken);
-  }
-
-  @Put('password')
-  @UseGuards(UserAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Change current user password' })
-  @ApiResponse({ status: 200, description: 'Password changed successfully' })
-  @ApiResponse({ status: 400, description: 'Current password invalid' })
-  async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    const username = req.user?.username || req.user?.sub;
-    if (!username) throw new UnauthorizedException('User identity missing from token');
-    return this.userAuthService.changePassword(username, dto);
   }
 
   // =========================================================================

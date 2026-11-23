@@ -1,8 +1,7 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, Post, Put, Req } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
 import { CreateAlertDto } from './dto/create-alert.dto';
-import { UpdateAlertDto } from './dto/update-alert.dto';
 import { CreateConditionalAlertDto } from './dto/create-conditional-alert.dto';
 import { Roles } from '../user-auth/roles.decorator';
 import { UserRole } from '../user-auth/dto/create-user.dto';
@@ -18,14 +17,6 @@ export class AlertsController {
   async getAllAlerts() {
     await this.alertsService.syncWithDhan();
     return this.alertsService.getAllAlerts();
-  }
-
-  @Get('grouped')
-  @ApiOperation({ summary: 'Get live alerts categorized by instrument with count badges' })
-  @ApiResponse({ status: 200, description: 'Categorized alerts group with live LTP' })
-  async getGrouped() {
-    await this.alertsService.syncWithDhan();
-    return this.alertsService.getGroupedAlerts();
   }
 
   @Post()
@@ -73,18 +64,6 @@ export class AlertsController {
   @ApiResponse({ status: 404, description: 'Alert not found' })
   async cancelAlert(@Param('id') id: string) {
     return this.alertsService.cancelAlert(id);
-  }
-
-  @Put(':id')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Update an existing alert (Admin only)' })
-  @ApiParam({ name: 'id', description: 'Alert ID' })
-  @ApiResponse({ status: 200, description: 'Alert updated' })
-  @ApiResponse({ status: 400, description: 'Bad request' })
-  @ApiResponse({ status: 403, description: 'Forbidden - only admin users can update alerts' })
-  @ApiResponse({ status: 404, description: 'Alert not found' })
-  updateAlert(@Param('id') id: string, @Body() dto: UpdateAlertDto) {
-    return this.alertsService.updateAlert(id, dto);
   }
 
   @Delete(':id')

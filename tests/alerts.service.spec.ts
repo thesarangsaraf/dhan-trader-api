@@ -136,12 +136,6 @@ test('AlertsService (NestJS)', async (t) => {
     assert.strictEqual(result.alert.targetPrice, 24950.0);
     assert.strictEqual(result.alert.status, 'ACTIVE');
 
-    const grouped = service.getGroupedAlerts();
-    assert.ok(Array.isArray(grouped));
-    const niftyGroup = grouped.find((g: any) => g.instrument === 'NIFTY 50');
-    assert.ok(niftyGroup);
-    assert.ok(niftyGroup.alerts.some((a: any) => a.id === result.alert.id));
-
     const cancelRes = service.cancelAlert(result.alert.id);
     assert.strictEqual(cancelRes.success, true);
     assert.strictEqual(cancelRes.alert.status, 'CANCELLED');

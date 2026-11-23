@@ -14,7 +14,6 @@ import { UserJwtUtil } from './utils/user-jwt.util';
 import { parseUserAgent } from './utils/user-agent.util';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto, UserRole } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ActiveSessionDto } from './dto/active-session.dto';
@@ -509,28 +508,6 @@ export class UserAuthService implements OnModuleInit {
       }
     }
     return { success: true, message: 'Logged out successfully' };
-  }
-
-  /**
-   * Changes password for currently authenticated user.
-   */
-  public async changePassword(username: string, dto: ChangePasswordDto) {
-    const user = await this.getUser(username, true);
-    if (!user) {
-      throw new BadRequestException('User record not found');
-    }
-
-    if (dto.currentPassword) {
-      if (!PasswordUtil.verifyPassword(dto.currentPassword, user.passwordHash)) {
-        throw new BadRequestException('Current password is incorrect');
-      }
-    }
-
-    user.passwordHash = PasswordUtil.hashPassword(dto.newPassword);
-    user.updatedAt = new Date().toISOString();
-    await this.saveUser(user);
-
-    return { success: true, message: 'Password updated successfully' };
   }
 
   /**

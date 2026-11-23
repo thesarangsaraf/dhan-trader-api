@@ -100,7 +100,7 @@ This document provides definitive instructions, architecture patterns, constrain
       - Sensitive fields (passwords, salts, password hashes, refresh token arrays) are strictly stripped from all user list responses.
     - **Security Primitives**:
       - Passwords are derived using memory-hard `scrypt` with a cryptographically random salt and validated using constant-time `timingSafeEqual`.
-      - Endpoints: `POST /api/user-auth/login`, `POST /api/user-auth/refresh`, `POST /api/user-auth/logout`, `GET /api/user-auth/me`, `PUT /api/user-auth/password`, `GET /api/user-auth/status`, `GET /api/user-auth/sessions`, `DELETE /api/user-auth/sessions`, `DELETE /api/user-auth/sessions/:id`, `GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`, `GET /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions/:id`.
+      - Endpoints: `POST /api/user-auth/login`, `POST /api/user-auth/refresh`, `POST /api/user-auth/logout`, `DELETE /api/user-auth/sessions`, `GET /api/user-auth/users`, `POST /api/user-auth/users`, `PUT /api/user-auth/users/:username`, `DELETE /api/user-auth/users/:username`, `GET /api/user-auth/all-sessions`, `GET /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions`, `DELETE /api/user-auth/users/:username/sessions/:id`.
 
 11. **Strict Container Registry Space Saving & Cloud Run Revision Cleanup (Only Latest Retained)**:
     - To conserve container registry storage and eliminate unnecessary storage costs in Google Cloud Artifact Registry (`asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api`), agents and deployment pipelines MUST strictly retain only the latest production Docker image.
@@ -157,7 +157,7 @@ dhan-trader/
 │   │   └── dhan.service.ts            # Dhan HQ API v2 HTTPS client wrapper
 │   ├── user-auth/
 │   │   ├── user-auth.module.ts        # App user login, JWT tokens & session management
-│   │   ├── user-auth.controller.ts    # /api/user-auth endpoints (login, refresh, logout, me, password, users, sessions)
+│   │   ├── user-auth.controller.ts    # /api/user-auth endpoints (login, refresh, logout, users, sessions)
 │   │   ├── user-auth.service.ts       # Scrypt hashing, HS256 JWT, persistent sessions in Firestore
 │   │   ├── user-auth.guard.ts         # Global Bearer token authorization guard
 │   │   ├── roles.decorator.ts         # @Roles(UserRole.ADMIN) annotation for declarative RBAC

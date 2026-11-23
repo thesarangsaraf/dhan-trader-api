@@ -119,24 +119,6 @@ test('UserAuthService (NestJS)', async (t) => {
     );
   });
 
-  await t.test('changes password successfully', async () => {
-    // 1. Change password with current password verified
-    await service.changePassword('sarang', { currentPassword: 'admin123', newPassword: 'tempPassword' });
-
-    // Login with old password fails
-    await assert.rejects(
-      async () => service.login({ username: 'sarang', password: 'admin123' }),
-      /Invalid username or password/,
-    );
-
-    // 2. Change password directly to newSarangPassword2026 without current password
-    await service.changePassword('sarang', { newPassword: 'newSarangPassword2026' });
-
-    // Login with new password succeeds
-    const newLogin = await service.login({ username: 'sarang', password: 'newSarangPassword2026' });
-    assert.ok(newLogin.accessToken);
-  });
-
   await t.test('User CRUD: create, list, update, and delete users', async () => {
     // 1. Create a new user
     const createRes = await service.createUser({
@@ -183,8 +165,8 @@ test('UserAuthService (NestJS)', async (t) => {
   });
 
   await t.test('Active sessions: list sessions, mark current session, kill session, kill other sessions', async () => {
-    // 1. Create multiple sessions for sarang (whose password was updated to 'newSarangPassword2026')
-    const pwd = 'newSarangPassword2026';
+    // 1. Create multiple sessions for sarang
+    const pwd = 'admin123';
     const login1 = await service.login({ username: 'sarang', password: pwd }, 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36', '192.168.1.5');
     const login2 = await service.login({ username: 'sarang', password: pwd }, 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1', '192.168.1.10');
     const login3 = await service.login({ username: 'sarang', password: pwd }, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/121.0', '192.168.1.15');
