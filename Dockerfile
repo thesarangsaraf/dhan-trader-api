@@ -59,7 +59,21 @@ WORKDIR /app
 # Configure default Cloud Run environment variables
 ENV NODE_ENV=production \
     PORT=8080 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    FIRESTORE_PROJECT_ID=dhan-trader-514002 \
+    FIRESTORE_DATABASE_ID=dhan-trader-firebase-db \
+    FIRESTORE_KEY_FILE=google-service-account-key.json \
+    FIRESTORE_AUTH_SCOPES=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/datastore \
+    POLL_INTERVAL_MS=4000 \
+    DHAN_API_BASE=https://api.dhan.co/v2 \
+    DHAN_SCRIP_MASTER_URL=https://images.dhan.co/api-data/api-scrip-master.csv \
+    WEBHOOK_BASE_URL=https://dhan-trader-api-218680608145.asia-south1.run.app \
+    TELEGRAM_API_BASE=https://api.telegram.org \
+    YAHOO_FINANCE_BASE_URL=https://query1.finance.yahoo.com/v8/finance/chart \
+    JWT_SECRET=dhan-trader-user-jwt-secret-key-2026 \
+    CLOUD_RUN_SERVICE=dhan-trader-api \
+    CLOUD_RUN_REGION=asia-south1 \
+    CONTAINER_REGISTRY_REPO=asia-south1-docker.pkg.dev/dhan-trader-514002/dhan-api-docker/dhan-trader-api
 
 # Copy production node_modules from prod-deps stage
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules

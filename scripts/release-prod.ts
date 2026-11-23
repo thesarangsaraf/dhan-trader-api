@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { execSync } from 'child_process';
 import { ConfigService } from '../src/config/config.service';
 
@@ -34,8 +36,36 @@ async function releaseProduction() {
   // Note: Pushing with :latest tag automatically removes the tag from previous images, making them tagless
   runStep('Step 3: Pushing image to GCP Artifact Registry', `docker push ${IMAGE_TAG}`);
 
-  // 4. Update Cloud Run service revision
-  runStep('Step 4: Updating Cloud Run service revision', `gcloud run services update ${CLOUD_RUN_SERVICE} --image ${IMAGE_TAG} --region ${REGION}`);
+  // 4. Update Cloud Run service revision and inject environment variables via YAML definition file
+  const envYamlPath = path.resolve(__dirname, '..', '.cloudrun-env.yaml');
+  const envYamlContent = [
+    `FIRESTORE_PROJECT_ID: "${config.firestoreProjectId}"`,
+    `FIRESTORE_DATABASE_ID: "${config.firestoreDatabaseId}"`,
+    `FIRESTORE_KEY_FILE: "${config.firestoreKeyFile}"`,
+    `FIRESTORE_AUTH_SCOPES: "${config.firestoreAuthScopes.join(',')}"`,
+    `DHAN_API_BASE: "${config.dhanApiBase}"`,
+    `DHAN_SCRIP_MASTER_URL: "${config.dhanScripMasterUrl}"`,
+    `WEBHOOK_BASE_URL: "${config.webhookBaseUrl}"`,
+    `TELEGRAM_API_BASE: "${config.telegramApiBase}"`,
+    `YAHOO_FINANCE_BASE_URL: "${config.yahooFinanceBaseUrl}"`,
+    `JWT_SECRET: "${config.jwtSecret}"`,
+    `CRON_SECRET: "${config.cronSecret}"`,
+    `POLL_INTERVAL_MS: "${config.pollIntervalMs}"`,
+    `NODE_ENV: "production"`,
+  ].join('\n');
+
+  fs.writeFileSync(envYamlPath, envYamlContent, 'utf8');
+
+  try {
+    runStep(
+      'Step 4: Updating Cloud Run service revision and injecting environment variables',
+      `gcloud run services update ${CLOUD_RUN_SERVICE} --image ${IMAGE_TAG} --region ${REGION} --env-vars-file "${envYamlPath}"`,
+    );
+  } finally {
+    if (fs.existsSync(envYamlPath)) {
+      fs.unlinkSync(envYamlPath);
+    }
+  }
 
   // 5. Delete older inactive Cloud Run revisions to keep only the newly deployed active revision
   runStep('Step 5: Pruning older Cloud Run revisions', 'npm run prune:revisions');
