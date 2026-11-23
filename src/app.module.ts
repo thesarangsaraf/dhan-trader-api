@@ -11,7 +11,6 @@ import { OrdersModule } from './orders/orders.module';
 import { InstrumentsModule } from './instruments/instruments.module';
 import { FirestoreModule } from './firestore/firestore.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
-import { ScreenerModule } from './screener/screener.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { UserAuthGuard } from './user-auth/user-auth.guard';
 import { RolesGuard } from './user-auth/roles.guard';
@@ -28,7 +27,6 @@ import { RolesGuard } from './user-auth/roles.guard';
     OrdersModule,
     InstrumentsModule,
     UserAuthModule,
-    ScreenerModule,
     WebhooksModule,
   ],
   controllers: [AppController],
