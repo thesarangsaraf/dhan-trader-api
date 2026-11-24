@@ -12,6 +12,7 @@ import { InstrumentsModule } from './instruments/instruments.module';
 import { FirestoreModule } from './firestore/firestore.module';
 import { UserAuthModule } from './user-auth/user-auth.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { ScreenerModule } from './screener/screener.module';
 import { UserAuthGuard } from './user-auth/user-auth.guard';
 import { RolesGuard } from './user-auth/roles.guard';
 
@@ -28,6 +29,7 @@ import { RolesGuard } from './user-auth/roles.guard';
     InstrumentsModule,
     UserAuthModule,
     WebhooksModule,
+    ScreenerModule,
   ],
   controllers: [AppController],
   providers: [
