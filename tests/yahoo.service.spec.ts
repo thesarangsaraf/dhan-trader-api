@@ -41,6 +41,43 @@ test('YahooFinanceService (NestJS)', async (t) => {
     assert.strictEqual(opt2.strike, 52000);
     assert.strictEqual(opt2.type, 'PE');
 
+    // Official Dhan / NSE scrip master formats with expiry dates and CALL / PUT words
+    const opt3 = service.parseOptionSymbol('NIFTY 01 DEC 25300 CALL');
+    assert.strictEqual(opt3.isOption, true);
+    assert.strictEqual(opt3.underlying, 'NIFTY 50');
+    assert.strictEqual(opt3.strike, 25300);
+    assert.strictEqual(opt3.type, 'CE');
+
+    const opt4 = service.parseOptionSymbol('NIFTY 01 DEC 25350 PUT');
+    assert.strictEqual(opt4.isOption, true);
+    assert.strictEqual(opt4.underlying, 'NIFTY 50');
+    assert.strictEqual(opt4.strike, 25350);
+    assert.strictEqual(opt4.type, 'PE');
+
+    const opt5 = service.parseOptionSymbol('NIFTY-Dec2026-25300-CE');
+    assert.strictEqual(opt5.isOption, true);
+    assert.strictEqual(opt5.underlying, 'NIFTY 50');
+    assert.strictEqual(opt5.strike, 25300);
+    assert.strictEqual(opt5.type, 'CE');
+
+    const opt6 = service.parseOptionSymbol('BANKNIFTY 28 NOV 52000 CALL');
+    assert.strictEqual(opt6.isOption, true);
+    assert.strictEqual(opt6.underlying, 'BANK NIFTY');
+    assert.strictEqual(opt6.strike, 52000);
+    assert.strictEqual(opt6.type, 'CE');
+
+    const opt7 = service.parseOptionSymbol('SENSEX 28 NOV 80000 CALL');
+    assert.strictEqual(opt7.isOption, true);
+    assert.strictEqual(opt7.underlying, 'SENSEX');
+    assert.strictEqual(opt7.strike, 80000);
+    assert.strictEqual(opt7.type, 'CE');
+
+    const opt8 = service.parseOptionSymbol('MIDCPNIFTY 28 NOV 12500 CALL');
+    assert.strictEqual(opt8.isOption, true);
+    assert.strictEqual(opt8.underlying, 'MIDCAP NIFTY');
+    assert.strictEqual(opt8.strike, 12500);
+    assert.strictEqual(opt8.type, 'CE');
+
     const nonOpt = service.parseOptionSymbol('RELIANCE');
     assert.strictEqual(nonOpt.isOption, false);
   });

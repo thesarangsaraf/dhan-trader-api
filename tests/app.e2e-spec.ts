@@ -111,21 +111,6 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
         },
       ],
     }),
-    getLtp: async () => ({
-      ok: true,
-      data: {
-        status: 'success',
-        data: {
-          'IDX_I': {
-            '13': { last_price: 24520.5 },
-            '25': { last_price: 51850.0 },
-          },
-          'NSE_FNO': {
-            '45021': { last_price: 135.0 },
-          },
-        },
-      },
-    }),
     getAlerts: async () => ({
       ok: true,
       data: [],
@@ -929,7 +914,7 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(res.body.currentExpiry.strikes[1].put.moneyness, 'ATM');
     assert.strictEqual(res.body.currentExpiry.strikes[2].call.moneyness, 'OTM');
     assert.strictEqual(res.body.currentExpiry.strikes[2].put.moneyness, 'ITM');
-    assert.strictEqual(typeof res.body.currentExpiry.strikes[0].call.ltp, 'number');
+    assert.ok(res.body.currentExpiry.strikes[0].call.customSymbol);
 
     // Next expiry assertions
     assert.ok(res.body.nextExpiry);

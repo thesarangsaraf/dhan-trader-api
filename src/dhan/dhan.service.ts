@@ -208,25 +208,6 @@ export class DhanService {
     return this.request(`/trades/${fromDate}/${toDate}/${page}`);
   }
 
-  // Marketfeed LTP lookup
-  async getLtp(instruments: Record<string, number[]>): Promise<DhanApiResponse> {
-    return this.request('/marketfeed/ltp', {
-      method: 'POST',
-      body: instruments,
-    });
-  }
-
-  // Option Chain Expiry List
-  async getOptionChainExpiryList(underlyingScrip: number, underlyingSeg = 'IDX_I'): Promise<DhanApiResponse> {
-    return this.request('/optionchain/expirylist', {
-      method: 'POST',
-      body: {
-        UnderlyingScrip: underlyingScrip,
-        UnderlyingSeg: underlyingSeg,
-      },
-    });
-  }
-
   // Live Conditional Triggers & Price Alerts (Dhan HQ v2)
   async getAlerts(): Promise<DhanApiResponse> {
     return this.request('/alerts/orders');

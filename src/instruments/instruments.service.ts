@@ -1240,52 +1240,6 @@ export class InstrumentsService implements OnModuleInit {
       });
     }
 
-    let securityId = '13';
-    let exchangeSegment = 'IDX_I';
-    let targetWeekday = 4; // Thursday
-
-    if (raw.includes('BANK')) {
-      securityId = '25';
-      targetWeekday = 3;
-    } else if (raw.includes('MIDCP') || raw.includes('MIDCAP')) {
-      securityId = '442';
-      targetWeekday = 1;
-    } else if (raw.includes('SENSEX')) {
-      securityId = '51';
-      exchangeSegment = 'BSE_FNO';
-      targetWeekday = 5;
-    } else if (raw.includes('NIFTY')) {
-      securityId = '13';
-      targetWeekday = 4;
-    }
-
-    try {
-      const secNum = parseInt(securityId, 10);
-      if (!isNaN(secNum)) {
-        const dhanExpRes = await this.dhanService.getOptionChainExpiryList(
-          secNum,
-          exchangeSegment === 'BSE_FNO' ? 'BSE_FNO' : 'IDX_I',
-        );
-        if (dhanExpRes.ok && Array.isArray(dhanExpRes.data) && dhanExpRes.data.length > 0) {
-          const liveExpiries = dhanExpRes.data.filter((d: string) => typeof d === 'string' && d >= todayStr);
-          if (liveExpiries.length > 0) {
-            return liveExpiries.map((dStr: string) => {
-              const d = this.parseDateString(dStr);
-              const fmt = this.formatExpiryDate(d);
-              return {
-                expiryDate: fmt.expiryDate,
-                displayExpiry: fmt.displayExpiry,
-                shortExpiry: fmt.shortExpiry,
-              };
-            });
-          }
-        }
-      }
-    } catch {
-      // live api check error
-    }
-
-    // Strictly real data only: if not found in Firestore or Dhan, return empty array. NEVER generate mock calendar dates.
     return [];
   }
 
@@ -1516,11 +1470,6 @@ export class InstrumentsService implements OnModuleInit {
     const currentExpiry = buildChainForExpiryDate(targetExpiry, 'CURRENT');
     const nextExpiry = nextExpiryStr ? buildChainForExpiryDate(nextExpiryStr, 'NEXT') : null;
 
-    // Enrich real contracts with live LTP from Dhan
-    if (contracts.length > 0) {
-      await this.enrichWithLiveLtp(contracts);
-    }
-
     return {
       instrument: normalizedName,
       spotPrice,
@@ -1567,64 +1516,32 @@ export class InstrumentsService implements OnModuleInit {
   ): Promise<Array<T & { ltp?: number }>> {
     if (items.length === 0) return [];
 
-    const segmentsMap: Record<string, number[]> = {};
-    for (const it of items) {
-      if (it.exchangeSegment && it.securityId) {
-        if (!segmentsMap[it.exchangeSegment]) {
-          segmentsMap[it.exchangeSegment] = [];
-        }
-        const numId = parseInt(it.securityId, 10);
-        if (!isNaN(numId) && !segmentsMap[it.exchangeSegment].includes(numId)) {
-          segmentsMap[it.exchangeSegment].push(numId);
-        }
-      }
-    }
-
     const priceMap = new Map<string, number>();
 
-    try {
-      const ltpRes = await this.dhanService.getLtp(segmentsMap);
-      if (ltpRes.ok && ltpRes.data && ltpRes.data.data) {
-        for (const [seg, secObj] of Object.entries(ltpRes.data.data)) {
-          if (typeof secObj === 'object' && secObj !== null) {
-            for (const [secId, quote] of Object.entries(secObj as Record<string, any>)) {
-              const livePrice = quote?.last_price || quote?.ltp;
-              if (typeof livePrice === 'number') {
-                priceMap.set(`${seg}:${secId}`, livePrice);
-              }
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      this.logger.warn(`Dhan marketfeed LTP failed: ${err.message}`);
-    }
-
-    const missingItems = items.filter(
-      (it) => !priceMap.has(`${it.exchangeSegment}:${it.securityId}`),
-    );
-
-    if (missingItems.length > 0 && this.yahooService) {
+    // Live quotes for cash equities and benchmark indices are fetched via Yahoo Finance.
+    // Per Rule 1, NEVER inject fake/synthetic estimated prices.
+    const nonOptionItems = items.filter((it) => !(it as any).strikePrice && !(it as any).optionType);
+    if (nonOptionItems.length > 0 && this.yahooService) {
       try {
-        const yahooQuotes = await this.yahooService.getBatchLtp(missingItems.map((it) => it.symbol));
-        for (const it of missingItems) {
+        const yahooQuotes = await this.yahooService.getBatchLtp(nonOptionItems.map((it) => it.symbol));
+        for (const it of nonOptionItems) {
           const key = `${it.exchangeSegment}:${it.securityId}`;
           const yPrice =
             yahooQuotes[it.symbol] ??
             yahooQuotes[it.symbol.toUpperCase()] ??
             ((it as any).name ? yahooQuotes[(it as any).name] ?? yahooQuotes[(it as any).name.toUpperCase()] : undefined);
-          if (typeof yPrice === 'number') {
+          if (typeof yPrice === 'number' && yPrice > 0) {
             priceMap.set(key, yPrice);
           }
         }
       } catch (err: any) {
-        this.logger.warn(`Yahoo batch LTP fallback failed: ${err.message}`);
+        this.logger.warn(`Yahoo batch LTP lookup failed: ${err.message}`);
       }
     }
 
     return items.map((it) => {
       const livePrice = priceMap.get(`${it.exchangeSegment}:${it.securityId}`);
-      if (livePrice !== undefined) {
+      if (livePrice !== undefined && livePrice > 0) {
         (it as any).ltp = livePrice;
         return { ...it, ltp: livePrice };
       }

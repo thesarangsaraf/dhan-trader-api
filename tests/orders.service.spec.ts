@@ -118,10 +118,6 @@ test('OrdersService (NestJS)', async (t) => {
         },
       ],
     }),
-    getLtp: async () => ({
-      ok: true,
-      data: { status: 'success', data: {} },
-    }),
   };
 
   const mockTelegramService = {};

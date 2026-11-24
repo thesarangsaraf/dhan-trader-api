@@ -15,18 +15,6 @@ test('AlertsService (NestJS)', async (t) => {
 
   const mockDhanAlertsList: any[] = [];
   const mockDhanService: any = {
-    getLtp: async () => ({
-      ok: true,
-      data: {
-        status: 'success',
-        data: {
-          'IDX_I': {
-            '13': { last_price: 24520.5 },
-            '25': { last_price: 51850.0 },
-          },
-        },
-      },
-    }),
     getAlerts: async () => ({
       ok: true,
       data: mockDhanAlertsList,
@@ -213,18 +201,6 @@ test('AlertsService (NestJS)', async (t) => {
   });
 
   await t.test('creates alert with Stop Loss configured on NIFTY 50 and places SL alert directly on Dhan HQ API v2', async () => {
-    mockDhanService.getLtp = async () => ({
-      ok: true,
-      data: {
-        status: 'success',
-        data: {
-          'IDX_I': {
-            '13': { last_price: 25700.0 },
-            '25': { last_price: 51850.0 },
-          },
-        },
-      },
-    });
     service.priceCache.set('IDX_I:13', 25700.0);
     service.priceCache.set('NIFTY 50', 25700.0);
 

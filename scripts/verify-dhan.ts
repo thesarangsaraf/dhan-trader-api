@@ -83,21 +83,6 @@ async function verifyRealDhanConnection() {
     console.log('   ⚠️ Positions check response:', posRes.status, posRes.data?.errorMessage || posRes.data || posRes.error);
   }
 
-  // 5. Real Marketfeed Live LTP
-  console.log('\n5️⃣ Checking Live Marketfeed LTP (/marketfeed/ltp)...');
-  const ltpRes = await dhanService.getLtp({
-    'IDX_I': [13, 25],
-  });
-
-  if (ltpRes.ok && ltpRes.data && ltpRes.data.data) {
-    console.log('   ✅ Live NSE Marketfeed Received:');
-    const idxData = ltpRes.data.data.IDX_I || {};
-    if (idxData['13']) console.log(`   📈 NIFTY 50    LTP : ₹${idxData['13'].last_price}`);
-    if (idxData['25']) console.log(`   📈 NIFTY BANK  LTP : ₹${idxData['25'].last_price}`);
-  } else {
-    console.log('   ℹ️ Marketfeed status:', ltpRes.status, ltpRes.data?.data?.['806'] || ltpRes.data?.errorMessage || ltpRes.data || ltpRes.error);
-  }
-
   console.log('\n======================================================\n');
 }
 

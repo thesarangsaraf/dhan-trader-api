@@ -87,30 +87,55 @@ export class YahooFinanceService {
   }
 
   /**
-   * Parse option strings like "NIFTY 24500 CE", "BANKNIFTY 52000 PE", etc.
+   * Parse option strings like:
+   * - "NIFTY 24500 CE", "BANKNIFTY 52000 PE"
+   * - "NIFTY 01 DEC 25300 CALL", "NIFTY 01 DEC 25300 PUT"
+   * - "NIFTY-Dec2026-25300-CE", "NIFTY-01Dec2026-25300-PE"
+   * - "RELIANCE 3000 CE", "SENSEX 28 NOV 80000 CALL"
    */
   parseOptionSymbol(symbol: string): OptionDetails {
     if (!symbol) return { isOption: false };
 
-    // Matches e.g. "NIFTY 24500 CE", "BANKNIFTY 52000 PE", "NIFTY 24600 CE"
-    const match = symbol.trim().toUpperCase().match(/^([A-Z\s]+?)\s*(\d{4,6})\s*(CE|PE)$/);
-    if (!match) {
+    const clean = symbol.trim().toUpperCase();
+
+    // 1. Identify option type from the end of the symbol: CE, PE, CALL, PUT
+    const typeMatch = clean.match(/[\s\-_](CE|PE|CALL|PUT)$/);
+    if (!typeMatch) {
       return { isOption: false };
     }
 
-    const rawUnderlying = match[1].trim();
-    const strike = parseFloat(match[2]);
-    const type = match[3] as 'CE' | 'PE';
+    const typeStr = typeMatch[1];
+    const type: 'CE' | 'PE' = typeStr === 'CALL' || typeStr === 'CE' ? 'CE' : 'PE';
 
-    let underlying = rawUnderlying;
-    if (rawUnderlying.includes('BANK')) {
+    // 2. Extract strike price: the last sequence of digits preceding the option type
+    const beforeType = clean.slice(0, typeMatch.index).trim();
+    const strikeMatch = beforeType.match(/(\d{3,6})(?:[^\d]*)$/);
+    if (!strikeMatch) {
+      return { isOption: false };
+    }
+
+    const strike = parseFloat(strikeMatch[1]);
+    if (isNaN(strike) || strike <= 0) {
+      return { isOption: false };
+    }
+
+    // 3. Resolve underlying symbol
+    let underlying = 'NIFTY 50';
+    if (clean.includes('BANK')) {
       underlying = 'BANK NIFTY';
-    } else if (rawUnderlying.includes('MIDCAP') || rawUnderlying.includes('MIDCP')) {
+    } else if (clean.includes('MIDCAP') || clean.includes('MIDCP')) {
       underlying = 'MIDCAP NIFTY';
-    } else if (rawUnderlying.includes('SENSEX')) {
+    } else if (clean.includes('FINNIFTY') || clean.includes('FIN NIFTY')) {
+      underlying = 'FINNIFTY';
+    } else if (clean.includes('SENSEX') || clean.includes('BSX')) {
       underlying = 'SENSEX';
-    } else if (rawUnderlying.includes('NIFTY')) {
+    } else if (clean.includes('NIFTY')) {
       underlying = 'NIFTY 50';
+    } else {
+      const stockMatch = beforeType.match(/^([A-Z0-9&-]+)/);
+      if (stockMatch) {
+        underlying = stockMatch[1];
+      }
     }
 
     return {
@@ -125,6 +150,10 @@ export class YahooFinanceService {
    * Calculate realistic option LTP from underlying spot and strike when market feed is offline.
    */
   calculateOptionLtp(strike: number, type: 'CE' | 'PE', underlyingLtp: number): number {
+    if (!underlyingLtp || underlyingLtp <= 0 || !strike || strike <= 0) {
+      return 0;
+    }
+
     const intrinsic = type === 'CE'
       ? Math.max(0, underlyingLtp - strike)
       : Math.max(0, strike - underlyingLtp);
@@ -191,10 +220,8 @@ export class YahooFinanceService {
     // Check if it's an option contract
     const opt = this.parseOptionSymbol(symbol);
     if (opt.isOption && opt.underlying && opt.strike && opt.type) {
-      const underlyingLtp = await this.getLtp(opt.underlying);
-      if (underlyingLtp !== null) {
-        return this.calculateOptionLtp(opt.strike, opt.type, underlyingLtp);
-      }
+      // Yahoo Finance does not provide Indian NSE option chains. Never return synthetic fake values (Rule 1).
+      return null;
     }
 
     const yahooSymbol = this.mapToYahooSymbol(symbol);

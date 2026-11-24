@@ -1317,75 +1317,13 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
     this.isFetchingPrices = true;
 
     try {
-      const segmentsMap: Record<string, number[]> = {};
-
       // Dynamically get tradeable indices configured in Firestore / InstrumentsService
       const monitoredIndices: Array<{ name: string; symbol?: string; securityId: string; exchangeSegment: string }> =
         this.getDbConfiguredIndices();
 
-      for (const idx of monitoredIndices) {
-        if (!segmentsMap[idx.exchangeSegment]) {
-          segmentsMap[idx.exchangeSegment] = [];
-        }
-        const numId = parseInt(idx.securityId, 10);
-        if (!isNaN(numId) && !segmentsMap[idx.exchangeSegment].includes(numId)) {
-          segmentsMap[idx.exchangeSegment].push(numId);
-        }
-      }
-
       const allActive = [...this.alerts, ...this.dhanAlerts];
-      for (const alert of allActive) {
-        if (alert.status === 'ACTIVE' && alert.securityId && alert.exchangeSegment) {
-          const seg = alert.exchangeSegment;
-          if (!segmentsMap[seg]) {
-            segmentsMap[seg] = [];
-          }
-          const numId = parseInt(alert.securityId, 10);
-          if (!isNaN(numId) && !segmentsMap[seg].includes(numId)) {
-            segmentsMap[seg].push(numId);
-          }
-        }
-      }
 
-      // 1. Try Dhan HQ API marketfeed
-      try {
-        const ltpResponse = await this.dhanService.getLtp(segmentsMap);
-
-        if (ltpResponse.ok && ltpResponse.data && ltpResponse.data.data) {
-          const feed = ltpResponse.data.data;
-          for (const [seg, secObj] of Object.entries(feed)) {
-            if (typeof secObj === 'object' && secObj !== null) {
-              for (const [secId, quote] of Object.entries(secObj as any)) {
-                const liveLtp = (quote as any)?.last_price || (quote as any)?.ltp;
-                if (typeof liveLtp === 'number') {
-                  this.priceCache.set(`${seg}:${secId}`, liveLtp);
-
-                  const matched = monitoredIndices.find(
-                    (i) => String(i.securityId) === String(secId) && i.exchangeSegment === seg,
-                  );
-                  if (matched) {
-                    this.priceCache.set(matched.name.toUpperCase(), liveLtp);
-                    if (matched.symbol) {
-                      this.priceCache.set(matched.symbol.toUpperCase(), liveLtp);
-                    }
-                    if (matched.name === 'BANK NIFTY' || matched.symbol === 'BANK NIFTY') {
-                      this.priceCache.set('NIFTY BANK', liveLtp);
-                    }
-                    if (matched.name === 'MIDCAP NIFTY' || matched.symbol === 'MIDCAP NIFTY') {
-                      this.priceCache.set('MIDCP NIFTY', liveLtp);
-                      this.priceCache.set('MIDCPNIFTY', liveLtp);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      } catch {
-        // Dhan marketfeed error, continue to Yahoo Finance fallback
-      }
-
-      // 2. Fetch live prices from Yahoo Finance for indices & active alerts
+      // Fetch live prices from Yahoo Finance for indices & active alerts
       if (this.yahooService) {
         const symbolsToFetch = new Set<string>();
         for (const idx of monitoredIndices) {
