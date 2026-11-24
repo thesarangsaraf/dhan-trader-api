@@ -551,6 +551,22 @@ export class OrdersService {
    * Consolidates BUY and SELL trade fills of the same instrument into single round-trip trades.
    */
   private pairTradeFills(tradeFills: any[]) {
+    function computeHoldingDuration(t1?: string, t2?: string): string | null {
+      if (!t1 || !t2) return null;
+      const d1 = new Date(t1).getTime();
+      const d2 = new Date(t2).getTime();
+      if (isNaN(d1) || isNaN(d2) || d1 <= 0 || d2 <= 0) return null;
+      const diffSec = Math.max(0, Math.round(Math.abs(d2 - d1) / 1000));
+      const days = Math.floor(diffSec / 86400);
+      const hours = Math.floor((diffSec % 86400) / 3600);
+      const mins = Math.floor((diffSec % 3600) / 60);
+      const secs = diffSec % 60;
+      if (days > 0) return `${days}d ${hours}h`;
+      if (hours > 0) return `${hours}h ${mins}m`;
+      if (mins > 0) return `${mins}m ${secs}s`;
+      return `${secs}s`;
+    }
+
     const grouped = new Map<string, any[]>();
     for (const t of tradeFills) {
       const key = t.securityId || t.symbol;
@@ -590,12 +606,21 @@ export class OrdersService {
               ? Math.round(((sellItem.price - fillPrice) / sellItem.price) * 10000) / 100
               : 0;
 
+            const buyFill = fill;
+            const sellFill = sellItem.fill;
             const buyRatio = fill.tradedQuantity > 0 ? (matchedQty / fill.tradedQuantity) : 1;
             const sellRatio = sellItem.fill.tradedQuantity > 0 ? (matchedQty / sellItem.fill.tradedQuantity) : 1;
             const matchedCharges = Math.round((
               (fill.totalCharges || 0) * buyRatio +
               (sellItem.fill.totalCharges || 0) * sellRatio
             ) * 100) / 100;
+            const matchedBrokerage = Math.round(((buyFill.brokerage || 0) * buyRatio + (sellFill.brokerage || 0) * sellRatio) * 100) / 100;
+            const matchedStt = Math.round(((buyFill.stt || 0) * buyRatio + (sellFill.stt || 0) * sellRatio) * 100) / 100;
+            const matchedGst = Math.round(((buyFill.serviceTax || 0) * buyRatio + (sellFill.serviceTax || 0) * sellRatio) * 100) / 100;
+            const matchedExchange = Math.round(((buyFill.exchangeCharges || 0) * buyRatio + (sellFill.exchangeCharges || 0) * sellRatio) * 100) / 100;
+            const matchedStampDuty = Math.round(((buyFill.stampDuty || 0) * buyRatio + (sellFill.stampDuty || 0) * sellRatio) * 100) / 100;
+            const matchedSebiTax = Math.round(((buyFill.sebiTax || 0) * buyRatio + (sellFill.sebiTax || 0) * sellRatio) * 100) / 100;
+            const tradeTurnover = Math.round(((fillPrice + sellItem.price) * matchedQty) * 100) / 100;
 
             pairedResults.push({
               tradeId: `PAIR-${pairCounter++}`,
@@ -604,11 +629,20 @@ export class OrdersService {
               tradingSymbol: fill.tradingSymbol || fill.symbol,
               securityId: fill.securityId,
               quantity: matchedQty,
+              tradeValue: tradeTurnover,
               buyPrice: fillPrice,
               sellPrice: sellItem.price,
               pnl,
               pnlPercentage,
               totalCharges: matchedCharges,
+              chargesBreakdown: {
+                brokerage: matchedBrokerage,
+                stt: matchedStt,
+                gst: matchedGst,
+                exchangeCharges: matchedExchange,
+                stampDuty: matchedStampDuty,
+                sebiTax: matchedSebiTax,
+              },
               netPnL: Math.round((pnl - matchedCharges) * 100) / 100,
               status: 'CLOSED',
               isProfit: pnl >= 0,
@@ -616,6 +650,7 @@ export class OrdersService {
               executionTime: fillTime,
               buyTime: fillTime,
               sellTime: sellItem.time,
+              holdingDuration: computeHoldingDuration(sellItem.time, fillTime),
             });
 
             remainingQty -= matchedQty;
@@ -645,12 +680,21 @@ export class OrdersService {
               ? Math.round(((fillPrice - buyItem.price) / buyItem.price) * 10000) / 100
               : 0;
 
+            const buyFill = buyItem.fill;
+            const sellFill = fill;
             const buyRatio = buyItem.fill.tradedQuantity > 0 ? (matchedQty / buyItem.fill.tradedQuantity) : 1;
             const sellRatio = fill.tradedQuantity > 0 ? (matchedQty / fill.tradedQuantity) : 1;
             const matchedCharges = Math.round((
               (buyItem.fill.totalCharges || 0) * buyRatio +
               (fill.totalCharges || 0) * sellRatio
             ) * 100) / 100;
+            const matchedBrokerage = Math.round(((buyFill.brokerage || 0) * buyRatio + (sellFill.brokerage || 0) * sellRatio) * 100) / 100;
+            const matchedStt = Math.round(((buyFill.stt || 0) * buyRatio + (sellFill.stt || 0) * sellRatio) * 100) / 100;
+            const matchedGst = Math.round(((buyFill.serviceTax || 0) * buyRatio + (sellFill.serviceTax || 0) * sellRatio) * 100) / 100;
+            const matchedExchange = Math.round(((buyFill.exchangeCharges || 0) * buyRatio + (sellFill.exchangeCharges || 0) * sellRatio) * 100) / 100;
+            const matchedStampDuty = Math.round(((buyFill.stampDuty || 0) * buyRatio + (sellFill.stampDuty || 0) * sellRatio) * 100) / 100;
+            const matchedSebiTax = Math.round(((buyFill.sebiTax || 0) * buyRatio + (sellFill.sebiTax || 0) * sellRatio) * 100) / 100;
+            const tradeTurnover = Math.round(((buyItem.price + fillPrice) * matchedQty) * 100) / 100;
 
             pairedResults.push({
               tradeId: `PAIR-${pairCounter++}`,
@@ -659,11 +703,20 @@ export class OrdersService {
               tradingSymbol: fill.tradingSymbol || fill.symbol,
               securityId: fill.securityId,
               quantity: matchedQty,
+              tradeValue: tradeTurnover,
               buyPrice: buyItem.price,
               sellPrice: fillPrice,
               pnl,
               pnlPercentage,
               totalCharges: matchedCharges,
+              chargesBreakdown: {
+                brokerage: matchedBrokerage,
+                stt: matchedStt,
+                gst: matchedGst,
+                exchangeCharges: matchedExchange,
+                stampDuty: matchedStampDuty,
+                sebiTax: matchedSebiTax,
+              },
               netPnL: Math.round((pnl - matchedCharges) * 100) / 100,
               status: 'CLOSED',
               isProfit: pnl >= 0,
@@ -671,6 +724,7 @@ export class OrdersService {
               executionTime: fillTime,
               buyTime: buyItem.time,
               sellTime: fillTime,
+              holdingDuration: computeHoldingDuration(buyItem.time, fillTime),
             });
 
             remainingQty -= matchedQty;
@@ -701,15 +755,20 @@ export class OrdersService {
           tradingSymbol: buyItem.fill.tradingSymbol || buyItem.fill.symbol,
           securityId: buyItem.fill.securityId,
           quantity: buyItem.qty,
+          tradeValue: Math.round(buyItem.price * buyItem.qty * 100) / 100,
           buyPrice: buyItem.price,
           sellPrice: null,
           pnl: null,
           pnlPercentage: null,
+          totalCharges: buyItem.fill.totalCharges ? Math.round(buyItem.fill.totalCharges * 100) / 100 : null,
+          netPnL: null,
           status: 'OPEN_BUY',
           isProfit: null,
           tradeDate: buyItem.date,
           executionTime: buyItem.time,
           buyTime: buyItem.time,
+          sellTime: null,
+          holdingDuration: null,
         });
       }
 
@@ -722,15 +781,20 @@ export class OrdersService {
           tradingSymbol: sellItem.fill.tradingSymbol || sellItem.fill.symbol,
           securityId: sellItem.fill.securityId,
           quantity: sellItem.qty,
+          tradeValue: Math.round(sellItem.price * sellItem.qty * 100) / 100,
           buyPrice: null,
           sellPrice: sellItem.price,
           pnl: null,
           pnlPercentage: null,
+          totalCharges: sellItem.fill.totalCharges ? Math.round(sellItem.fill.totalCharges * 100) / 100 : null,
+          netPnL: null,
           status: 'OPEN_SELL',
           isProfit: null,
           tradeDate: sellItem.date,
           executionTime: sellItem.time,
+          buyTime: null,
           sellTime: sellItem.time,
+          holdingDuration: null,
         });
       }
     }
