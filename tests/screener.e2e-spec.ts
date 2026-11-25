@@ -230,16 +230,11 @@ test('ScreenerController & Charts E2E (NestJS)', async (t) => {
     assert.ok(res.body.scannedSymbolsCount <= 4, 'Should strictly scan <= 4 traded indices');
   });
 
-  await t.test('GET /api/screener/candles and GET /api/charts/candles return 5m OHLCV data', async () => {
-    const res1 = await makeMockRequest('GET', '/api/screener/candles?symbol=NIFTY%2050&range=60d');
-    assert.strictEqual(res1.status, 200);
-    assert.strictEqual(res1.body.symbol, 'NIFTY 50');
-    assert.strictEqual(res1.body.interval, '5m');
-    assert.ok(res1.body.candles.length > 0);
-
-    const res2 = await makeMockRequest('GET', '/api/charts/candles?symbol=NIFTY%2050&range=60d');
-    assert.strictEqual(res2.status, 200);
-    assert.strictEqual(res2.body.symbol, 'NIFTY 50');
-    assert.ok(res2.body.candles.length > 0);
+  await t.test('GET /api/charts/candles returns 5m OHLCV data', async () => {
+    const res = await makeMockRequest('GET', '/api/charts/candles?symbol=NIFTY%2050&range=60d');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.symbol, 'NIFTY 50');
+    assert.strictEqual(res.body.interval, '5m');
+    assert.ok(res.body.candles.length > 0);
   });
 });

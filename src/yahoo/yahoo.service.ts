@@ -147,25 +147,6 @@ export class YahooFinanceService {
   }
 
   /**
-   * Calculate realistic option LTP from underlying spot and strike when market feed is offline.
-   */
-  calculateOptionLtp(strike: number, type: 'CE' | 'PE', underlyingLtp: number): number {
-    if (!underlyingLtp || underlyingLtp <= 0 || !strike || strike <= 0) {
-      return 0;
-    }
-
-    const intrinsic = type === 'CE'
-      ? Math.max(0, underlyingLtp - strike)
-      : Math.max(0, strike - underlyingLtp);
-
-    const distanceRatio = Math.abs(underlyingLtp - strike) / underlyingLtp;
-    const baseAtmPremium = Math.round(underlyingLtp * 0.0035 * 10) / 10; // ~85 for Nifty, ~200 for BankNifty
-    const timeValue = Math.max(2.0, baseAtmPremium * Math.exp(-distanceRatio * 60));
-
-    return Math.round((intrinsic + timeValue) * 100) / 100;
-  }
-
-  /**
    * Fetch live price for Yahoo ticker symbol using v8 chart API.
    */
   async fetchChartPrice(yahooSymbol: string): Promise<number | null> {

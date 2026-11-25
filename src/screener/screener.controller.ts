@@ -2,7 +2,6 @@ import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ScreenerService } from './screener.service';
 import { ScanRequestDto } from './dto/scan-request.dto';
-import { Public } from '../user-auth/public.decorator';
 
 @ApiTags('Screener')
 @Controller('api/screener')
@@ -34,25 +33,6 @@ export class ScreenerController {
   @ApiResponse({ status: 200, description: 'Screener scan results with detected signals and backtest summary' })
   async runScan(@Body() dto: ScanRequestDto) {
     return this.screenerService.runScan(dto);
-  }
-
-  @Get('candles')
-  @ApiOperation({
-    summary: 'Fetch 5m candlesticks for a symbol from Yahoo Finance for interactive chart viewer',
-  })
-  @ApiQuery({ name: 'symbol', required: true, description: 'Symbol (e.g. NIFTY 50, RELIANCE, TCS)' })
-  @ApiQuery({
-    name: 'range',
-    required: false,
-    description: 'Lookback range (strictly native 5m Yahoo Finance limits: 5d, 15d, 30d, 60d)',
-    enum: ['5d', '15d', '30d', '60d'],
-  })
-  @ApiResponse({ status: 200, description: '5m OHLCV candlesticks' })
-  async getCandles(
-    @Query('symbol') symbol: string,
-    @Query('range') range?: '5d' | '15d' | '30d' | '60d',
-  ) {
-    return this.screenerService.get5mCandles(symbol, range || '60d');
   }
 }
 

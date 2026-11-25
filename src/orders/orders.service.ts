@@ -448,8 +448,6 @@ export class OrdersService {
       ? Math.round((profitableTradesCount / closedTradesCount) * 1000) / 10
       : 0;
 
-    const netRealizedPnL = Math.round((totalRealizedPnL - totalCharges) * 100) / 100;
-
     return {
       financialYear,
       fromDate,
@@ -465,7 +463,6 @@ export class OrdersService {
         winRate,
         totalRealizedPnL: Math.round(totalRealizedPnL * 100) / 100,
         totalCharges: Math.round(totalCharges * 100) / 100,
-        netRealizedPnL,
         totalQuantity,
       },
       trades,
@@ -643,7 +640,6 @@ export class OrdersService {
                 stampDuty: matchedStampDuty,
                 sebiTax: matchedSebiTax,
               },
-              netPnL: Math.round((pnl - matchedCharges) * 100) / 100,
               status: 'CLOSED',
               isProfit: pnl >= 0,
               tradeDate: fillDate || sellItem.date,
@@ -717,7 +713,6 @@ export class OrdersService {
                 stampDuty: matchedStampDuty,
                 sebiTax: matchedSebiTax,
               },
-              netPnL: Math.round((pnl - matchedCharges) * 100) / 100,
               status: 'CLOSED',
               isProfit: pnl >= 0,
               tradeDate: fillDate || buyItem.date,
@@ -761,7 +756,6 @@ export class OrdersService {
           pnl: null,
           pnlPercentage: null,
           totalCharges: buyItem.fill.totalCharges ? Math.round(buyItem.fill.totalCharges * 100) / 100 : null,
-          netPnL: null,
           status: 'OPEN_BUY',
           isProfit: null,
           tradeDate: buyItem.date,
@@ -787,7 +781,6 @@ export class OrdersService {
           pnl: null,
           pnlPercentage: null,
           totalCharges: sellItem.fill.totalCharges ? Math.round(sellItem.fill.totalCharges * 100) / 100 : null,
-          netPnL: null,
           status: 'OPEN_SELL',
           isProfit: null,
           tradeDate: sellItem.date,

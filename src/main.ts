@@ -44,6 +44,7 @@ async function bootstrap() {
     .addTag('Orders', 'Order placement, book inspection, and cancellation')
     .addTag('Trades', 'Historical trade book, financial year reporting, and turnover analytics')
     .addTag('Instruments', 'NSE scrip master search and indices lookup')
+    .addTag('Historical Data', 'NIFTY 50 & BANK NIFTY 5-minute historical OHLCV sync and queries')
     .addTag('Telegram', 'Telegram bot alerts and live connection configuration')
     .addTag('Webhooks', 'Dhan HQ postback webhooks and automated alert order notifications')
     .addTag('Firestore', 'Google Cloud Firestore database connection and operations')
