@@ -2,7 +2,9 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { TelegramService } from '../telegram/telegram.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { InstrumentsService } from '../instruments/instruments.service';
+import { DhanService } from '../dhan/dhan.service';
 import { DhanWebhookDto } from './dto/dhan-webhook.dto';
+import { parseWebhookStringBody } from './webhook-body-parser.middleware';
 
 function escapeHtml(text: any): string {
   if (text === null || text === undefined) return '';
@@ -17,6 +19,32 @@ function formatInr(val: number): string {
   return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function pickFirstDefined<T = any>(...values: T[]): T | undefined {
+  for (const v of values) {
+    if (v !== undefined && v !== null && v !== '') {
+      return v;
+    }
+  }
+  return undefined;
+}
+
+function pickFirstPositiveNumber(...values: any[]): number | undefined {
+  for (const v of values) {
+    const num = Number(v);
+    if (!isNaN(num) && num > 0) {
+      return num;
+    }
+  }
+  return undefined;
+}
+
+function cleanAlertNote(note?: string): string {
+  if (!note) return '';
+  return String(note)
+    .replace(/\s*\[Webhook:\s*[^\]]+\]/gi, '')
+    .trim();
+}
+
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
@@ -25,14 +53,19 @@ export class WebhooksService {
     private readonly telegramService: TelegramService,
     @Optional() private readonly alertsService?: AlertsService,
     @Optional() private readonly instrumentsService?: InstrumentsService,
+    @Optional() private readonly dhanService?: DhanService,
   ) {}
 
   /**
    * Process Dhan Postback / Webhook POST payload.
-   * Matches alert and attached order details, updates alert state,
-   * formats a comprehensive message, and dispatches it immediately to Telegram.
+   * Normalizes raw/wrapped/snake_case payloads, ensures cold-start alert sync,
+   * enriches missing execution details from Dhan's order book when needed,
+   * updates alert state, formats a comprehensive message, and dispatches it to Telegram.
    */
-  async handleDhanWebhook(dto: DhanWebhookDto): Promise<{
+  async handleDhanWebhook(
+    rawPayload: DhanWebhookDto | Record<string, any> | string,
+    meta?: { contentType?: string },
+  ): Promise<{
     success: boolean;
     message: string;
     matchedAlertId?: string;
@@ -49,26 +82,49 @@ export class WebhooksService {
       quantity?: number;
     };
   }> {
+    const unwrapped = this.unwrapRawPayload(rawPayload);
+    const dto = this.normalizePayload(unwrapped);
+
     this.logger.log(
-      `📥 Received Dhan Webhook: orderId=${dto.orderId || 'N/A'}, status=${dto.orderStatus || 'N/A'}, symbol=${dto.tradingSymbol || 'N/A'}`,
+      `📥 Received Dhan Webhook: orderId=${dto.orderId || 'N/A'}, status=${dto.orderStatus || 'N/A'}, symbol=${dto.tradingSymbol || 'N/A'}, securityId=${dto.securityId || 'N/A'}`,
     );
 
-    const orderStatus = (dto.orderStatus || 'UNKNOWN').toUpperCase();
-    const action = (dto.transactionType || 'BUY').toUpperCase();
+    if (!dto.orderId || !dto.orderStatus) {
+      const topKeys = unwrapped && typeof unwrapped === 'object' ? Object.keys(unwrapped) : [];
+      this.logger.warn(
+        `⚠️ Incomplete Dhan Webhook payload (content-type=${meta?.contentType || 'none'}, keys=[${topKeys.join(', ')}])`,
+      );
+    }
 
-    // 1. Locate matching alert in AlertsService if available
-    const matchedAlert = this.findMatchingAlert(dto);
+    // 1. Enrich missing execution fields (average price, filled qty, symbol, status, securityId) from live Dhan order book
+    await this.enrichFromDhanOrderBook(dto);
+
+    // 2. Ensure cold-start alert sync has completed before matching
+    if (this.alertsService && typeof (this.alertsService as any).ensureSynced === 'function') {
+      await (this.alertsService as any).ensureSynced().catch(() => {});
+    }
+
+    // 3. Locate matching alert in AlertsService; if unmatched, refresh once from Dhan
+    let matchedAlert = this.findMatchingAlert(dto);
+    if (!matchedAlert && this.alertsService && typeof (this.alertsService as any).syncWithDhan === 'function') {
+      await (this.alertsService as any).syncWithDhan().catch(() => {});
+      matchedAlert = this.findMatchingAlert(dto);
+    }
+
+    const orderStatus = (dto.orderStatus || 'UNKNOWN').toUpperCase();
+    const action = (dto.transactionType || matchedAlert?.attachedOrder?.transactionType || 'BUY').toUpperCase();
+
     if (matchedAlert) {
       this.updateAlertFromWebhook(matchedAlert, dto);
     }
 
-    // 2. Resolve trigger instrument name and target price level
+    // 4. Resolve trigger instrument name and target price level
     const { instrumentName, targetPrice, operator, remarks } = this.resolveTriggerInfo(dto, matchedAlert);
 
-    // 3. Resolve attached order instrument and contract details
+    // 5. Resolve attached order instrument and contract details
     const orderDetails = this.resolveOrderDetails(dto, matchedAlert, instrumentName);
 
-    // 4. Construct high-visibility Telegram message
+    // 6. Construct high-visibility Telegram message
     const messageHtml = this.formatTelegramMessage({
       orderStatus,
       action,
@@ -84,7 +140,7 @@ export class WebhooksService {
       omsErrorDescription: dto.omsErrorDescription || null,
     });
 
-    // 5. Send message immediately to Telegram
+    // 7. Send message immediately to Telegram
     let teleRes: any = { success: false, reason: 'TelegramService not available' };
     if (this.telegramService && typeof this.telegramService.sendMessage === 'function') {
       teleRes = await this.telegramService.sendMessage(messageHtml, { parseMode: 'HTML' });
@@ -115,7 +171,210 @@ export class WebhooksService {
   }
 
   /**
-   * Search memory alerts for the corresponding alert rule
+   * Unwrap string bodies or nested Data/data/payload envelopes if present.
+   */
+  private unwrapRawPayload(raw: any): Record<string, any> {
+    let obj: any = raw;
+    if (typeof obj === 'string') {
+      obj = parseWebhookStringBody(obj);
+    }
+    if (!obj || typeof obj !== 'object') {
+      return {};
+    }
+
+    const hasRootOrderFields = Boolean(
+      obj.orderId || obj.order_id || obj.orderStatus || obj.order_status || obj.alertId || obj.condition,
+    );
+    if (!hasRootOrderFields) {
+      const inner = obj.Data || obj.data || obj.payload;
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+        return inner;
+      }
+    }
+    return obj;
+  }
+
+  /**
+   * Normalize Dhan postbacks (camelCase, snake_case, REST aliases, or conditional trigger structures)
+   * into a consistent DhanWebhookDto shape.
+   */
+  private normalizePayload(p: Record<string, any>): DhanWebhookDto {
+    const firstOrder = Array.isArray(p.orders) && p.orders.length > 0 ? p.orders[0] : undefined;
+    const cond = p.condition && typeof p.condition === 'object' ? p.condition : undefined;
+
+    const orderId = pickFirstDefined(p.orderId, p.order_id, p.dhanOrderId, firstOrder?.orderId, firstOrder?.order_id);
+    const securityId = pickFirstDefined(p.securityId, p.security_id, firstOrder?.securityId, firstOrder?.security_id);
+
+    let alertInstrument = pickFirstDefined(p.alertInstrument, p.alert_instrument);
+    if (!alertInstrument && cond?.securityId && this.instrumentsService) {
+      const condMeta = this.instrumentsService.findBySecurityId(String(cond.securityId));
+      if (condMeta?.name) alertInstrument = condMeta.name;
+    }
+
+    const normalized: DhanWebhookDto = {
+      ...p,
+      dhanClientId: pickFirstDefined(p.dhanClientId, p.dhan_client_id, p.clientId),
+      orderId: orderId !== undefined ? String(orderId) : undefined,
+      correlationId: pickFirstDefined(
+        p.correlationId,
+        p.correlation_id,
+        firstOrder?.correlationId,
+        p.alertId !== undefined ? String(p.alertId) : undefined,
+        p.alert_id !== undefined ? String(p.alert_id) : undefined,
+      ),
+      orderStatus: pickFirstDefined(
+        p.orderStatus,
+        p.order_status,
+        firstOrder?.orderStatus,
+        firstOrder?.status,
+        p.status,
+        p.alertStatus,
+      ),
+      transactionType: pickFirstDefined(
+        p.transactionType,
+        p.transaction_type,
+        p.action,
+        p.side,
+        firstOrder?.transactionType,
+        firstOrder?.action,
+      ),
+      exchangeSegment: pickFirstDefined(
+        p.exchangeSegment,
+        p.exchange_segment,
+        firstOrder?.exchangeSegment,
+        cond?.exchangeSegment,
+      ),
+      productType: pickFirstDefined(p.productType, p.product_type, firstOrder?.productType),
+      orderType: pickFirstDefined(p.orderType, p.order_type, firstOrder?.orderType),
+      validity: pickFirstDefined(p.validity, firstOrder?.validity),
+      tradingSymbol: pickFirstDefined(
+        p.tradingSymbol,
+        p.trading_symbol,
+        p.customSymbol,
+        p.symbol,
+        firstOrder?.tradingSymbol,
+        firstOrder?.customSymbol,
+        firstOrder?.symbol,
+      ),
+      securityId: securityId !== undefined ? String(securityId) : undefined,
+      quantity: pickFirstPositiveNumber(p.quantity, p.orderQty, p.order_qty, firstOrder?.quantity) ?? p.quantity,
+      filled_qty:
+        pickFirstPositiveNumber(p.filled_qty, p.filledQty, p.tradedQuantity, p.traded_qty, firstOrder?.filled_qty) ??
+        p.filled_qty,
+      tradedQuantity:
+        pickFirstPositiveNumber(p.tradedQuantity, p.traded_qty, p.filledQty, p.filled_qty) ?? p.tradedQuantity,
+      price: pickFirstPositiveNumber(p.price, firstOrder?.price) ?? p.price,
+      averagePrice:
+        pickFirstPositiveNumber(
+          p.averagePrice,
+          p.average_price,
+          p.averageTradedPrice,
+          p.tradedPrice,
+          p.traded_price,
+        ) ?? p.averagePrice,
+      triggerPrice:
+        pickFirstPositiveNumber(p.triggerPrice, p.trigger_price, cond?.comparingValue) ?? p.triggerPrice,
+      drvExpiryDate: pickFirstDefined(p.drvExpiryDate, p.drv_expiry_date, p.expiryDate, firstOrder?.expiryDate),
+      drvOptionType: pickFirstDefined(p.drvOptionType, p.drv_option_type, p.optionType, firstOrder?.optionType),
+      drvStrikePrice: pickFirstPositiveNumber(p.drvStrikePrice, p.drv_strike_price, p.strikePrice) ?? p.drvStrikePrice,
+      omsErrorCode: pickFirstDefined(p.omsErrorCode, p.oms_error_code),
+      omsErrorDescription: pickFirstDefined(p.omsErrorDescription, p.oms_error_description),
+      alertInstrument,
+      alertTargetPrice: pickFirstPositiveNumber(p.alertTargetPrice, p.alert_target_price, cond?.comparingValue),
+      alertRemarks: pickFirstDefined(p.alertRemarks, p.alert_remarks, cond?.userNote),
+    };
+
+    return normalized;
+  }
+
+  /**
+   * When Dhan sends an orderId but leaves price, quantity, symbol, or status incomplete
+   * (common on MARKET order postbacks), enrich missing fields from Dhan's live order book.
+   */
+  private async enrichFromDhanOrderBook(dto: DhanWebhookDto): Promise<void> {
+    if (!dto.orderId || !this.dhanService || typeof this.dhanService.getOrders !== 'function') {
+      return;
+    }
+
+    const statusUpper = (dto.orderStatus || '').toUpperCase();
+    const needsPrice =
+      !['REJECTED', 'CANCELLED', 'EXPIRED', 'PENDING', 'TRANSIT'].includes(statusUpper) &&
+      !(Number(dto.averagePrice) > 0 || Number(dto.price) > 0);
+    const needsQty = !(Number(dto.filled_qty) > 0 || Number(dto.tradedQuantity) > 0 || Number(dto.quantity) > 0);
+    const needsStatus = !dto.orderStatus || statusUpper === 'UNKNOWN';
+    const needsSymbol = !dto.tradingSymbol && !dto.securityId;
+
+    if (!needsPrice && !needsQty && !needsStatus && !needsSymbol) {
+      return;
+    }
+
+    try {
+      const ordersRes = await this.dhanService.getOrders();
+      if (!ordersRes?.ok || !Array.isArray(ordersRes.data)) return;
+
+      const targetOrderId = String(dto.orderId).trim();
+      const matchedOrder = ordersRes.data.find(
+        (ord: any) => String(ord.orderId || ord.order_id || ord.dhanOrderId || '').trim() === targetOrderId,
+      );
+      if (!matchedOrder) return;
+
+      if (needsStatus) {
+        dto.orderStatus = pickFirstDefined(matchedOrder.orderStatus, matchedOrder.status, dto.orderStatus);
+      }
+      if (!dto.transactionType) {
+        dto.transactionType = matchedOrder.transactionType;
+      }
+      if (!dto.exchangeSegment) {
+        dto.exchangeSegment = matchedOrder.exchangeSegment;
+      }
+      if (!dto.productType) {
+        dto.productType = matchedOrder.productType;
+      }
+      if (!dto.orderType) {
+        dto.orderType = matchedOrder.orderType;
+      }
+      if (!dto.securityId && matchedOrder.securityId) {
+        dto.securityId = String(matchedOrder.securityId);
+      }
+      if (!dto.tradingSymbol) {
+        dto.tradingSymbol = pickFirstDefined(matchedOrder.tradingSymbol, matchedOrder.customSymbol, matchedOrder.symbol);
+      }
+      if (!dto.correlationId && matchedOrder.correlationId) {
+        dto.correlationId = String(matchedOrder.correlationId);
+      }
+      if (needsQty) {
+        const filled = pickFirstPositiveNumber(
+          matchedOrder.filledQty,
+          matchedOrder.filled_qty,
+          matchedOrder.tradedQuantity,
+        );
+        const total = pickFirstPositiveNumber(matchedOrder.quantity, matchedOrder.orderQty);
+        if (filled) dto.filled_qty = filled;
+        if (total) dto.quantity = total;
+      }
+      if (needsPrice) {
+        const avg = pickFirstPositiveNumber(
+          matchedOrder.averageTradedPrice,
+          matchedOrder.averagePrice,
+          matchedOrder.tradedPrice,
+          matchedOrder.price,
+        );
+        if (avg) dto.averagePrice = avg;
+      }
+      if (!dto.drvExpiryDate && matchedOrder.drvExpiryDate) dto.drvExpiryDate = matchedOrder.drvExpiryDate;
+      if (!dto.drvOptionType && matchedOrder.drvOptionType) dto.drvOptionType = matchedOrder.drvOptionType;
+      if (!dto.drvStrikePrice && matchedOrder.drvStrikePrice) dto.drvStrikePrice = Number(matchedOrder.drvStrikePrice);
+      if (!dto.omsErrorCode && matchedOrder.omsErrorCode) dto.omsErrorCode = matchedOrder.omsErrorCode;
+      if (!dto.omsErrorDescription && matchedOrder.omsErrorDescription) {
+        dto.omsErrorDescription = matchedOrder.omsErrorDescription;
+      }
+    } catch {
+      // Non-fatal: continue formatting with whatever payload fields are available
+    }
+  }
+
+  /**
+   * Search memory alerts for the corresponding alert rule.
    */
   private findMatchingAlert(dto: DhanWebhookDto): any {
     if (!this.alertsService) return null;
@@ -123,12 +382,16 @@ export class WebhooksService {
 
     // Strategy A: Match by correlationId
     if (dto.correlationId) {
+      const corr = String(dto.correlationId);
       const match = allAlerts.find(
         (a) =>
-          a.id === dto.correlationId ||
-          a.dhanAlertId === dto.correlationId ||
-          `DHAN-${a.dhanAlertId}` === dto.correlationId ||
-          (a.remarks && a.remarks.includes(dto.correlationId)),
+          a.id === corr ||
+          a.dhanAlertId === corr ||
+          `DHAN-${a.dhanAlertId}` === corr ||
+          a.correlationId === corr ||
+          (a.remarks && a.remarks.includes(corr)) ||
+          (Array.isArray(a.conditionalOrders) && a.conditionalOrders.some((o: any) => o.correlationId === corr)) ||
+          (Array.isArray(a.orders) && a.orders.some((o: any) => o.correlationId === corr)),
       );
       if (match) return match;
     }
@@ -144,18 +407,31 @@ export class WebhooksService {
       if (match) return match;
     }
 
-    // Strategy C: Match by securityId on attached contract
+    // Strategy C: Match by securityId on attached contract (prefer ACTIVE, then TRIGGERED)
     if (dto.securityId) {
-      const match = allAlerts.find(
-        (a) =>
-          a.status === 'ACTIVE' &&
-          (a.attachedOrder?.securityId === String(dto.securityId) ||
-            (Array.isArray(a.conditionalOrders) && a.conditionalOrders.some((o: any) => String(o.securityId) === String(dto.securityId)))),
-      );
-      if (match) return match;
+      const secId = String(dto.securityId);
+      const side = (dto.transactionType || '').toUpperCase();
+      const matchesSecurity = (a: any) =>
+        a.attachedOrder?.securityId === secId ||
+        (Array.isArray(a.conditionalOrders) && a.conditionalOrders.some((o: any) => String(o.securityId) === secId)) ||
+        (Array.isArray(a.orders) && a.orders.some((o: any) => String(o.securityId) === secId));
+      const matchesSide = (a: any) => {
+        if (!side) return true;
+        const ordSide = (a.attachedOrder?.transactionType || a.conditionalOrders?.[0]?.transactionType || '').toUpperCase();
+        return !ordSide || ordSide === side;
+      };
+
+      const activeExact = allAlerts.find((a) => a.status === 'ACTIVE' && matchesSecurity(a) && matchesSide(a));
+      if (activeExact) return activeExact;
+
+      const activeSec = allAlerts.find((a) => a.status === 'ACTIVE' && matchesSecurity(a));
+      if (activeSec) return activeSec;
+
+      const triggeredMatch = allAlerts.find((a) => a.status === 'TRIGGERED' && matchesSecurity(a) && matchesSide(a));
+      if (triggeredMatch) return triggeredMatch;
     }
 
-    // Strategy D: Match active alert by triggerPrice or instrument
+    // Strategy D: Match active alert by triggerPrice
     if (dto.triggerPrice && dto.triggerPrice > 0) {
       const match = allAlerts.find(
         (a) => a.status === 'ACTIVE' && Math.abs(a.targetPrice - (dto.triggerPrice || 0)) <= a.targetPrice * 0.005,
@@ -167,21 +443,22 @@ export class WebhooksService {
   }
 
   /**
-   * Update the internal alert state to reflect the webhook event
+   * Update the internal alert state to reflect the webhook event.
    */
   private updateAlertFromWebhook(alert: any, dto: DhanWebhookDto): void {
     const status = (dto.orderStatus || 'TRADED').toUpperCase();
+    const execPrice = pickFirstPositiveNumber(dto.averagePrice, dto.price);
 
     if (status === 'TRADED' || status === 'FILLED' || status === 'EXECUTED') {
       alert.status = 'TRIGGERED';
       alert.triggeredAt = new Date().toISOString();
-      if (dto.price) alert.triggeredPrice = dto.price;
+      if (execPrice) alert.triggeredPrice = execPrice;
     }
 
     if (alert.attachedOrder) {
       alert.attachedOrder.status = status;
       if (dto.orderId) alert.attachedOrder.orderId = dto.orderId;
-      if (dto.price) alert.attachedOrder.price = dto.price;
+      if (execPrice) alert.attachedOrder.price = execPrice;
       alert.attachedOrder.executedAt = new Date().toISOString();
     }
 
@@ -190,7 +467,7 @@ export class WebhooksService {
         if (!dto.securityId || String(ord.securityId) === String(dto.securityId) || ord.orderId === dto.orderId) {
           ord.status = status;
           if (dto.orderId) ord.orderId = dto.orderId;
-          if (dto.price) ord.price = dto.price;
+          if (execPrice) ord.price = execPrice;
           ord.executedAt = new Date().toISOString();
         }
       }
@@ -198,7 +475,7 @@ export class WebhooksService {
   }
 
   /**
-   * Resolve the primary trigger instrument and trigger price
+   * Resolve the primary trigger instrument and trigger price.
    */
   private resolveTriggerInfo(
     dto: DhanWebhookDto,
@@ -209,27 +486,24 @@ export class WebhooksService {
     operator: string;
     remarks: string;
   } {
-    // 1. Explicit in DTO enrichment
     if (dto.alertInstrument) {
       return {
         instrumentName: dto.alertInstrument,
         targetPrice: dto.alertTargetPrice || dto.triggerPrice || dto.price || 0,
         operator: 'GREATER_THAN_EQUAL',
-        remarks: dto.alertRemarks || 'Price Alert Trigger',
+        remarks: cleanAlertNote(dto.alertRemarks) || 'Price Alert Trigger',
       };
     }
 
-    // 2. From matched alert in database/memory
     if (matchedAlert) {
       return {
         instrumentName: matchedAlert.instrument || 'NIFTY 50',
         targetPrice: matchedAlert.targetPrice || dto.triggerPrice || 0,
         operator: matchedAlert.operator || 'GREATER_THAN_EQUAL',
-        remarks: matchedAlert.remarks || '',
+        remarks: cleanAlertNote(matchedAlert.remarks) || '',
       };
     }
 
-    // 3. Fallback: deduce underlying index from tradingSymbol or securityId
     let inferred = 'NIFTY 50';
     const sym = (dto.tradingSymbol || '').toUpperCase();
     if (sym.includes('BANKNIFTY') || sym.includes('BANK NIFTY')) {
@@ -242,7 +516,14 @@ export class WebhooksService {
       inferred = 'NIFTY 50';
     } else if (dto.securityId && this.instrumentsService) {
       const meta = this.instrumentsService.findBySecurityId(dto.securityId);
-      if (meta?.name) inferred = meta.name;
+      if (meta?.name) {
+        const metaUpper = meta.name.toUpperCase();
+        if (metaUpper.includes('BANKNIFTY') || metaUpper.includes('BANK NIFTY')) inferred = 'BANK NIFTY';
+        else if (metaUpper.includes('MIDCP') || metaUpper.includes('MIDCAP')) inferred = 'MIDCAP NIFTY';
+        else if (metaUpper.includes('SENSEX')) inferred = 'SENSEX';
+        else if (metaUpper.includes('NIFTY')) inferred = 'NIFTY 50';
+        else inferred = meta.name;
+      }
     }
 
     return {
@@ -254,7 +535,7 @@ export class WebhooksService {
   }
 
   /**
-   * Resolve attached order details (symbol, strike, option type, lots, price, value)
+   * Resolve attached order details (symbol, strike, option type, lots, price, value).
    */
   private resolveOrderDetails(
     dto: DhanWebhookDto,
@@ -275,42 +556,56 @@ export class WebhooksService {
   } {
     let attachedSymbol =
       dto.tradingSymbol ||
+      matchedAlert?.attachedOrder?.customSymbol ||
       matchedAlert?.attachedOrder?.symbol ||
       matchedAlert?.attachedOrder?.tradingSymbol ||
-      matchedAlert?.attachedOrder?.customSymbol ||
       '';
 
     let secMeta: any;
-    if (dto.securityId && this.instrumentsService) {
-      secMeta = this.instrumentsService.findBySecurityId(dto.securityId);
-      if (secMeta && !attachedSymbol) {
+    const effectiveSecId = dto.securityId || matchedAlert?.attachedOrder?.securityId;
+    if (effectiveSecId && this.instrumentsService) {
+      secMeta = this.instrumentsService.findBySecurityId(String(effectiveSecId));
+      if (secMeta && (!attachedSymbol || attachedSymbol.startsWith('SEC-'))) {
         attachedSymbol = secMeta.customSymbol || secMeta.symbol || secMeta.tradingSymbol || '';
       }
     }
 
     if (!attachedSymbol) {
-      attachedSymbol = dto.securityId ? `Security #${dto.securityId}` : triggerInstrument;
+      attachedSymbol = effectiveSecId ? `Security #${effectiveSecId}` : triggerInstrument;
     }
 
-    const qty = parseInt(String(dto.filled_qty || dto.tradedQuantity || dto.quantity || matchedAlert?.attachedOrder?.quantity || 0), 10);
-    const execPrice = parseFloat(String(dto.averagePrice || dto.price || matchedAlert?.attachedOrder?.price || 0));
+    const qty = parseInt(
+      String(dto.filled_qty || dto.tradedQuantity || dto.quantity || matchedAlert?.attachedOrder?.quantity || 0),
+      10,
+    );
+    const execPrice = parseFloat(
+      String(dto.averagePrice || dto.price || matchedAlert?.attachedOrder?.price || 0),
+    );
 
-    // Resolve lot size and computed lots
+    // Resolve lot size and computed lots (do not fabricate 1 lot when quantity is 0)
     let lotSize = 1;
     if (secMeta?.lotSize) {
       lotSize = secMeta.lotSize;
+    } else if (matchedAlert?.attachedOrder?.lotSize) {
+      lotSize = matchedAlert.attachedOrder.lotSize;
     } else if (this.instrumentsService) {
       lotSize = this.instrumentsService.getLotSizeForInstrument(attachedSymbol || triggerInstrument) || 1;
     }
-    const computedLots = lotSize > 1 && qty > 0 ? Math.round((qty / lotSize) * 100) / 100 : 1;
+    const computedLots =
+      qty > 0
+        ? lotSize > 1
+          ? Math.round((qty / lotSize) * 100) / 100
+          : matchedAlert?.attachedOrder?.lots || 1
+        : 0;
 
-    let orderType = (dto.orderType || matchedAlert?.attachedOrder?.orderType || 'MARKET').toUpperCase();
+    const orderType = (dto.orderType || matchedAlert?.attachedOrder?.orderType || 'MARKET').toUpperCase();
     let productType = (dto.productType || matchedAlert?.attachedOrder?.productType || 'INTRADAY').toUpperCase();
     if (productType === 'INTRADAY') productType = 'INTRADAY (MIS)';
     else if (productType === 'CNC') productType = 'CNC (Delivery)';
     else if (productType === 'MARGIN') productType = 'MARGIN (NRML)';
 
-    const exchangeSegment = dto.exchangeSegment || matchedAlert?.attachedOrder?.exchangeSegment || secMeta?.exchangeSegment || 'NSE_FNO';
+    const exchangeSegment =
+      dto.exchangeSegment || matchedAlert?.attachedOrder?.exchangeSegment || secMeta?.exchangeSegment || 'NSE_FNO';
     const strikePrice = dto.drvStrikePrice || secMeta?.strikePrice || matchedAlert?.attachedOrder?.strikePrice;
     const optionType = (dto.drvOptionType || secMeta?.optionType || matchedAlert?.attachedOrder?.optionType || '').toUpperCase();
     const expiryDate = dto.drvExpiryDate || secMeta?.expiryDate || matchedAlert?.attachedOrder?.expiryDate;
@@ -333,7 +628,7 @@ export class WebhooksService {
   }
 
   /**
-   * Format message in Telegram HTML parse mode
+   * Format message in Telegram HTML parse mode.
    */
   formatTelegramMessage(params: {
     orderStatus: string;
@@ -384,14 +679,17 @@ export class WebhooksService {
 
     const sideIcon = action === 'BUY' ? '🟢 BUY' : '🔴 SELL';
 
-    // Header banner based on execution status
     let headerBanner = `⚡ <b>DHAN ALERT TRIGGERED &amp; ORDER EXECUTED</b> ✅`;
     if (orderStatus === 'REJECTED') {
       headerBanner = `⚠️ <b>DHAN ALERT TRIGGERED — ORDER REJECTED</b> ❌`;
     } else if (orderStatus === 'PENDING' || orderStatus === 'TRANSIT') {
       headerBanner = `⚡ <b>DHAN ALERT TRIGGERED — ORDER PLACED (PENDING)</b> ⏳`;
-    } else if (orderStatus === 'CANCELLED') {
-      headerBanner = `🚫 <b>DHAN ALERT TRIGGERED — ORDER CANCELLED</b>`;
+    } else if (orderStatus === 'PART_TRADED') {
+      headerBanner = `⚡ <b>DHAN ALERT TRIGGERED — PARTIALLY EXECUTED</b> ⏳`;
+    } else if (orderStatus === 'CANCELLED' || orderStatus === 'EXPIRED') {
+      headerBanner = `🚫 <b>DHAN ALERT TRIGGERED — ORDER ${escapeHtml(orderStatus)}</b>`;
+    } else if (orderStatus === 'UNKNOWN') {
+      headerBanner = `⚠️ <b>DHAN WEBHOOK RECEIVED — STATUS UNKNOWN</b>`;
     }
 
     const timeStr = new Date().toLocaleTimeString('en-IN', {
@@ -433,12 +731,11 @@ export class WebhooksService {
         lines.push(`• <b>Traded Value:</b> ₹${formatInr(totalValue)}`);
       }
     } else {
-      lines.push(`• <b>Price:</b> MARKET`);
+      lines.push(`• <b>Price:</b> ${orderType === 'MARKET' ? 'MARKET' : 'N/A'}`);
     }
 
     lines.push(`• <b>Type &amp; Product:</b> ${escapeHtml(orderType)} | ${escapeHtml(productType)}`);
 
-    // Option / Derivative Contract Details if applicable
     if (strikePrice || optionType || expiryDate) {
       lines.push('');
       lines.push(`📋 <b>Option Contract Details:</b>`);
@@ -447,7 +744,6 @@ export class WebhooksService {
       if (expiryDate) lines.push(`• <b>Expiry Date:</b> ${escapeHtml(expiryDate)}`);
     }
 
-    // OMS Rejection Details if failed
     if (orderStatus === 'REJECTED' && (omsErrorDescription || omsErrorCode)) {
       lines.push('');
       lines.push(`⚠️ <b>Rejection Details:</b>`);

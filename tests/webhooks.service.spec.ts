@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import { PassThrough } from 'node:stream';
 import { WebhooksService } from '../src/webhooks/webhooks.service';
 import { DhanWebhookDto } from '../src/webhooks/dto/dhan-webhook.dto';
+import { WebhookBodyParserMiddleware } from '../src/webhooks/webhook-body-parser.middleware';
 
 describe('WebhooksService (NestJS)', () => {
   const sentMessages: string[] = [];
@@ -185,5 +187,172 @@ describe('WebhooksService (NestJS)', () => {
     const msg = sentMessages[0];
     assert.ok(msg.includes('BANK NIFTY'), 'Inferred instrument missing');
     assert.ok(msg.includes('52,000.00'), 'Trigger price missing');
+  });
+
+  it('parses text/plain raw JSON string, awaits cold-start sync, and enriches price/symbol from Dhan order book', async () => {
+    sentMessages.length = 0;
+
+    let synced = false;
+    const coldAlertsService: any = {
+      alerts: [],
+      ensureSynced: async () => {
+        if (!synced) {
+          synced = true;
+          coldAlertsService.alerts = [
+            {
+              id: '88001',
+              dhanAlertId: '88001',
+              instrument: 'NIFTY 50',
+              targetPrice: 25800,
+              operator: 'GREATER_THAN',
+              status: 'TRIGGERED',
+              remarks: 'Nifty 25800 call entry [Webhook: https://example.com/api/webhooks/dhan]',
+              attachedOrder: {
+                securityId: '51001',
+                transactionType: 'BUY',
+                quantity: 65,
+                lotSize: 65,
+                lots: 1,
+                orderType: 'MARKET',
+                productType: 'INTRADAY',
+                status: 'PENDING',
+              },
+            },
+          ];
+        }
+      },
+    };
+
+    const coldInstrumentsService: any = {
+      findBySecurityId: (secId: string) => {
+        if (secId === '51001') {
+          return {
+            symbol: 'NIFTY 1 DEC 25800 CALL',
+            customSymbol: 'NIFTY 1 DEC 25800 CALL',
+            name: 'NIFTY 50',
+            strikePrice: 25800,
+            optionType: 'CE',
+            expiryDate: '2026-12-01',
+            lotSize: 65,
+            exchangeSegment: 'NSE_FNO',
+          };
+        }
+        return undefined;
+      },
+      getLotSizeForInstrument: () => 65,
+    };
+
+    const mockDhanService: any = {
+      getOrders: async () => ({
+        ok: true,
+        data: [
+          {
+            orderId: '9911223344',
+            orderStatus: 'TRADED',
+            transactionType: 'BUY',
+            exchangeSegment: 'NSE_FNO',
+            productType: 'INTRADAY',
+            orderType: 'MARKET',
+            securityId: '51001',
+            tradingSymbol: '',
+            quantity: 65,
+            filledQty: 65,
+            averageTradedPrice: 184.75,
+          },
+        ],
+      }),
+    };
+
+    const enrichedService = new WebhooksService(
+      mockTelegramService,
+      coldAlertsService,
+      coldInstrumentsService,
+      mockDhanService,
+    );
+
+    // Simulate Go-http-client sending raw JSON string with price: 0 and empty tradingSymbol
+    const rawJsonPayload = JSON.stringify({
+      dhanClientId: '1106885516',
+      orderId: '9911223344',
+      orderStatus: 'TRADED',
+      transactionType: 'BUY',
+      exchangeSegment: 'NSE_FNO',
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
+      tradingSymbol: '',
+      securityId: '51001',
+      quantity: 65,
+      price: 0,
+      triggerPrice: 0,
+    });
+
+    const res = await enrichedService.handleDhanWebhook(rawJsonPayload, { contentType: 'text/plain' });
+
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.matchedAlertId, '88001');
+    assert.strictEqual(res.data.orderId, '9911223344');
+    assert.strictEqual(res.data.orderStatus, 'TRADED');
+    assert.strictEqual(res.data.targetPrice, 25800);
+    assert.strictEqual(res.data.attachedSymbol, 'NIFTY 1 DEC 25800 CALL');
+    assert.strictEqual(res.data.price, 184.75);
+    assert.strictEqual(res.data.quantity, 65);
+
+    const msg = sentMessages[0];
+    assert.ok(msg.includes('25,800.00'), 'Trigger price from synced alert missing');
+    assert.ok(msg.includes('NIFTY 1 DEC 25800 CALL'), 'Contract symbol missing');
+    assert.ok(msg.includes('184.75'), 'Enriched execution price missing');
+    assert.ok(msg.includes('9911223344'), 'Order ID missing');
+    assert.ok(!msg.includes('[Webhook:'), 'Internal webhook URL tag should be stripped from note');
+  });
+
+  it('normalizes Data-wrapped snake_case payloads and avoids fabricating 1 lot for 0 quantity or EXECUTED for UNKNOWN', async () => {
+    sentMessages.length = 0;
+
+    const wrappedPayload: any = {
+      Data: {
+        order_id: '778899',
+        order_status: 'TRADED',
+        transaction_type: 'SELL',
+        exchange_segment: 'NSE_FNO',
+        trading_symbol: 'NIFTY 1 DEC 25800 CALL',
+        security_id: '43210',
+        filled_qty: 50,
+        traded_price: 210.5,
+        trigger_price: 25750,
+      },
+    };
+
+    const res1 = await service.handleDhanWebhook(wrappedPayload);
+    assert.strictEqual(res1.data.orderId, '778899');
+    assert.strictEqual(res1.data.orderStatus, 'TRADED');
+    assert.strictEqual(res1.data.action, 'SELL');
+    assert.strictEqual(res1.data.price, 210.5);
+    assert.strictEqual(res1.data.quantity, 50);
+
+    sentMessages.length = 0;
+    const emptyRes = await service.handleDhanWebhook({});
+    assert.strictEqual(emptyRes.data.orderStatus, 'UNKNOWN');
+    assert.strictEqual(emptyRes.data.quantity, 0);
+    const unknownMsg = sentMessages[0];
+    assert.ok(unknownMsg.includes('STATUS UNKNOWN'), 'Should show STATUS UNKNOWN banner');
+    assert.ok(!unknownMsg.includes('(1 lot)'), 'Should not show 1 lot when quantity is 0');
+  });
+
+  it('WebhookBodyParserMiddleware parses raw JSON streams sent without application/json Content-Type', async () => {
+    const middleware = new WebhookBodyParserMiddleware();
+
+    for (const headers of [{}, { 'content-type': 'text/plain; charset=utf-8' }]) {
+      const stream: any = new PassThrough();
+      stream.headers = headers;
+
+      await new Promise<void>((resolve) => {
+        middleware.use(stream, {} as any, () => resolve());
+        stream.end(JSON.stringify({ orderId: 'ORD-STREAM-1', orderStatus: 'TRADED', quantity: 65 }));
+      });
+
+      assert.strictEqual(stream.body?.orderId, 'ORD-STREAM-1');
+      assert.strictEqual(stream.body?.orderStatus, 'TRADED');
+      assert.strictEqual(stream.body?.quantity, 65);
+    }
   });
 });

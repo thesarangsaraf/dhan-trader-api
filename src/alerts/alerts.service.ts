@@ -18,6 +18,8 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   private monitorTimer: NodeJS.Timeout | null = null;
   private isFetchingPrices = false;
+  private initialSyncPromise: Promise<void> | null = null;
+  private syncInFlightPromise: Promise<void> | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -30,7 +32,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     this.startMonitor();
-    this.syncWithDhan().catch(() => {});
+    this.initialSyncPromise = this.syncWithDhan().catch(() => {});
   }
 
   onModuleDestroy() {
@@ -41,9 +43,32 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Ensures cold-start alert sync has completed (and triggers a sync if local alerts are empty).
+   */
+  async ensureSynced(): Promise<void> {
+    if (this.initialSyncPromise) {
+      await this.initialSyncPromise;
+      this.initialSyncPromise = null;
+    }
+    if (this.alerts.length === 0) {
+      await this.syncWithDhan();
+    }
+  }
+
+  /**
    * Sync active conditional triggers from Dhan HQ API v2 and refresh live LTP.
    */
   async syncWithDhan() {
+    if (this.syncInFlightPromise) {
+      return this.syncInFlightPromise;
+    }
+    this.syncInFlightPromise = this.performSyncWithDhan().finally(() => {
+      this.syncInFlightPromise = null;
+    });
+    return this.syncInFlightPromise;
+  }
+
+  private async performSyncWithDhan() {
     try {
       const dhanRes = await this.dhanService.getAlerts();
       if (dhanRes.ok && Array.isArray(dhanRes.data)) {
@@ -895,6 +920,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
         price: parseFloat(String(ord.price || 0)) || 0,
         triggerPrice: parseFloat(String(ord.triggerPrice || 0)) || 0,
         validity: (ord.validity || 'DAY').toUpperCase(),
+        correlationId: (ord as any).correlationId || `COND-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         status: 'PENDING',
         orderId: null as string | null,
         executedAt: null as string | null,
@@ -1038,6 +1064,7 @@ export class AlertsService implements OnModuleInit, OnModuleDestroy {
           quantity: Number(o.quantity),
           price: o.price ? String(o.price) : '0',
           validity: o.validity || 'DAY',
+          correlationId: o.correlationId,
           webhookUrl: webhookCallbackUrl,
           postbackUrl: webhookCallbackUrl,
           ...(o.triggerPrice ? { triggerPrice: String(o.triggerPrice) } : {}),

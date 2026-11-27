@@ -1379,6 +1379,34 @@ test('AppController & Routers E2E (NestJS)', async (t) => {
     assert.strictEqual(rejectedRes.status, 200);
     assert.strictEqual(rejectedRes.body.success, true);
     assert.strictEqual(rejectedRes.body.data.orderStatus, 'REJECTED');
+
+    // 3. POST /api/webhooks/dhan with text/plain raw JSON string (Go-http-client style)
+    const rawTextRes = await makeMockRequest(
+      'POST',
+      '/api/webhooks/dhan',
+      JSON.stringify({
+        dhanClientId: '1106885516',
+        orderId: '1124112098767',
+        orderStatus: 'TRADED',
+        transactionType: 'BUY',
+        exchangeSegment: 'NSE_FNO',
+        productType: 'INTRADAY',
+        orderType: 'MARKET',
+        tradingSymbol: 'NIFTY 28 NOV 24500 CALL',
+        securityId: '43210',
+        quantity: 50,
+        filled_qty: 50,
+        price: 155.25,
+        triggerPrice: 24500.0,
+      }),
+      { 'content-type': 'text/plain; charset=utf-8' },
+    );
+    assert.strictEqual(rawTextRes.status, 200);
+    assert.strictEqual(rawTextRes.body.success, true);
+    assert.strictEqual(rawTextRes.body.data.orderId, '1124112098767');
+    assert.strictEqual(rawTextRes.body.data.orderStatus, 'TRADED');
+    assert.strictEqual(rawTextRes.body.data.price, 155.25);
+    assert.strictEqual(rawTextRes.body.data.quantity, 50);
   });
 
   await app.close();

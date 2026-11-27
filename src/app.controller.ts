@@ -43,9 +43,6 @@ export class AppController {
         telegramStatus: 'GET /api/telegram/status',
         telegramTest: 'POST /api/telegram/test',
         telegramUpdate: 'POST /api/telegram/update',
-        screenerInstruments: 'GET /api/screener/instruments',
-        screenerScan: 'POST /api/screener/scan',
-        chartCandles: 'GET /api/charts/candles?symbol=<symbol>&range=<range>',
       },
     };
   }
